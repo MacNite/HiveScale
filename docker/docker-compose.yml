@@ -1,0 +1,35 @@
+services:
+  hivescale-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hivescale
+      POSTGRES_USER: hivescale
+      POSTGRES_PASSWORD: CHANGE_THIS_LONG_DB_PASSWORD
+      TZ: Europe/Berlin
+    volumes:
+      - /mnt/lpath-to-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hivescale -d hivescale"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  hivescale-api:
+    image: python:3.12-slim
+    restart: unless-stopped
+    depends_on:
+      hivescale-db:
+        condition: service_healthy
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir fastapi==0.115.6 uvicorn[standard]==0.34.0 psycopg[binary]==3.2.3 pydantic==2.10.4
+      && uvicorn main:app --host 0.0.0.0 --port 8000"
+    environment:
+      DATABASE_URL: postgresql://hivescale:CHANGE_THIS_LONG_DB_PASSWORD@hivescale-db:5432/hivescale
+      API_KEY: CHANGE_THIS_LONG_RANDOM_API_KEY
+      TZ: Europe/Berlin
+    ports:
+      - "31115:8000"
+    volumes:
+      - /mnt/lothlorien/Apps/HivePal/HiveScale/app:/app
