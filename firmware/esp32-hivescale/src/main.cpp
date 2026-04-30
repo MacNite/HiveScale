@@ -16,7 +16,7 @@
 const char* WIFI_SSID = "YOUR_WIFI";
 const char* WIFI_PASS = "YOUR_PASSWORD";
 
-const char* API_URL = "https://your-domain.example.com/api/hive-scale";
+const char* API_URL = "https://your-domain.example.com/api/v1/measurements";
 const char* API_KEY = "CHANGE_ME_SECRET";
 
 const char* DEVICE_ID = "hive_scale_dual_01";
