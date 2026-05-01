@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: CHANGE_THIS_LONG_DB_PASSWORD
       TZ: Europe/Berlin
     volumes:
-      - /mnt/lpath-to-db-data:/var/lib/postgresql/data
+      - /mnt/path-to-db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hivescale -d hivescale"]
       interval: 30s
@@ -32,4 +32,4 @@ services:
     ports:
       - "31115:8000"
     volumes:
-      - /mnt/lothlorien/Apps/HivePal/HiveScale/app:/app
+      - /mnt/path-to-app:/app
