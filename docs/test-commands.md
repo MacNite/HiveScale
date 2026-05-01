@@ -1,7 +1,7 @@
 Get Status of API:
 
 ```js
-curl http://1HOST-IP-OR-URL:31115/health
+curl http://HOST-IP-OR-URL:31115/health
 ```
 
 
