@@ -16,6 +16,7 @@ venv/
 # Env/secrets
 .env
 *.env
+*/secrets.h
 
 # OS/editor
 .DS_Store
