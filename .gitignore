@@ -20,3 +20,4 @@ venv/
 
 # OS/editor
 .DS_Store
+secrets.h
