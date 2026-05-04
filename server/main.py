@@ -467,3 +467,12 @@ def command_result(device_id: str, command_id: int, payload: DeviceCommandResult
             )
             conn.commit()
     return {"status": "ok"}
+
+@app.get("/api/v1/time", dependencies=[Depends(require_api_key)])
+def get_server_time():
+    now = datetime.now(timezone.utc)
+    return {
+        "timestamp": now.isoformat(),
+        "unix": int(now.timestamp()),
+        "timezone": "UTC",
+    }

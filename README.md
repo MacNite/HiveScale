@@ -222,6 +222,28 @@ The device will detect the newer version on its next cycle, download the binary,
 
 ---
 
+## Calibration
+
+Tare scale 1:
+
+```bash
+curl -X POST https://your-domain.example.com/api/v1/devices/hive_scale_dual_01/commands \
+  -H "X-API-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"command_type":"tare_scale_1","payload":{}}'
+```
+
+Calibrate scale 1 with 20 kg:
+
+```bash
+curl -X POST https://your-domain.example.com/api/v1/devices/hive_scale_dual_01/commands \
+  -H "X-API-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+```
+
+Same pattern for tare_scale_2 and calibrate_scale_2.
+---
+
 ## Quick Test Commands
 
 Check the API is running:
