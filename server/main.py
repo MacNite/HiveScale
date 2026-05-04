@@ -16,7 +16,7 @@ FIRMWARE_DIR = Path(os.environ.get("FIRMWARE_DIR", "/app/firmware"))
 app = FastAPI(
     title="HiveScale API",
     description="HTTP endpoint for ESP32-based dual hive scales.",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 
@@ -32,6 +32,12 @@ class MeasurementIn(BaseModel):
     battery_voltage: Optional[float] = None
     rssi_dbm: Optional[int] = None
     firmware_version: Optional[str] = None
+    config_version: Optional[int] = None
+    sd_ok: Optional[bool] = None
+    rtc_ok: Optional[bool] = None
+    sht_ok: Optional[bool] = None
+    scale_1_raw: Optional[int] = None
+    scale_2_raw: Optional[int] = None
 
 
 class DeviceConfig(BaseModel):
@@ -103,10 +109,22 @@ def init_db():
                     battery_voltage DOUBLE PRECISION,
                     rssi_dbm INTEGER,
                     firmware_version TEXT,
+                    config_version INTEGER,
+                    sd_ok BOOLEAN,
+                    rtc_ok BOOLEAN,
+                    sht_ok BOOLEAN,
+                    scale_1_raw BIGINT,
+                    scale_2_raw BIGINT,
                     raw_json JSONB NOT NULL
                 );
 
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS firmware_version TEXT;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS config_version INTEGER;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS sd_ok BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS rtc_ok BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS sht_ok BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS scale_1_raw BIGINT;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS scale_2_raw BIGINT;
 
                 CREATE INDEX IF NOT EXISTS idx_measurements_device_time
                     ON measurements (device_id, measured_at DESC);
@@ -197,14 +215,16 @@ def create_measurement(payload: MeasurementIn):
                     device_id, measured_at, scale_1_weight_kg, scale_2_weight_kg,
                     hive_1_temp_c, hive_2_temp_c, ambient_temp_c,
                     ambient_humidity_percent, battery_voltage, rssi_dbm,
-                    firmware_version, raw_json
+                    firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
+                    scale_1_raw, scale_2_raw, raw_json
                 )
                 VALUES (
                     %(device_id)s, %(measured_at)s, %(scale_1_weight_kg)s,
                     %(scale_2_weight_kg)s, %(hive_1_temp_c)s, %(hive_2_temp_c)s,
                     %(ambient_temp_c)s, %(ambient_humidity_percent)s,
                     %(battery_voltage)s, %(rssi_dbm)s, %(firmware_version)s,
-                    %(raw_json)s
+                    %(config_version)s, %(sd_ok)s, %(rtc_ok)s, %(sht_ok)s,
+                    %(scale_1_raw)s, %(scale_2_raw)s, %(raw_json)s
                 )
                 RETURNING id;
                 """,
@@ -220,6 +240,12 @@ def create_measurement(payload: MeasurementIn):
                     "battery_voltage": payload.battery_voltage,
                     "rssi_dbm": payload.rssi_dbm,
                     "firmware_version": payload.firmware_version,
+                    "config_version": payload.config_version,
+                    "sd_ok": payload.sd_ok,
+                    "rtc_ok": payload.rtc_ok,
+                    "sht_ok": payload.sht_ok,
+                    "scale_1_raw": payload.scale_1_raw,
+                    "scale_2_raw": payload.scale_2_raw,
                     "raw_json": payload.model_dump_json(),
                 },
             )
@@ -238,7 +264,8 @@ def latest_measurements(limit: int = 50):
                 SELECT id, device_id, measured_at, received_at, scale_1_weight_kg,
                        scale_2_weight_kg, hive_1_temp_c, hive_2_temp_c,
                        ambient_temp_c, ambient_humidity_percent, battery_voltage,
-                       rssi_dbm, firmware_version
+                       rssi_dbm, firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
+                       scale_1_raw, scale_2_raw
                 FROM measurements
                 ORDER BY measured_at DESC
                 LIMIT %s;
@@ -253,6 +280,8 @@ def latest_measurements(limit: int = 50):
             "hive_1_temp_c": r[6], "hive_2_temp_c": r[7],
             "ambient_temp_c": r[8], "ambient_humidity_percent": r[9],
             "battery_voltage": r[10], "rssi_dbm": r[11], "firmware_version": r[12],
+            "config_version": r[13], "sd_ok": r[14], "rtc_ok": r[15], "sht_ok": r[16],
+            "scale_1_raw": r[17], "scale_2_raw": r[18],
         }
         for r in rows
     ]
@@ -394,6 +423,29 @@ def get_next_command(device_id: str):
             )
             conn.commit()
     return {"command": True, "id": r[0], "command_type": r[1], "payload": r[2]}
+
+
+def apply_command_result_to_config(device_id: str, result: dict[str, Any]):
+    allowed = {
+        "scale1_offset",
+        "scale1_factor",
+        "scale2_offset",
+        "scale2_factor",
+    }
+    fields = {k: v for k, v in result.items() if k in allowed and v is not None}
+    if not fields:
+        return
+    assignments = [f"{k} = %({k})s" for k in fields]
+    assignments.append("config_version = config_version + 1")
+    assignments.append("updated_at = now()")
+    fields["device_id"] = device_id
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE device_configs SET {', '.join(assignments)} WHERE device_id = %(device_id)s;",
+                fields,
+            )
+            conn.commit()
 
 
 @app.post("/api/v1/devices/{device_id}/commands/{command_id}/result", dependencies=[Depends(require_api_key)])

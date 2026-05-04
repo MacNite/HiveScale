@@ -15,8 +15,10 @@
 
 #include "secrets.h"
 
-static const char* FIRMWARE_VERSION = "0.2.0";
+// Increase this for every released firmware .bin you publish on the backend.
+static const char* FIRMWARE_VERSION = "0.3.0";
 
+// ---------------- PIN CONFIG ----------------
 #define HX1_DOUT 16
 #define HX1_SCK  17
 #define HX2_DOUT 32
@@ -29,9 +31,11 @@ static const char* FIRMWARE_VERSION = "0.2.0";
 #define SD_MISO 19
 #define SD_MOSI 23
 
+// ---------------- FILES ----------------
 static const char* CACHE_FILE = "/cache.ndjson";
-static const char* TEMP_FILE = "/cache.tmp";
+static const char* TEMP_FILE  = "/cache.tmp";
 
+// ---------------- OBJECTS ----------------
 HX711 scale1;
 HX711 scale2;
 OneWire oneWire(ONE_WIRE_PIN);
@@ -40,6 +44,7 @@ Adafruit_SHT4x sht4;
 RTC_DS3231 rtc;
 Preferences prefs;
 
+// ---------------- STATE ----------------
 bool sdOk = false;
 bool shtOk = false;
 bool rtcOk = false;
@@ -50,6 +55,7 @@ long scale1Offset = 0;
 long scale2Offset = 0;
 float scale1Factor = -7050.0f;
 float scale2Factor = -7050.0f;
+int configVersion = 0;
 
 String apiUrl(const String& path) {
   String base = API_BASE_URL;
@@ -64,16 +70,18 @@ void loadConfigFromPrefs() {
   scale2Offset = prefs.getLong("s2_offset", 0);
   scale1Factor = prefs.getFloat("s1_factor", -7050.0f);
   scale2Factor = prefs.getFloat("s2_factor", -7050.0f);
+  configVersion = prefs.getInt("cfg_ver", 0);
   prefs.end();
 }
 
-void saveScaleConfig() {
+void saveConfigToPrefs() {
   prefs.begin("hivescale", false);
   prefs.putUInt("interval", sendIntervalMs / 1000UL);
   prefs.putLong("s1_offset", scale1Offset);
   prefs.putLong("s2_offset", scale2Offset);
   prefs.putFloat("s1_factor", scale1Factor);
   prefs.putFloat("s2_factor", scale2Factor);
+  prefs.putInt("cfg_ver", configVersion);
   prefs.end();
 }
 
@@ -88,27 +96,34 @@ String timestampNow() {
 
 bool connectWifi(unsigned long timeoutMs = 20000) {
   if (WiFi.status() == WL_CONNECTED) return true;
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
+
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
     delay(250);
   }
+
   return WiFi.status() == WL_CONNECTED;
 }
 
 bool httpGetJson(const String& url, JsonDocument& doc) {
   if (!connectWifi()) return false;
+
   WiFiClientSecure client;
-  client.setInsecure(); // Replace with a CA certificate for production.
+  client.setInsecure(); // For production, replace with client.setCACert(ROOT_CA).
+
   HTTPClient http;
   if (!http.begin(client, url)) return false;
   http.addHeader("X-API-Key", API_KEY);
+
   int code = http.GET();
   if (code < 200 || code >= 300) {
     http.end();
     return false;
   }
+
   DeserializationError err = deserializeJson(doc, http.getStream());
   http.end();
   return !err;
@@ -116,22 +131,28 @@ bool httpGetJson(const String& url, JsonDocument& doc) {
 
 bool httpPostJson(const String& url, const String& json, String* response = nullptr) {
   if (!connectWifi()) return false;
+
   WiFiClientSecure client;
-  client.setInsecure(); // Replace with a CA certificate for production.
+  client.setInsecure(); // For production, replace with client.setCACert(ROOT_CA).
+
   HTTPClient http;
   if (!http.begin(client, url)) return false;
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-API-Key", API_KEY);
+
   int code = http.POST(json);
   if (response) *response = http.getString();
   http.end();
+
   return code >= 200 && code < 300;
 }
 
 bool appendCacheLine(const String& line) {
   if (!sdOk) return false;
+
   File file = SD.open(CACHE_FILE, FILE_APPEND);
   if (!file) return false;
+
   file.println(line);
   file.close();
   return true;
@@ -154,6 +175,7 @@ String createMeasurementJson() {
 
   float ambientTemp = NAN;
   float ambientHumidity = NAN;
+
   if (shtOk) {
     sensors_event_t humidity, temp;
     if (sht4.getEvent(&humidity, &temp)) {
@@ -178,6 +200,10 @@ String createMeasurementJson() {
   doc["ambient_humidity_percent"] = ambientHumidity;
   doc["rssi_dbm"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
   doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["config_version"] = configVersion;
+  doc["sd_ok"] = sdOk;
+  doc["rtc_ok"] = rtcOk;
+  doc["sht_ok"] = shtOk;
   doc["scale_1_raw"] = raw1;
   doc["scale_2_raw"] = raw2;
 
@@ -192,8 +218,10 @@ bool uploadLine(const String& line) {
 
 bool uploadCachedLines() {
   if (!sdOk || !SD.exists(CACHE_FILE)) return true;
+
   File in = SD.open(CACHE_FILE, FILE_READ);
   if (!in) return false;
+
   SD.remove(TEMP_FILE);
   File out = SD.open(TEMP_FILE, FILE_WRITE);
   if (!out) {
@@ -202,10 +230,12 @@ bool uploadCachedLines() {
   }
 
   bool allOk = true;
+
   while (in.available()) {
     String line = in.readStringUntil('\n');
     line.trim();
     if (line.length() == 0) continue;
+
     if (allOk && uploadLine(line)) {
       delay(100);
     } else {
@@ -213,26 +243,32 @@ bool uploadCachedLines() {
       out.println(line);
     }
   }
+
   in.close();
   out.close();
+
   SD.remove(CACHE_FILE);
   if (allOk) {
     SD.remove(TEMP_FILE);
   } else {
     SD.rename(TEMP_FILE, CACHE_FILE);
   }
+
   return allOk;
 }
 
 void fetchRemoteConfig() {
   JsonDocument doc;
   if (!httpGetJson(apiUrl(String("/api/v1/devices/") + DEVICE_ID + "/config"), doc)) return;
+
   sendIntervalMs = (unsigned long)(doc["send_interval_seconds"] | 600) * 1000UL;
   scale1Offset = doc["scale1_offset"] | scale1Offset;
   scale1Factor = doc["scale1_factor"] | scale1Factor;
   scale2Offset = doc["scale2_offset"] | scale2Offset;
   scale2Factor = doc["scale2_factor"] | scale2Factor;
-  saveScaleConfig();
+  configVersion = doc["config_version"] | configVersion;
+
+  saveConfigToPrefs();
 }
 
 void reportCommandResult(long id, bool success, const String& message, JsonDocument* resultDoc = nullptr) {
@@ -240,13 +276,16 @@ void reportCommandResult(long id, bool success, const String& message, JsonDocum
   doc["success"] = success;
   doc["message"] = message;
   if (resultDoc) doc["result"] = (*resultDoc).as<JsonVariant>();
+
   String body;
   serializeJson(doc, body);
+
   httpPostJson(apiUrl(String("/api/v1/devices/") + DEVICE_ID + "/commands/" + String(id) + "/result"), body);
 }
 
 void executeCommand(JsonDocument& cmd) {
   if (!(cmd["command"] | false)) return;
+
   long id = cmd["id"] | 0;
   String type = cmd["command_type"] | "";
   JsonObject payload = cmd["payload"].as<JsonObject>();
@@ -254,31 +293,49 @@ void executeCommand(JsonDocument& cmd) {
 
   if (type == "tare_scale_1") {
     scale1Offset = readAverageRaw(scale1, 25);
-    saveScaleConfig();
+    configVersion += 1;
+    saveConfigToPrefs();
     result["scale1_offset"] = scale1Offset;
+    result["config_version"] = configVersion;
     reportCommandResult(id, true, "scale 1 tared", &result);
   } else if (type == "tare_scale_2") {
     scale2Offset = readAverageRaw(scale2, 25);
-    saveScaleConfig();
+    configVersion += 1;
+    saveConfigToPrefs();
     result["scale2_offset"] = scale2Offset;
+    result["config_version"] = configVersion;
     reportCommandResult(id, true, "scale 2 tared", &result);
   } else if (type == "calibrate_scale_1") {
     float known = payload["known_weight_kg"] | 0.0f;
-    if (known <= 0) { reportCommandResult(id, false, "known_weight_kg missing or invalid"); return; }
+    if (known <= 0) {
+      reportCommandResult(id, false, "known_weight_kg missing or invalid");
+      return;
+    }
     long raw = readAverageRaw(scale1, 25);
     scale1Factor = ((float)(raw - scale1Offset)) / known;
-    saveScaleConfig();
+    configVersion += 1;
+    saveConfigToPrefs();
     result["scale1_factor"] = scale1Factor;
+    result["scale1_offset"] = scale1Offset;
     result["raw"] = raw;
+    result["known_weight_kg"] = known;
+    result["config_version"] = configVersion;
     reportCommandResult(id, true, "scale 1 calibrated", &result);
   } else if (type == "calibrate_scale_2") {
     float known = payload["known_weight_kg"] | 0.0f;
-    if (known <= 0) { reportCommandResult(id, false, "known_weight_kg missing or invalid"); return; }
+    if (known <= 0) {
+      reportCommandResult(id, false, "known_weight_kg missing or invalid");
+      return;
+    }
     long raw = readAverageRaw(scale2, 25);
     scale2Factor = ((float)(raw - scale2Offset)) / known;
-    saveScaleConfig();
+    configVersion += 1;
+    saveConfigToPrefs();
     result["scale2_factor"] = scale2Factor;
+    result["scale2_offset"] = scale2Offset;
     result["raw"] = raw;
+    result["known_weight_kg"] = known;
+    result["config_version"] = configVersion;
     reportCommandResult(id, true, "scale 2 calibrated", &result);
   } else if (type == "reboot") {
     reportCommandResult(id, true, "rebooting");
@@ -300,11 +357,13 @@ void checkFirmwareUpdate() {
   String url = apiUrl(String("/api/v1/devices/") + DEVICE_ID + "/firmware?version=" + FIRMWARE_VERSION);
   if (!httpGetJson(url, doc)) return;
   if (!(doc["update"] | false)) return;
+
   String firmwareUrl = doc["url"] | "";
   if (firmwareUrl.length() == 0) return;
 
   WiFiClientSecure client;
-  client.setInsecure(); // Replace with a CA certificate for production.
+  client.setInsecure(); // For production, replace with client.setCACert(ROOT_CA).
+
   t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
   if (ret == HTTP_UPDATE_OK) {
     ESP.restart();
@@ -314,9 +373,11 @@ void checkFirmwareUpdate() {
 void setup() {
   Serial.begin(115200);
   delay(500);
+
   loadConfigFromPrefs();
 
   Wire.begin(I2C_SDA, I2C_SCL);
+
   rtcOk = rtc.begin();
   if (rtcOk && rtc.lostPower()) {
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
@@ -329,14 +390,19 @@ void setup() {
   }
 
   ds18b20.begin();
+
   scale1.begin(HX1_DOUT, HX1_SCK);
   scale2.begin(HX2_DOUT, HX2_SCK);
 
   SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
   sdOk = SD.begin(SD_CS);
 
-  connectWifi(15000);
-  fetchRemoteConfig();
+  if (connectWifi(15000)) {
+    uploadCachedLines();
+    fetchRemoteConfig();
+    pollCommand();
+    checkFirmwareUpdate();
+  }
 }
 
 void loop() {
@@ -353,5 +419,6 @@ void loop() {
       checkFirmwareUpdate();
     }
   }
+
   delay(1000);
 }
