@@ -86,11 +86,18 @@ class DeviceCommandResult(BaseModel):
 class ClaimDeviceIn(BaseModel):
     claim_code: str = Field(..., min_length=4, max_length=128)
     display_name: Optional[str] = None
+    scale_1_display_name: Optional[str] = None
+    scale_2_display_name: Optional[str] = None
 
 
 class ShareDeviceIn(BaseModel):
     user_id: str = Field(..., min_length=1)
-    role: Literal["owner", "admin", "viewer"] = "viewer"
+    role: Literal["admin", "viewer"] = "viewer"
+
+
+class DeviceChannelsUpdateIn(BaseModel):
+    scale_1_display_name: Optional[str] = None
+    scale_2_display_name: Optional[str] = None
 
 
 class AppDeviceConfigUpdate(DeviceConfigUpdate):
@@ -299,6 +306,41 @@ def require_device_role(user_id: str, device_id: str, roles: list[str]):
     if not row or row[0] not in roles:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient device permissions")
     return row[0]
+
+
+def get_device_channels(device_id: str) -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT channel_number, name
+                FROM device_channels
+                WHERE device_id = %s
+                ORDER BY channel_number;
+                """,
+                (device_id,),
+            )
+            rows = cur.fetchall()
+    return [{"channel_number": r[0], "name": r[1]} for r in rows]
+
+
+def upsert_device_channel_names(cur, device_id: str, scale_1_name: Optional[str], scale_2_name: Optional[str]):
+    updates = [(1, scale_1_name), (2, scale_2_name)]
+    for channel_number, name in updates:
+        if name is None:
+            continue
+        clean_name = name.strip()
+        if not clean_name:
+            continue
+        cur.execute(
+            """
+            INSERT INTO device_channels (device_id, channel_number, name)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (device_id, channel_number) DO UPDATE
+            SET name = EXCLUDED.name;
+            """,
+            (device_id, channel_number, clean_name),
+        )
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
@@ -625,8 +667,19 @@ def claim_device(payload: ClaimDeviceIn, user_id: str = Depends(require_user_id)
                 """,
                 (device_id, user_id),
             )
+            upsert_device_channel_names(
+                cur,
+                device_id,
+                payload.scale_1_display_name,
+                payload.scale_2_display_name,
+            )
             conn.commit()
-    return {"status": "claimed", "device_id": device_id, "role": "owner"}
+    return {
+        "status": "claimed",
+        "device_id": device_id,
+        "role": "owner",
+        "channels": get_device_channels(device_id),
+    }
 
 
 @app.get("/api/v1/app/devices")
@@ -645,14 +698,109 @@ def list_user_devices(user_id: str = Depends(require_user_id)):
                 (user_id,),
             )
             rows = cur.fetchall()
+
+            devices = []
+            for r in rows:
+                cur.execute(
+                    """
+                    SELECT channel_number, name
+                    FROM device_channels
+                    WHERE device_id = %s
+                    ORDER BY channel_number;
+                    """,
+                    (r[0],),
+                )
+                channel_rows = cur.fetchall()
+                devices.append(
+                    {
+                        "device_id": r[0],
+                        "display_name": r[1],
+                        "claimed_at": r[2],
+                        "last_seen_at": r[3],
+                        "last_firmware_version": r[4],
+                        "role": r[5],
+                        "channels": [
+                            {"channel_number": c[0], "name": c[1]}
+                            for c in channel_rows
+                        ],
+                    }
+                )
+    return devices
+
+
+@app.delete("/api/v1/app/devices/{device_id}")
+def remove_current_user_device(device_id: str, user_id: str = Depends(require_user_id)):
+    require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM device_members WHERE device_id = %s AND user_id = %s;",
+                (device_id, user_id),
+            )
+            cur.execute(
+                "SELECT COUNT(*) FROM device_members WHERE device_id = %s;",
+                (device_id,),
+            )
+            remaining_members = cur.fetchone()[0]
+            if remaining_members == 0:
+                cur.execute(
+                    "UPDATE devices SET claimed_at = NULL WHERE device_id = %s;",
+                    (device_id,),
+                )
+            conn.commit()
+    return {
+        "status": "removed",
+        "device_id": device_id,
+        "claimable": remaining_members == 0,
+    }
+
+
+@app.get("/api/v1/app/devices/{device_id}/channels")
+def list_device_channels(device_id: str, user_id: str = Depends(require_user_id)):
+    require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
+    return {"device_id": device_id, "channels": get_device_channels(device_id)}
+
+
+@app.patch("/api/v1/app/devices/{device_id}/channels")
+def update_device_channels(
+    device_id: str,
+    payload: DeviceChannelsUpdateIn,
+    user_id: str = Depends(require_user_id),
+):
+    require_device_role(user_id, device_id, ["owner", "admin"])
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            upsert_device_channel_names(
+                cur,
+                device_id,
+                payload.scale_1_display_name,
+                payload.scale_2_display_name,
+            )
+            conn.commit()
+    return {"device_id": device_id, "channels": get_device_channels(device_id)}
+
+
+@app.get("/api/v1/app/devices/{device_id}/members")
+def list_device_members(device_id: str, user_id: str = Depends(require_user_id)):
+    require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT user_id, role, invited_by, created_at
+                FROM device_members
+                WHERE device_id = %s
+                ORDER BY created_at ASC;
+                """,
+                (device_id,),
+            )
+            rows = cur.fetchall()
     return [
         {
-            "device_id": r[0],
-            "display_name": r[1],
-            "claimed_at": r[2],
-            "last_seen_at": r[3],
-            "last_firmware_version": r[4],
-            "role": r[5],
+            "user_id": r[0],
+            "role": r[1],
+            "invited_by": r[2],
+            "created_at": r[3],
         }
         for r in rows
     ]
@@ -661,6 +809,8 @@ def list_user_devices(user_id: str = Depends(require_user_id)):
 @app.post("/api/v1/app/devices/{device_id}/members")
 def share_device(device_id: str, payload: ShareDeviceIn, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner"])
+    if payload.user_id == user_id:
+        raise HTTPException(status_code=400, detail="Use your existing owner access instead of sharing with yourself")
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -674,6 +824,35 @@ def share_device(device_id: str, payload: ShareDeviceIn, user_id: str = Depends(
             )
             conn.commit()
     return {"status": "shared", "device_id": device_id, "user_id": payload.user_id, "role": payload.role}
+
+
+@app.delete("/api/v1/app/devices/{device_id}/members/{member_user_id}")
+def revoke_device_member(device_id: str, member_user_id: str, user_id: str = Depends(require_user_id)):
+    require_device_role(user_id, device_id, ["owner"])
+    if member_user_id == user_id:
+        raise HTTPException(status_code=400, detail="Use remove device to remove your own access")
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT role FROM device_members
+                WHERE device_id = %s AND user_id = %s;
+                """,
+                (device_id, member_user_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Device member not found")
+            if row[0] == "owner":
+                raise HTTPException(status_code=400, detail="Owner access cannot be revoked here")
+
+            cur.execute(
+                "DELETE FROM device_members WHERE device_id = %s AND user_id = %s;",
+                (device_id, member_user_id),
+            )
+            conn.commit()
+    return {"status": "revoked", "device_id": device_id, "user_id": member_user_id}
 
 
 @app.get("/api/v1/app/devices/{device_id}/config")
