@@ -893,7 +893,7 @@ def list_device_measurements(
     user_id: str = Depends(require_user_id),
 ):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
-    limit = min(max(limit, 1), 1000)
+    limit = min(max(limit, 1), 10000)
     where_parts = ["device_id = %s"]
     params: list[Any] = [device_id]
 
