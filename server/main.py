@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 API_KEY = os.environ["API_KEY"]
+HIVEPAL_SERVICE_API_KEY = os.environ.get("HIVEPAL_SERVICE_API_KEY", "")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 FIRMWARE_DIR = Path(os.environ.get("FIRMWARE_DIR", "/app/firmware"))
 
@@ -107,6 +108,13 @@ class AppDeviceConfigUpdate(DeviceConfigUpdate):
 def require_api_key(x_api_key: str = Header(default="")):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+def require_hivepal_service_key(x_hivepal_service_key: str = Header(default="")):
+    if not HIVEPAL_SERVICE_API_KEY:
+        raise HTTPException(status_code=500, detail="HIVEPAL_SERVICE_API_KEY is not configured")
+    if x_hivepal_service_key != HIVEPAL_SERVICE_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid HivePal service key")
 
 
 def require_user_id(x_user_id: str = Header(default="")) -> str:
@@ -632,7 +640,7 @@ def command_result(device_id: str, command_id: int, payload: DeviceCommandResult
     return {"status": "ok"}
 
 
-@app.post("/api/v1/app/devices/claim")
+@app.post("/api/v1/app/devices/claim", dependencies=[Depends(require_hivepal_service_key)])
 def claim_device(payload: ClaimDeviceIn, user_id: str = Depends(require_user_id)):
     claim_hash = hash_claim_code(payload.claim_code)
     with get_conn() as conn:
@@ -682,7 +690,7 @@ def claim_device(payload: ClaimDeviceIn, user_id: str = Depends(require_user_id)
     }
 
 
-@app.get("/api/v1/app/devices")
+@app.get("/api/v1/app/devices", dependencies=[Depends(require_hivepal_service_key)])
 def list_user_devices(user_id: str = Depends(require_user_id)):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -728,7 +736,7 @@ def list_user_devices(user_id: str = Depends(require_user_id)):
     return devices
 
 
-@app.delete("/api/v1/app/devices/{device_id}")
+@app.delete("/api/v1/app/devices/{device_id}", dependencies=[Depends(require_hivepal_service_key)])
 def remove_current_user_device(device_id: str, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
     with get_conn() as conn:
@@ -755,13 +763,13 @@ def remove_current_user_device(device_id: str, user_id: str = Depends(require_us
     }
 
 
-@app.get("/api/v1/app/devices/{device_id}/channels")
+@app.get("/api/v1/app/devices/{device_id}/channels", dependencies=[Depends(require_hivepal_service_key)])
 def list_device_channels(device_id: str, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
     return {"device_id": device_id, "channels": get_device_channels(device_id)}
 
 
-@app.patch("/api/v1/app/devices/{device_id}/channels")
+@app.patch("/api/v1/app/devices/{device_id}/channels", dependencies=[Depends(require_hivepal_service_key)])
 def update_device_channels(
     device_id: str,
     payload: DeviceChannelsUpdateIn,
@@ -780,7 +788,7 @@ def update_device_channels(
     return {"device_id": device_id, "channels": get_device_channels(device_id)}
 
 
-@app.get("/api/v1/app/devices/{device_id}/members")
+@app.get("/api/v1/app/devices/{device_id}/members", dependencies=[Depends(require_hivepal_service_key)])
 def list_device_members(device_id: str, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
     with get_conn() as conn:
@@ -806,7 +814,7 @@ def list_device_members(device_id: str, user_id: str = Depends(require_user_id))
     ]
 
 
-@app.post("/api/v1/app/devices/{device_id}/members")
+@app.post("/api/v1/app/devices/{device_id}/members", dependencies=[Depends(require_hivepal_service_key)])
 def share_device(device_id: str, payload: ShareDeviceIn, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner"])
     if payload.user_id == user_id:
@@ -826,7 +834,7 @@ def share_device(device_id: str, payload: ShareDeviceIn, user_id: str = Depends(
     return {"status": "shared", "device_id": device_id, "user_id": payload.user_id, "role": payload.role}
 
 
-@app.delete("/api/v1/app/devices/{device_id}/members/{member_user_id}")
+@app.delete("/api/v1/app/devices/{device_id}/members/{member_user_id}", dependencies=[Depends(require_hivepal_service_key)])
 def revoke_device_member(device_id: str, member_user_id: str, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner"])
     if member_user_id == user_id:
@@ -855,7 +863,7 @@ def revoke_device_member(device_id: str, member_user_id: str, user_id: str = Dep
     return {"status": "revoked", "device_id": device_id, "user_id": member_user_id}
 
 
-@app.get("/api/v1/app/devices/{device_id}/config")
+@app.get("/api/v1/app/devices/{device_id}/config", dependencies=[Depends(require_hivepal_service_key)])
 def get_device_config_from_app(device_id: str, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
     ensure_device_config(device_id)
@@ -876,7 +884,7 @@ def get_device_config_from_app(device_id: str, user_id: str = Depends(require_us
     )
 
 
-@app.get("/api/v1/app/devices/{device_id}/measurements")
+@app.get("/api/v1/app/devices/{device_id}/measurements", dependencies=[Depends(require_hivepal_service_key)])
 def list_device_measurements(
     device_id: str,
     limit: int = 200,
@@ -931,7 +939,7 @@ def list_device_measurements(
     ]
 
 
-@app.get("/api/v1/app/devices/{device_id}/measurements/latest")
+@app.get("/api/v1/app/devices/{device_id}/measurements/latest", dependencies=[Depends(require_hivepal_service_key)])
 def latest_device_measurements(device_id: str, limit: int = 50, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
     limit = min(max(limit, 1), 500)
@@ -966,7 +974,7 @@ def latest_device_measurements(device_id: str, limit: int = 50, user_id: str = D
     ]
 
 
-@app.patch("/api/v1/app/devices/{device_id}/config")
+@app.patch("/api/v1/app/devices/{device_id}/config", dependencies=[Depends(require_hivepal_service_key)])
 def update_device_config_from_app(device_id: str, patch: AppDeviceConfigUpdate, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin"])
     return update_device_config(device_id, patch)
