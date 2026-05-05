@@ -676,6 +676,82 @@ def share_device(device_id: str, payload: ShareDeviceIn, user_id: str = Depends(
     return {"status": "shared", "device_id": device_id, "user_id": payload.user_id, "role": payload.role}
 
 
+@app.get("/api/v1/app/devices/{device_id}/config")
+def get_device_config_from_app(device_id: str, user_id: str = Depends(require_user_id)):
+    require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
+    ensure_device_config(device_id)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT device_id, send_interval_seconds, scale1_offset, scale1_factor,
+                       scale2_offset, scale2_factor, config_version
+                FROM device_configs WHERE device_id = %s;
+                """,
+                (device_id,),
+            )
+            r = cur.fetchone()
+    return DeviceConfig(
+        device_id=r[0], send_interval_seconds=r[1], scale1_offset=r[2],
+        scale1_factor=r[3], scale2_offset=r[4], scale2_factor=r[5], config_version=r[6]
+    )
+
+
+@app.get("/api/v1/app/devices/{device_id}/measurements")
+def list_device_measurements(
+    device_id: str,
+    limit: int = 200,
+    start_at: Optional[datetime] = None,
+    end_at: Optional[datetime] = None,
+    user_id: str = Depends(require_user_id),
+):
+    require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
+    limit = min(max(limit, 1), 1000)
+    where_parts = ["device_id = %s"]
+    params: list[Any] = [device_id]
+
+    if start_at is not None:
+        where_parts.append("measured_at >= %s")
+        params.append(start_at)
+
+    if end_at is not None:
+        where_parts.append("measured_at <= %s")
+        params.append(end_at)
+
+    params.append(limit)
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT id, device_id, measured_at, received_at, scale_1_weight_kg,
+                       scale_2_weight_kg, hive_1_temp_c, hive_2_temp_c,
+                       ambient_temp_c, ambient_humidity_percent, battery_voltage,
+                       rssi_dbm, firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
+                       scale_1_raw, scale_2_raw
+                FROM measurements
+                WHERE {' AND '.join(where_parts)}
+                ORDER BY measured_at DESC
+                LIMIT %s;
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "id": r[0], "device_id": r[1], "measured_at": r[2], "received_at": r[3],
+            "scale_1_weight_kg": r[4], "scale_2_weight_kg": r[5],
+            "hive_1_temp_c": r[6], "hive_2_temp_c": r[7],
+            "ambient_temp_c": r[8], "ambient_humidity_percent": r[9],
+            "battery_voltage": r[10], "rssi_dbm": r[11], "firmware_version": r[12],
+            "config_version": r[13], "sd_ok": r[14], "rtc_ok": r[15], "sht_ok": r[16],
+            "scale_1_raw": r[17], "scale_2_raw": r[18],
+        }
+        for r in rows
+    ]
+
+
 @app.get("/api/v1/app/devices/{device_id}/measurements/latest")
 def latest_device_measurements(device_id: str, limit: int = 50, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
