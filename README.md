@@ -40,8 +40,11 @@ HiveScale/
 │   ├── docker-compose.yml
 │   └── .env.example
 ├── docs/                   # Additional documentation
-│   ├── api.md
-│   └── test-commands.md
+│   ├── api.md              # Full API reference
+│   ├── test-commands.md    # Quick curl test commands
+│   ├── truenas-install.md  # TrueNAS Scale deployment guide
+│   ├── docker-install.md   # Generic Docker deployment guide
+│   └── wiring.md           # Hardware wiring reference
 └── .github/workflows/      # CI: builds & pushes Docker image to GHCR
 ```
 
@@ -49,22 +52,21 @@ HiveScale/
 
 ## Hardware
 
-| Component | Role | Price |
+| Component | Role | Approx. Price |
 |---|---|---|
-| ESP32 Dev Board | Microcontroller | 8€ |
-| MP1584EN | DC-DC-Converter for Power-Input | 2€ |
-| 2× HX711 + load cells | Weight measurement (scale 1 & 2) | 7-30€ |
-| 2× DS18B20 (2m cable) | Per-hive internal temperature (1-Wire bus) | 4€ |
-| SHT4x with (cable) | Ambient temperature & humidity | 3€ |
-| DS3231 RTC | Hardware real-time clock | 5€ |
-| MicroSD card module + micro sd card | Local measurement cache | 10€ |
-| Momentary pushbutton | Setup/factory-reset button (optional) | 1€ |
-| IP67 electronics box (at least 150x150mm) | enclosure | 15€ |
-| wood for scale-frame | mounting sensors | free-10€ |
-| Hardware, wires,  | enclosure | 10€ |
+| ESP32 Dev Board | Microcontroller | 8 € |
+| MP1584EN | DC-DC converter for power input | 2 € |
+| 2× HX711 + load cells | Weight measurement (scale 1 & 2) | 7–30 € |
+| 2× DS18B20 (2 m cable) | Per-hive internal temperature (1-Wire bus) | 4 € |
+| SHT4x (with cable) | Ambient temperature & humidity | 3 € |
+| DS3231 RTC | Hardware real-time clock | 5 € |
+| MicroSD card module + card | Local measurement cache | 10 € |
+| Momentary pushbutton | Setup / factory-reset button (optional) | 1 € |
+| IP67 electronics box (≥ 150 × 150 mm) | Weatherproof enclosure | 15 € |
+| Wood for scale frame | Mounting sensors under hives | 0–10 € |
+| Hardware, wires, connectors | Cabling and enclosure finishing | 10 € |
 
-Total price: 65€-100€ for 2 scales
-
+**Total: ~65–100 € for 2 complete scales**
 
 ### Pin Mapping
 
@@ -74,14 +76,16 @@ Total price: 65€-100€ for 2 scales
 | HX711 #1 SCK | 17 |
 | HX711 #2 DOUT | 32 |
 | HX711 #2 SCK | 33 |
-| DS18B20 (1-Wire) | 4 |
-| I²C SDA (RTC, SHT4x) | 21 |
+| DS18B20 (1-Wire data) | 4 |
+| I²C SDA (RTC + SHT4x) | 21 |
 | I²C SCL | 22 |
 | SD CS | 5 |
 | SD SCK | 18 |
 | SD MISO | 19 |
 | SD MOSI | 23 |
-| Setup button | 27 (INPUT_PULLUP, connect to GND) |
+| Setup button | 27 (INPUT_PULLUP — connect to GND) |
+
+> See [docs/wiring.md](docs/wiring.md) for a detailed wiring diagram and component-level notes.
 
 ---
 
@@ -103,24 +107,24 @@ Edit `firmware/include/secrets.h`:
 
 ```cpp
 // Device identity
-#define DEVICE_ID        "hive-001"
-#define API_KEY          "your-api-key-here"
+#define DEVICE_ID           "hive-001"
+#define API_KEY             "your-api-key-here"
 
-// Claim code — sent with every measurement until the device is claimed in HivePal
-#define CLAIM_CODE       "ABCD-1234"
+// Claim code — sent with every measurement until the device is claimed
+#define CLAIM_CODE          "ABCD-1234"
 #define CLAIM_CODE_REVISION 1   // increment to push a new claim code via OTA
 
 // Backend
-#define API_BASE_URL     "https://your-backend-domain.com"
+#define API_BASE_URL        "https://your-backend-domain.com"
 
 // Wi-Fi — up to 3 networks, tried in order
-#define WIFI1_SSID       "your-wifi-ssid-1"
-#define WIFI1_PASS       "your-wifi-password-1"
-#define WIFI2_SSID       "your-wifi-ssid-2"
-#define WIFI2_PASS       "your-wifi-password-2"
+#define WIFI1_SSID          "your-wifi-ssid-1"
+#define WIFI1_PASS          "your-wifi-password-1"
+#define WIFI2_SSID          "your-wifi-ssid-2"
+#define WIFI2_PASS          "your-wifi-password-2"
 ```
 
-> **Note:** `secrets.h` values are only used on first boot to seed the device's persistent storage (`Preferences`). Subsequent configuration is managed remotely or via the provisioning portal. Set `FORCE_RESEED true` if you need to overwrite stored values.
+> **Note:** Values in `secrets.h` are only used on first boot to seed the device's persistent storage (`Preferences`). Subsequent configuration is managed remotely or via the provisioning portal. Set `FORCE_RESEED true` if you need to overwrite stored values.
 
 ### Flash
 
@@ -132,7 +136,7 @@ pio device monitor   # 115200 baud
 
 ### PlatformIO Dependencies
 
-The following libraries are installed automatically:
+The following libraries are installed automatically via `platformio.ini`:
 
 - `bogde/HX711` ^0.7.5
 - `paulstoffregen/OneWire` ^2.3.8
@@ -149,9 +153,9 @@ If you need to change Wi-Fi credentials or backend settings without re-flashing,
 
 **Short press** the setup button (GPIO 27): the device starts a Wi-Fi access point named `HiveScale-Setup-XXXX`. Connect to it and open `http://192.168.4.1` to update Wi-Fi networks, device ID, claim code, and API settings. Saving reboots the device automatically.
 
-**Long press (5 s)**: factory-resets all stored Preferences and reboots.
+**Long press (5 s):** factory-resets all stored Preferences and reboots.
 
-The provisioning portal automatically closes after 10 minutes.
+The provisioning portal closes automatically after 10 minutes.
 
 ---
 
@@ -161,7 +165,7 @@ The provisioning portal automatically closes after 10 minutes.
 
 ```bash
 cd docker
-cp .env.example .env          # edit API_KEY, HIVEPAL_SERVICE_API_KEY, passwords, volume path
+cp .env.example .env   # edit API_KEY, HIVEPAL_SERVICE_API_KEY, passwords, volume path
 docker compose up -d
 ```
 
@@ -178,7 +182,11 @@ The API will be available on port `31115` by default.
 
 > **Important:** Change `API_KEY`, `HIVEPAL_SERVICE_API_KEY`, and the PostgreSQL password before exposing the service to a network.
 
-The database schema (tables and indexes) is created automatically on first startup — no migrations to run.
+The database schema is created automatically on first startup — no migrations to run.
+
+For platform-specific deployment guides see:
+- [docs/docker-install.md](docs/docker-install.md) — generic Linux / VPS setup
+- [docs/truenas-install.md](docs/truenas-install.md) — TrueNAS Scale (Custom App)
 
 ### Manual / Local
 
@@ -198,8 +206,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 |---|---|---|
 | `DATABASE_URL` | ✅ | PostgreSQL connection string |
 | `API_KEY` | ✅ | Key used by ESP32 firmware (`X-API-Key` header) |
-| `HIVEPAL_SERVICE_API_KEY` | ✅ (for HivePal integration) | Key used by HivePal backend (`X-HivePal-Service-Key` header) |
-| `PUBLIC_BASE_URL` | Recommended | Base URL used for OTA firmware download links |
+| `HIVEPAL_SERVICE_API_KEY` | ✅ (for HivePal) | Key used by HivePal backend (`X-HivePal-Service-Key` header) |
+| `PUBLIC_BASE_URL` | Recommended | Base URL used to build OTA firmware download links |
 | `FIRMWARE_DIR` | Optional | Path to firmware binaries (default: `/app/firmware`) |
 | `TZ` | Optional | Server timezone (e.g. `Europe/Berlin`) |
 
@@ -207,30 +215,31 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ## API Overview
 
-Interactive docs are available at `http://<host>:31115/docs`.
+Interactive docs (Swagger UI) are available at `http://<host>:31115/docs`.
+See [docs/api.md](docs/api.md) for the full reference including request/response schemas.
 
 ### Device-facing endpoints
 
-All require the `X-API-Key` header (set to `API_KEY`).
+All require the `X-API-Key` header.
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/health` | Health check |
 | `GET` | `/api/v1/time` | Current UTC server time |
 | `POST` | `/api/v1/measurements` | Submit a measurement |
-| `GET` | `/api/v1/measurements/latest` | Retrieve recent measurements (no auth required) |
+| `GET` | `/api/v1/measurements/latest` | Recent measurements (no auth) |
 | `GET` | `/api/v1/devices/{id}/config` | Get device configuration |
 | `PATCH` | `/api/v1/devices/{id}/config` | Update device configuration |
 | `GET` | `/api/v1/devices/{id}/firmware` | Check for a firmware update |
 | `POST` | `/api/v1/firmware/releases` | Register a firmware release |
 | `GET` | `/firmware/{filename}` | Download a firmware binary |
-| `POST` | `/api/v1/devices/{id}/commands` | Queue a command |
+| `POST` | `/api/v1/devices/{id}/commands` | Queue a remote command |
 | `GET` | `/api/v1/devices/{id}/commands/next` | Claim next pending command |
 | `POST` | `/api/v1/devices/{id}/commands/{cmd_id}/result` | Report command result |
 
 ### App endpoints (HivePal integration)
 
-All require the `X-HivePal-Service-Key` header and the `X-User-Id` header (forwarded by HivePal).
+All require `X-HivePal-Service-Key` and `X-User-Id` headers.
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -240,39 +249,12 @@ All require the `X-HivePal-Service-Key` header and the `X-User-Id` header (forwa
 | `GET` | `/api/v1/app/devices/{id}/config` | Get device config |
 | `PATCH` | `/api/v1/app/devices/{id}/config` | Update device config |
 | `GET` | `/api/v1/app/devices/{id}/channels` | List channel names |
-| `PATCH` | `/api/v1/app/devices/{id}/channels` | Update channel (scale) display names |
-| `GET` | `/api/v1/app/devices/{id}/measurements` | List measurements (with date range filter) |
+| `PATCH` | `/api/v1/app/devices/{id}/channels` | Update channel display names |
+| `GET` | `/api/v1/app/devices/{id}/measurements` | Measurements (with date-range filter) |
 | `GET` | `/api/v1/app/devices/{id}/measurements/latest` | Latest measurements |
 | `GET` | `/api/v1/app/devices/{id}/members` | List device members |
 | `POST` | `/api/v1/app/devices/{id}/members` | Share device with another user |
 | `DELETE` | `/api/v1/app/devices/{id}/members/{user_id}` | Revoke a member's access |
-
-### Measurement Payload
-
-```json
-{
-  "device_id": "hive_scale_dual_01",
-  "claim_code": "ABCD-1234",
-  "timestamp": "2026-05-01T12:00:00Z",
-  "scale_1_weight_kg": 42.5,
-  "scale_2_weight_kg": 38.2,
-  "hive_1_temp_c": 34.1,
-  "hive_2_temp_c": 33.7,
-  "ambient_temp_c": 18.4,
-  "ambient_humidity_percent": 61.2,
-  "battery_voltage": 3.85,
-  "rssi_dbm": -65,
-  "firmware_version": "0.4.1",
-  "sd_ok": true,
-  "rtc_ok": true,
-  "sht_ok": true,
-  "scale_1_raw": -298450,
-  "scale_2_raw": -271900,
-  "config_version": 3
-}
-```
-
-Fields `claim_code`, `battery_voltage`, `sd_ok`, `rtc_ok`, `sht_ok`, `scale_1_raw`, `scale_2_raw`, and `config_version` are all optional — the server handles absent values gracefully.
 
 ---
 
@@ -305,76 +287,11 @@ Commands are queued via the API and picked up by the device on its next cycle.
 | `reset_wifi` | `{}` | Clear all saved Wi-Fi credentials and reboot |
 | `factory_reset` | `{}` | Clear all Preferences and reboot |
 
-Example — tare scale 1:
-
-```bash
-curl -X POST https://your-domain.example.com/api/v1/devices/hive_scale_dual_01/commands \
-  -H "X-API-Key: YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"command_type":"tare_scale_1","payload":{}}'
-```
-
-Example — calibrate scale 2 with 20 kg:
-
-```bash
-curl -X POST https://your-domain.example.com/api/v1/devices/hive_scale_dual_01/commands \
-  -H "X-API-Key: YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"command_type":"calibrate_scale_2","payload":{"known_weight_kg":20.0}}'
-```
-
 ---
 
 ## OTA Firmware Updates
 
-1. Compile the firmware and place the `.bin` file in the `FIRMWARE_DIR` on the server (default: `/app/firmware`).
-2. Register the release via the API:
 
-```bash
-curl -X POST http://<host>:31115/api/v1/firmware/releases \
-  -H "X-API-Key: <key>" \
-  -H "Content-Type: application/json" \
-  -d '{"version": "0.5.0", "filename": "hivescale-0.5.0.bin", "active": true}'
-```
-
-The device checks for updates every 6 hours (and also on every upload cycle). If a newer active release is found, it downloads the binary, flashes it, and reboots automatically.
-
----
-
-## Device Configuration
-
-The device pulls its configuration from the server at the end of every upload cycle. Configuration can be updated via:
-
-- `PATCH /api/v1/devices/{id}/config` (direct API key access)
-- `PATCH /api/v1/app/devices/{id}/config` (via HivePal, role: owner or admin)
-
-| Field | Default | Description |
-|---|---|---|
-| `send_interval_seconds` | 600 | How often the device sends a measurement |
-| `scale1_offset` | 0 | Raw offset for scale 1 (set by tare/calibrate) |
-| `scale1_factor` | -7050.0 | Raw-to-kg conversion factor for scale 1 |
-| `scale2_offset` | 0 | Raw offset for scale 2 |
-| `scale2_factor` | -7050.0 | Raw-to-kg conversion factor for scale 2 |
-
-Calibration commands (`calibrate_scale_1`, `calibrate_scale_2`) automatically update the factor in `device_configs` when the device reports its result.
-
----
-
-## Quick Test Commands
-
-Check the API is running:
-
-```bash
-curl http://<host>:31115/health
-```
-
-Submit a test measurement:
-
-```bash
-curl -X POST http://<host>:31115/api/v1/measurements \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: CHANGE_THIS_LONG_RANDOM_API_KEY" \
-  -d '{
     "device_id": "hive_scale_dual_01",
     "scale_1_weight_kg": 42.5,
     "scale_2_weight_kg": 38.2,
@@ -383,19 +300,12 @@ curl -X POST http://<host>:31115/api/v1/measurements \
     "ambient_temp_c": 18.4,
     "ambient_humidity_percent": 61.2
   }'
-```
 
-Get the latest 10 measurements:
-
-```bash
+# Get the latest 10 measurements
 curl "http://<host>:31115/api/v1/measurements/latest?limit=10"
 ```
 
----
-
-## CI / CD
-
-A GitHub Actions workflow (`.github/workflows/backend-image.yml`) builds and pushes the Docker image to the GitHub Container Registry (`ghcr.io/macnite/hivescale-api`) on every push to `main` that touches the `server/` directory.
+See [docs/test-commands.md](docs/test-commands.md) for a complete set of test commands.
 
 ---
 
