@@ -33,7 +33,7 @@
 #define FORCE_RESEED false
 #endif
 
-static const char* FIRMWARE_VERSION = "0.5.3-ota-partitioning";
+static const char* FIRMWARE_VERSION = "0.5.4-calibration-mode";
 
 #define HX1_DOUT 16
 #define HX1_SCK  17
@@ -59,6 +59,11 @@ static const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 static const unsigned long PROVISIONING_TIMEOUT_MS = 10UL * 60UL * 1000UL;
 static const unsigned long OTA_CHECK_INTERVAL_MS = 6UL * 60UL * 60UL * 1000UL;
 static const unsigned long COMMAND_CHECK_INTERVAL_MS = 5UL * 60UL * 1000UL;
+static const unsigned long CALIBRATION_MODE_DEFAULT_INTERVAL_MS = 5UL * 1000UL;
+static const unsigned long CALIBRATION_MODE_MIN_INTERVAL_MS = 2UL * 1000UL;
+static const unsigned long CALIBRATION_MODE_MAX_INTERVAL_MS = 30UL * 1000UL;
+static const unsigned long CALIBRATION_MODE_DEFAULT_TIMEOUT_MS = 10UL * 60UL * 1000UL;
+static const unsigned long CALIBRATION_MODE_MAX_TIMEOUT_MS = 30UL * 60UL * 1000UL;
 
 // Power saving behavior. With deep sleep enabled, the ESP32 wakes for one
 // measurement/upload cycle, then sleeps until the next send interval.
@@ -90,12 +95,16 @@ bool sdOk = false;
 bool shtOk = false;
 bool rtcOk = false;
 bool provisioningActive = false;
+bool calibrationModeActive = false;
 
 unsigned long lastCycleMs = 0;
 unsigned long lastOtaCheckMs = 0;
 unsigned long lastCommandCheckMs = 0;
 unsigned long provisioningStartedMs = 0;
 unsigned long sendIntervalMs = 10UL * 60UL * 1000UL;
+unsigned long calibrationModeStartedMs = 0;
+unsigned long calibrationModeIntervalMs = CALIBRATION_MODE_DEFAULT_INTERVAL_MS;
+unsigned long calibrationModeTimeoutMs = CALIBRATION_MODE_DEFAULT_TIMEOUT_MS;
 
 String timeSource = "unknown";
 String apiBaseUrl;
@@ -243,8 +252,51 @@ void configureButtonWake() {
   esp_sleep_enable_ext0_wakeup((gpio_num_t)SETUP_BUTTON_PIN, 0);
 }
 
+
+bool calibrationModeExpired() {
+  if (!calibrationModeActive) return false;
+  return millis() - calibrationModeStartedMs >= calibrationModeTimeoutMs;
+}
+
+void stopCalibrationMode(const String& reason) {
+  if (!calibrationModeActive) return;
+  calibrationModeActive = false;
+  Serial.print("[CAL] Calibration mode stopped");
+  if (reason.length() > 0) {
+    Serial.print(": ");
+    Serial.print(reason);
+  }
+  Serial.println();
+}
+
+void startCalibrationMode(unsigned long intervalSeconds, unsigned long timeoutSeconds) {
+  unsigned long intervalMs = intervalSeconds * 1000UL;
+  unsigned long timeoutMs = timeoutSeconds * 1000UL;
+
+  if (intervalMs < CALIBRATION_MODE_MIN_INTERVAL_MS) intervalMs = CALIBRATION_MODE_MIN_INTERVAL_MS;
+  if (intervalMs > CALIBRATION_MODE_MAX_INTERVAL_MS) intervalMs = CALIBRATION_MODE_MAX_INTERVAL_MS;
+  if (timeoutMs == 0) timeoutMs = CALIBRATION_MODE_DEFAULT_TIMEOUT_MS;
+  if (timeoutMs > CALIBRATION_MODE_MAX_TIMEOUT_MS) timeoutMs = CALIBRATION_MODE_MAX_TIMEOUT_MS;
+
+  calibrationModeActive = true;
+  calibrationModeStartedMs = millis();
+  calibrationModeIntervalMs = intervalMs;
+  calibrationModeTimeoutMs = timeoutMs;
+
+  Serial.printf(
+    "[CAL] Calibration mode started: interval=%lu sec timeout=%lu sec\n",
+    calibrationModeIntervalMs / 1000UL,
+    calibrationModeTimeoutMs / 1000UL
+  );
+}
+
 void enterDeepSleep(unsigned long sleepMs) {
   if (!DEEP_SLEEP_ENABLED) return;
+
+  if (calibrationModeActive) {
+    Serial.println("[SLEEP] Calibration mode active; staying awake");
+    return;
+  }
 
   if (sleepMs < MIN_DEEP_SLEEP_MS) {
     Serial.println("[SLEEP] Interval too short for deep sleep; staying awake");
@@ -928,6 +980,7 @@ String createMeasurementJson() {
   doc["ambient_humidity_percent"] = ambientHumidity;
   doc["rssi_dbm"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
   doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["calibration_mode"] = calibrationModeActive;
   doc["boot_count"] = rtcBootCount;
   doc["time_source"] = timeSource;
   doc["scale_1_raw"] = raw1;
@@ -1179,6 +1232,7 @@ void checkCommands() {
 
   int commandId = doc["id"] | 0;
   String type = doc["command_type"] | "";
+  JsonObject payload = doc["payload"].as<JsonObject>();
   Serial.printf("[CMD] Received command %d: %s\n", commandId, type.c_str());
 
   if (type == "reset_preferences" || type == "factory_reset") {
@@ -1197,6 +1251,14 @@ void checkCommands() {
     // This only makes sense while someone is physically near the device.
     postCommandResult(commandId, true, "Provisioning AP started");
     startProvisioningPortal();
+  } else if (type == "start_calibration_mode") {
+    unsigned long intervalSeconds = payload["interval_seconds"] | (CALIBRATION_MODE_DEFAULT_INTERVAL_MS / 1000UL);
+    unsigned long timeoutSeconds = payload["timeout_seconds"] | (CALIBRATION_MODE_DEFAULT_TIMEOUT_MS / 1000UL);
+    startCalibrationMode(intervalSeconds, timeoutSeconds);
+    postCommandResult(commandId, true, "Calibration mode started");
+  } else if (type == "stop_calibration_mode") {
+    stopCalibrationMode("command received");
+    postCommandResult(commandId, true, "Calibration mode stopped");
   } else {
     postCommandResult(commandId, false, String("Unknown command: ") + type);
   }
@@ -1325,19 +1387,29 @@ void loop() {
     return;
   }
 
-  if (DEEP_SLEEP_ENABLED) {
+  unsigned long now = millis();
+
+  if (calibrationModeExpired()) {
+    stopCalibrationMode("timeout reached");
     enterDeepSleep(sendIntervalMs);
     return;
   }
 
-  unsigned long now = millis();
+  unsigned long activeIntervalMs = calibrationModeActive ? calibrationModeIntervalMs : sendIntervalMs;
 
-  if (now - lastCycleMs >= sendIntervalMs) {
+  if (DEEP_SLEEP_ENABLED && !calibrationModeActive) {
+    enterDeepSleep(sendIntervalMs);
+    return;
+  }
+
+  if (now - lastCycleMs >= activeIntervalMs) {
     lastCycleMs = now;
     runUploadCycle();
   }
 
-  if (now - lastCommandCheckMs >= COMMAND_CHECK_INTERVAL_MS) {
+  unsigned long activeCommandIntervalMs = calibrationModeActive ? calibrationModeIntervalMs : COMMAND_CHECK_INTERVAL_MS;
+
+  if (now - lastCommandCheckMs >= activeCommandIntervalMs) {
     lastCommandCheckMs = now;
     checkCommands();
   }

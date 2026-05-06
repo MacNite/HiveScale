@@ -41,6 +41,7 @@ class MeasurementIn(BaseModel):
     sht_ok: Optional[bool] = None
     scale_1_raw: Optional[int] = None
     scale_2_raw: Optional[int] = None
+    calibration_mode: Optional[bool] = None
 
 
 class DeviceConfig(BaseModel):
@@ -74,6 +75,14 @@ class DeviceCommandIn(BaseModel):
         "calibrate_scale_1",
         "calibrate_scale_2",
         "reboot",
+        "reset_preferences",
+        "factory_reset",
+        "reset_wifi",
+        "check_ota",
+        "ota_update",
+        "start_provisioning",
+        "start_calibration_mode",
+        "stop_calibration_mode",
     ]
     payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -82,6 +91,11 @@ class DeviceCommandResult(BaseModel):
     success: bool
     message: Optional[str] = None
     result: dict[str, Any] = Field(default_factory=dict)
+
+
+class CalibrationModeStartIn(BaseModel):
+    interval_seconds: int = Field(default=5, ge=2, le=30)
+    timeout_seconds: int = Field(default=600, ge=30, le=1800)
 
 
 class ClaimDeviceIn(BaseModel):
@@ -196,6 +210,7 @@ def init_db():
                     sht_ok BOOLEAN,
                     scale_1_raw BIGINT,
                     scale_2_raw BIGINT,
+                    calibration_mode BOOLEAN,
                     raw_json JSONB NOT NULL
                 );
 
@@ -206,6 +221,7 @@ def init_db():
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS sht_ok BOOLEAN;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS scale_1_raw BIGINT;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS scale_2_raw BIGINT;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS calibration_mode BOOLEAN;
 
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS claim_code_hash TEXT;
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
@@ -387,7 +403,7 @@ def create_measurement(payload: MeasurementIn):
                     hive_1_temp_c, hive_2_temp_c, ambient_temp_c,
                     ambient_humidity_percent, battery_voltage, rssi_dbm,
                     firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
-                    scale_1_raw, scale_2_raw, raw_json
+                    scale_1_raw, scale_2_raw, calibration_mode, raw_json
                 )
                 VALUES (
                     %(device_id)s, %(measured_at)s, %(scale_1_weight_kg)s,
@@ -395,7 +411,7 @@ def create_measurement(payload: MeasurementIn):
                     %(ambient_temp_c)s, %(ambient_humidity_percent)s,
                     %(battery_voltage)s, %(rssi_dbm)s, %(firmware_version)s,
                     %(config_version)s, %(sd_ok)s, %(rtc_ok)s, %(sht_ok)s,
-                    %(scale_1_raw)s, %(scale_2_raw)s, %(raw_json)s
+                    %(scale_1_raw)s, %(scale_2_raw)s, %(calibration_mode)s, %(raw_json)s
                 )
                 RETURNING id;
                 """,
@@ -417,6 +433,7 @@ def create_measurement(payload: MeasurementIn):
                     "sht_ok": payload.sht_ok,
                     "scale_1_raw": payload.scale_1_raw,
                     "scale_2_raw": payload.scale_2_raw,
+                    "calibration_mode": payload.calibration_mode,
                     "raw_json": psycopg.types.json.Jsonb(payload.model_dump(mode="json", exclude={"claim_code"})),
                 },
             )
@@ -436,7 +453,7 @@ def latest_measurements(limit: int = 50):
                        scale_2_weight_kg, hive_1_temp_c, hive_2_temp_c,
                        ambient_temp_c, ambient_humidity_percent, battery_voltage,
                        rssi_dbm, firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
-                       scale_1_raw, scale_2_raw
+                       scale_1_raw, scale_2_raw, calibration_mode
                 FROM measurements
                 ORDER BY measured_at DESC
                 LIMIT %s;
@@ -452,7 +469,7 @@ def latest_measurements(limit: int = 50):
             "ambient_temp_c": r[8], "ambient_humidity_percent": r[9],
             "battery_voltage": r[10], "rssi_dbm": r[11], "firmware_version": r[12],
             "config_version": r[13], "sd_ok": r[14], "rtc_ok": r[15], "sht_ok": r[16],
-            "scale_1_raw": r[17], "scale_2_raw": r[18],
+            "scale_1_raw": r[17], "scale_2_raw": r[18], "calibration_mode": r[19],
         }
         for r in rows
     ]
@@ -566,6 +583,24 @@ def create_command(device_id: str, payload: DeviceCommandIn):
             command_id = cur.fetchone()[0]
             conn.commit()
     return {"status": "queued", "id": command_id}
+
+
+
+def queue_device_command(device_id: str, command_type: str, payload: dict[str, Any] | None = None) -> int:
+    ensure_device_config(device_id)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO device_commands (device_id, command_type, payload)
+                VALUES (%s, %s, %s)
+                RETURNING id;
+                """,
+                (device_id, command_type, psycopg.types.json.Jsonb(payload or {})),
+            )
+            command_id = cur.fetchone()[0]
+            conn.commit()
+    return command_id
 
 
 @app.get("/api/v1/devices/{device_id}/commands/next", dependencies=[Depends(require_api_key)])
@@ -863,6 +898,44 @@ def revoke_device_member(device_id: str, member_user_id: str, user_id: str = Dep
     return {"status": "revoked", "device_id": device_id, "user_id": member_user_id}
 
 
+@app.post("/api/v1/app/devices/{device_id}/calibration/start", dependencies=[Depends(require_hivepal_service_key)])
+def start_device_calibration_mode(
+    device_id: str,
+    payload: Optional[CalibrationModeStartIn] = None,
+    user_id: str = Depends(require_user_id),
+):
+    require_device_role(user_id, device_id, ["owner", "admin"])
+    settings = payload or CalibrationModeStartIn()
+    command_id = queue_device_command(
+        device_id,
+        "start_calibration_mode",
+        {
+            "interval_seconds": settings.interval_seconds,
+            "timeout_seconds": settings.timeout_seconds,
+        },
+    )
+    return {
+        "status": "queued",
+        "device_id": device_id,
+        "command_id": command_id,
+        "calibration_mode": True,
+        "interval_seconds": settings.interval_seconds,
+        "timeout_seconds": settings.timeout_seconds,
+    }
+
+
+@app.post("/api/v1/app/devices/{device_id}/calibration/stop", dependencies=[Depends(require_hivepal_service_key)])
+def stop_device_calibration_mode(device_id: str, user_id: str = Depends(require_user_id)):
+    require_device_role(user_id, device_id, ["owner", "admin"])
+    command_id = queue_device_command(device_id, "stop_calibration_mode", {})
+    return {
+        "status": "queued",
+        "device_id": device_id,
+        "command_id": command_id,
+        "calibration_mode": False,
+    }
+
+
 @app.get("/api/v1/app/devices/{device_id}/config", dependencies=[Depends(require_hivepal_service_key)])
 def get_device_config_from_app(device_id: str, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
@@ -915,7 +988,7 @@ def list_device_measurements(
                        scale_2_weight_kg, hive_1_temp_c, hive_2_temp_c,
                        ambient_temp_c, ambient_humidity_percent, battery_voltage,
                        rssi_dbm, firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
-                       scale_1_raw, scale_2_raw
+                       scale_1_raw, scale_2_raw, calibration_mode
                 FROM measurements
                 WHERE {' AND '.join(where_parts)}
                 ORDER BY measured_at DESC
@@ -933,7 +1006,7 @@ def list_device_measurements(
             "ambient_temp_c": r[8], "ambient_humidity_percent": r[9],
             "battery_voltage": r[10], "rssi_dbm": r[11], "firmware_version": r[12],
             "config_version": r[13], "sd_ok": r[14], "rtc_ok": r[15], "sht_ok": r[16],
-            "scale_1_raw": r[17], "scale_2_raw": r[18],
+            "scale_1_raw": r[17], "scale_2_raw": r[18], "calibration_mode": r[19],
         }
         for r in rows
     ]
@@ -951,7 +1024,7 @@ def latest_device_measurements(device_id: str, limit: int = 50, user_id: str = D
                        scale_2_weight_kg, hive_1_temp_c, hive_2_temp_c,
                        ambient_temp_c, ambient_humidity_percent, battery_voltage,
                        rssi_dbm, firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
-                       scale_1_raw, scale_2_raw
+                       scale_1_raw, scale_2_raw, calibration_mode
                 FROM measurements
                 WHERE device_id = %s
                 ORDER BY measured_at DESC
@@ -968,7 +1041,7 @@ def latest_device_measurements(device_id: str, limit: int = 50, user_id: str = D
             "ambient_temp_c": r[8], "ambient_humidity_percent": r[9],
             "battery_voltage": r[10], "rssi_dbm": r[11], "firmware_version": r[12],
             "config_version": r[13], "sd_ok": r[14], "rtc_ok": r[15], "sht_ok": r[16],
-            "scale_1_raw": r[17], "scale_2_raw": r[18],
+            "scale_1_raw": r[17], "scale_2_raw": r[18], "calibration_mode": r[19],
         }
         for r in rows
     ]
