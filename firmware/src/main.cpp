@@ -15,6 +15,9 @@
 #include <Preferences.h>
 #include <time.h>
 #include <sys/time.h>
+#include <esp_sleep.h>
+#include <driver/gpio.h>
+#include <driver/rtc_io.h>
 
 #include "secrets.h"
 
@@ -30,7 +33,7 @@
 #define FORCE_RESEED false
 #endif
 
-static const char* FIRMWARE_VERSION = "0.4.2-ota-test";
+static const char* FIRMWARE_VERSION = "0.5.3-ota-partitioning";
 
 #define HX1_DOUT 16
 #define HX1_SCK  17
@@ -57,8 +60,22 @@ static const unsigned long PROVISIONING_TIMEOUT_MS = 10UL * 60UL * 1000UL;
 static const unsigned long OTA_CHECK_INTERVAL_MS = 6UL * 60UL * 60UL * 1000UL;
 static const unsigned long COMMAND_CHECK_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
+// Power saving behavior. With deep sleep enabled, the ESP32 wakes for one
+// measurement/upload cycle, then sleeps until the next send interval.
+static const bool DEEP_SLEEP_ENABLED = true;
+static const bool WAKE_BUTTON_FROM_DEEP_SLEEP = true;
+static const unsigned long MIN_DEEP_SLEEP_MS = 30UL * 1000UL;
+static const uint64_t US_PER_MS = 1000ULL;
+
 static const char* CACHE_FILE = "/cache.ndjson";
 static const char* TEMP_FILE = "/cache.tmp";
+static const char* BACKUP_FILE = "/measurements.ndjson";
+
+// SD behavior:
+// - BACKUP_FILE is append-only and is never deleted by the firmware.
+// - CACHE_FILE is the retry queue for rows that still need backend upload.
+static const bool SD_KEEP_PERSISTENT_BACKUP = true;
+static const size_t BACKUP_WARN_SIZE_BYTES = 50UL * 1024UL * 1024UL;
 
 HX711 scale1;
 HX711 scale2;
@@ -96,8 +113,175 @@ bool buttonWasDown = false;
 unsigned long buttonDownMs = 0;
 bool longPressHandled = false;
 
+RTC_DATA_ATTR uint32_t rtcCyclesUntilOta = 0;
+RTC_DATA_ATTR uint32_t rtcBootCount = 0;
+
+String timestampNow();
+void syncTime();
+
 void debugLine() {
   Serial.println("----------------------------------------");
+}
+
+String wakeReasonName(esp_sleep_wakeup_cause_t reason) {
+  switch (reason) {
+    case ESP_SLEEP_WAKEUP_TIMER: return "timer";
+    case ESP_SLEEP_WAKEUP_EXT0: return "button/ext0";
+    case ESP_SLEEP_WAKEUP_EXT1: return "ext1";
+    case ESP_SLEEP_WAKEUP_TOUCHPAD: return "touchpad";
+    case ESP_SLEEP_WAKEUP_ULP: return "ulp";
+    default: return "power-on/reset";
+  }
+}
+
+void releaseSleepPinHolds() {
+  gpio_deep_sleep_hold_dis();
+  gpio_hold_dis((gpio_num_t)HX1_SCK);
+  gpio_hold_dis((gpio_num_t)HX2_SCK);
+  gpio_hold_dis((gpio_num_t)SD_CS);
+
+  // EXT0 wake config turns the button into an RTC IO. Return it to normal GPIO.
+  rtc_gpio_deinit((gpio_num_t)SETUP_BUTTON_PIN);
+}
+
+uint32_t cyclesForInterval(unsigned long intervalMs) {
+  if (sendIntervalMs == 0) return 1;
+  unsigned long cycles = (intervalMs + sendIntervalMs - 1UL) / sendIntervalMs;
+  if (cycles < 1UL) cycles = 1UL;
+  return (uint32_t)cycles;
+}
+
+bool shouldCheckOtaThisCycle() {
+  if (!DEEP_SLEEP_ENABLED) {
+    return millis() - lastOtaCheckMs >= OTA_CHECK_INTERVAL_MS;
+  }
+
+  if (rtcCyclesUntilOta == 0) return true;
+
+  rtcCyclesUntilOta--;
+  return rtcCyclesUntilOta == 0;
+}
+
+void markOtaChecked() {
+  rtcCyclesUntilOta = cyclesForInterval(OTA_CHECK_INTERVAL_MS);
+}
+
+bool rtcHasValidTime() {
+  if (!rtcOk) return false;
+  DateTime now = rtc.now();
+  return now.year() >= 2024 && now.year() <= 2099;
+}
+
+void powerUpScales() {
+  gpio_hold_dis((gpio_num_t)HX1_SCK);
+  gpio_hold_dis((gpio_num_t)HX2_SCK);
+
+  pinMode(HX1_SCK, OUTPUT);
+  pinMode(HX2_SCK, OUTPUT);
+  digitalWrite(HX1_SCK, LOW);
+  digitalWrite(HX2_SCK, LOW);
+
+  scale1.power_up();
+  scale2.power_up();
+
+  // HX711 needs a short settling period after power-up/reset at 10 SPS.
+  delay(500);
+}
+
+void powerDownScalesForSleep() {
+  scale1.power_down();
+  scale2.power_down();
+
+  // Keep PD_SCK high during deep sleep so the HX711s and their bridge sensors
+  // remain in power-down. Without GPIO hold, deep sleep may let these pins float.
+  pinMode(HX1_SCK, OUTPUT);
+  pinMode(HX2_SCK, OUTPUT);
+  digitalWrite(HX1_SCK, HIGH);
+  digitalWrite(HX2_SCK, HIGH);
+  delayMicroseconds(80);
+
+  gpio_hold_en((gpio_num_t)HX1_SCK);
+  gpio_hold_en((gpio_num_t)HX2_SCK);
+}
+
+void shutdownWifiAndBt() {
+  if (provisioningActive) {
+    setupServer.stop();
+    WiFi.softAPdisconnect(true);
+    provisioningActive = false;
+  }
+
+  WiFi.disconnect(true, false);
+  WiFi.mode(WIFI_OFF);
+  btStop();
+  delay(100);
+}
+
+void prepareSdForSleep() {
+  if (sdOk) {
+    SD.end();
+  }
+
+  SPI.end();
+
+  // Leave the SD card deselected if it remains powered.
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+  gpio_hold_en((gpio_num_t)SD_CS);
+}
+
+void configureButtonWake() {
+  if (!WAKE_BUTTON_FROM_DEEP_SLEEP) return;
+
+  // GPIO27 is an RTC-capable pin on ESP32. The RTC pull-up lets the existing
+  // button-to-GND wiring wake the device without an external pull-up. For the
+  // lowest possible sleep current, use an external pull-up and remove this.
+  rtc_gpio_init((gpio_num_t)SETUP_BUTTON_PIN);
+  rtc_gpio_set_direction((gpio_num_t)SETUP_BUTTON_PIN, RTC_GPIO_MODE_INPUT_ONLY);
+  rtc_gpio_pullup_en((gpio_num_t)SETUP_BUTTON_PIN);
+  rtc_gpio_pulldown_dis((gpio_num_t)SETUP_BUTTON_PIN);
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)SETUP_BUTTON_PIN, 0);
+}
+
+void enterDeepSleep(unsigned long sleepMs) {
+  if (!DEEP_SLEEP_ENABLED) return;
+
+  if (sleepMs < MIN_DEEP_SLEEP_MS) {
+    Serial.println("[SLEEP] Interval too short for deep sleep; staying awake");
+    return;
+  }
+
+  Serial.printf("[SLEEP] Entering deep sleep for %lu seconds\n", sleepMs / 1000UL);
+
+  powerDownScalesForSleep();
+  prepareSdForSleep();
+  shutdownWifiAndBt();
+
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  esp_sleep_enable_timer_wakeup((uint64_t)sleepMs * US_PER_MS);
+  configureButtonWake();
+
+  gpio_deep_sleep_hold_en();
+
+  Serial.flush();
+  esp_deep_sleep_start();
+}
+
+void initializeTime(bool wokeFromDeepSleep) {
+  if (rtcHasValidTime()) {
+    timeSource = "rtc";
+    Serial.print("[TIME] Using RTC: ");
+    Serial.println(timestampNow());
+
+    // Refresh RTC from NTP on cold/manual boots, but avoid doing this on every
+    // timer wake because WiFi will already be used for upload and RTC is valid.
+    if (!wokeFromDeepSleep) {
+      syncTime();
+    }
+    return;
+  }
+
+  syncTime();
 }
 
 String trimTrailingSlash(String value) {
@@ -293,6 +477,7 @@ bool connectWifi(unsigned long timeoutMs = WIFI_CONNECT_TIMEOUT_MS) {
   }
 
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(true);
 
   for (int i = 0; i < count; i++) {
     prefs.begin("hivescale", true);
@@ -306,6 +491,7 @@ bool connectWifi(unsigned long timeoutMs = WIFI_CONNECT_TIMEOUT_MS) {
     WiFi.disconnect(true, true);
     delay(200);
     WiFi.mode(WIFI_STA);
+    WiFi.setSleep(true);
     WiFi.begin(ssid.c_str(), pass.c_str());
 
     unsigned long start = millis();
@@ -643,23 +829,46 @@ bool httpPostJson(const String& url, const String& json, String* response = null
   return false;
 }
 
-bool appendCacheLine(const String& line) {
+bool appendLineToSdFile(const char* path, const String& line, const char* label) {
   if (!sdOk) {
-    Serial.println("[CACHE] SD unavailable, cannot cache");
+    Serial.printf("[%s] SD unavailable, cannot write %s\n", label, path);
     return false;
   }
 
-  File file = SD.open(CACHE_FILE, FILE_APPEND);
+  File file = SD.open(path, FILE_APPEND);
   if (!file) {
-    Serial.println("[CACHE] Failed to open cache file");
+    Serial.printf("[%s] Failed to open %s\n", label, path);
     return false;
   }
 
   file.println(line);
+  size_t currentSize = file.size();
   file.close();
 
-  Serial.println("[CACHE] Appended line to cache");
+  Serial.printf("[%s] Appended line to %s (%u bytes)\n", label, path, (unsigned)currentSize);
   return true;
+}
+
+bool appendBackupLine(const String& line) {
+  if (!SD_KEEP_PERSISTENT_BACKUP) return true;
+
+  bool ok = appendLineToSdFile(BACKUP_FILE, line, "BACKUP");
+  if (!ok) return false;
+
+  File file = SD.open(BACKUP_FILE, FILE_READ);
+  if (file) {
+    size_t currentSize = file.size();
+    file.close();
+    if (currentSize >= BACKUP_WARN_SIZE_BYTES) {
+      Serial.printf("[BACKUP] Warning: %s is larger than %u bytes. Replace or offload SD soon.\n", BACKUP_FILE, (unsigned)BACKUP_WARN_SIZE_BYTES);
+    }
+  }
+
+  return true;
+}
+
+bool appendCacheLine(const String& line) {
+  return appendLineToSdFile(CACHE_FILE, line, "CACHE");
 }
 
 long readAverageRaw(HX711& scale, int samples = 15) {
@@ -677,6 +886,8 @@ float weightFromRaw(long raw, long offset, float factor) {
 
 String createMeasurementJson() {
   Serial.println("[MEASURE] Reading sensors...");
+
+  powerUpScales();
 
   ds18b20.requestTemperatures();
 
@@ -717,6 +928,7 @@ String createMeasurementJson() {
   doc["ambient_humidity_percent"] = ambientHumidity;
   doc["rssi_dbm"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
   doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["boot_count"] = rtcBootCount;
   doc["time_source"] = timeSource;
   doc["scale_1_raw"] = raw1;
   doc["scale_2_raw"] = raw2;
@@ -997,6 +1209,12 @@ void runUploadCycle() {
   String json = createMeasurementJson();
 
   if (sdOk) {
+    // Keep a durable local copy first. This file is never deleted by uploads,
+    // so it works as a long-term backup and as an offline data log.
+    appendBackupLine(json);
+
+    // Also add the row to the retry queue. uploadCachedLines() removes rows
+    // from this queue only after the backend accepts them.
     appendCacheLine(json);
     uploadCachedLines();
   } else {
@@ -1006,7 +1224,14 @@ void runUploadCycle() {
 
   fetchRemoteConfig();
   checkCommands();
-  checkForOtaUpdate();
+
+  if (shouldCheckOtaThisCycle()) {
+    checkForOtaUpdate();
+    lastOtaCheckMs = millis();
+    markOtaChecked();
+  } else {
+    Serial.printf("[OTA] Skipping; next scheduled check in %u cycle(s)\n", rtcCyclesUntilOta);
+  }
 
   Serial.println("[CYCLE] Done");
   debugLine();
@@ -1016,15 +1241,30 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  esp_sleep_wakeup_cause_t wakeReason = esp_sleep_get_wakeup_cause();
+  bool wokeFromDeepSleep = wakeReason == ESP_SLEEP_WAKEUP_TIMER ||
+                            wakeReason == ESP_SLEEP_WAKEUP_EXT0 ||
+                            wakeReason == ESP_SLEEP_WAKEUP_EXT1;
+
+  releaseSleepPinHolds();
   pinMode(SETUP_BUTTON_PIN, INPUT_PULLUP);
+
+  rtcBootCount++;
 
   debugLine();
   Serial.println("Hive Scale ESP32 firmware with provisioning + OTA");
   Serial.printf("Firmware version: %s\n", FIRMWARE_VERSION);
+  Serial.printf("Wake reason: %s; RTC boot count: %u\n", wakeReasonName(wakeReason).c_str(), rtcBootCount);
   debugLine();
 
   seedPrefsFromSecretsIfNeeded();
   loadConfigFromPrefs();
+
+  if (digitalRead(SETUP_BUTTON_PIN) == LOW || wakeReason == ESP_SLEEP_WAKEUP_EXT0) {
+    Serial.println("[SETUP] Button wake/press detected; starting provisioning portal");
+    startProvisioningPortal();
+    return;
+  }
 
   Wire.begin(I2C_SDA, I2C_SCL);
   Serial.println("[I2C] Started");
@@ -1055,15 +1295,21 @@ void setup() {
   sdOk = SD.begin(SD_CS);
   Serial.printf("[SD] %s\n", sdOk ? "OK" : "MISSING");
 
-  connectWifi(20000);
-  syncTime();
+  initializeTime(wokeFromDeepSleep);
 
-  Serial.println("[SETUP] Running first upload cycle now");
+  Serial.println("[SETUP] Running upload cycle now");
   runUploadCycle();
 
   lastCycleMs = millis();
   lastOtaCheckMs = millis();
   lastCommandCheckMs = millis();
+
+  if (provisioningActive) {
+    Serial.println("[SETUP] Provisioning active; staying awake until portal timeout");
+    return;
+  }
+
+  enterDeepSleep(sendIntervalMs);
 }
 
 void loop() {
@@ -1073,8 +1319,14 @@ void loop() {
     setupServer.handleClient();
     if (millis() - provisioningStartedMs > PROVISIONING_TIMEOUT_MS) {
       stopProvisioningPortal();
+      enterDeepSleep(sendIntervalMs);
     }
     delay(10);
+    return;
+  }
+
+  if (DEEP_SLEEP_ENABLED) {
+    enterDeepSleep(sendIntervalMs);
     return;
   }
 
