@@ -49,15 +49,22 @@ HiveScale/
 
 ## Hardware
 
-| Component | Role |
-|---|---|
-| ESP32 Dev Board | Microcontroller |
-| 2× HX711 + load cells | Weight measurement (scale 1 & 2) |
-| 2× DS18B20 | Per-hive internal temperature (1-Wire bus) |
-| Adafruit SHT4x | Ambient temperature & humidity |
-| DS3231 RTC | Hardware real-time clock |
-| MicroSD card module | Local measurement cache |
-| Momentary pushbutton | Setup/factory-reset button (optional) |
+| Component | Role | Price |
+|---|---|---|
+| ESP32 Dev Board | Microcontroller | 8€ |
+| MP1584EN | DC-DC-Converter for Power-Input | 2€ |
+| 2× HX711 + load cells | Weight measurement (scale 1 & 2) | 7-30€ |
+| 2× DS18B20 (2m cable) | Per-hive internal temperature (1-Wire bus) | 4€ |
+| SHT4x with (cable) | Ambient temperature & humidity | 3€ |
+| DS3231 RTC | Hardware real-time clock | 5€ |
+| MicroSD card module + micro sd card | Local measurement cache | 10€ |
+| Momentary pushbutton | Setup/factory-reset button (optional) | 1€ |
+| IP67 electronics box (at least 150x150mm) | enclosure | 15€ |
+| wood for scale-frame | mounting sensors | free-10€ |
+| Hardware, wires,  | enclosure | 10€ |
+
+Total price: 65€-100€ for 2 scales
+
 
 ### Pin Mapping
 

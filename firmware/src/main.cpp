@@ -30,7 +30,7 @@
 #define FORCE_RESEED false
 #endif
 
-static const char* FIRMWARE_VERSION = "0.4.1-claim-mode";
+static const char* FIRMWARE_VERSION = "0.4.2-ota-test";
 
 #define HX1_DOUT 16
 #define HX1_SCK  17
@@ -525,6 +525,79 @@ void syncTime() {
     if (getLocalTime(&tmNow, 500)) {
       time_t nowUnix = mktime(&tmNow);
 
+      if (nowUnix > 1700000000) {
+        Serial.println("[TIME] NTP sync OK");
+        timeSource = "ntp";
+
+        if (rtcOk) {
+          struct tm* utc = gmtime(&nowUnix);
+          rtc.adjust(DateTime(utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday, utc->tm_hour, utc->tm_min, utc->tm_sec));
+          Serial.println("[TIME] RTC updated from NTP");
+        }
+
+        Serial.print("[TIME] Current timestamp: ");
+        Serial.println(timestampNow());
+        return;
+      }
+    }
+    delay(500);
+  }
+
+  Serial.println("[TIME] NTP sync FAILED");
+
+  if (rtcOk) {
+    DateTime now = rtc.now();
+    if (now.year() >= 2024 && now.year() <= 2099) {
+      timeSource = "rtc";
+      Serial.println("[TIME] Using RTC");
+      return;
+    }
+  }
+
+  timeSource = "invalid";
+}
+
+void addAuthHeader(HTTPClient& http) {
+  if (apiKey.length() > 0) http.addHeader("X-API-Key", apiKey);
+}
+
+bool httpGetJson(const String& url, JsonDocument& doc) {
+  if (!connectWifi()) return false;
+
+  Serial.println("[HTTP GET]");
+  Serial.println(url);
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+
+  if (!http.begin(client, url)) {
+    Serial.println("[HTTP GET] http.begin failed");
+    return false;
+  }
+
+  addAuthHeader(http);
+
+  int code = http.GET();
+  String body = http.getString();
+
+  Serial.printf("[HTTP GET] Status: %d\n", code);
+  Serial.print("[HTTP GET] Body: ");
+  Serial.println(body);
+
+  http.end();
+
+  if (code < 200 || code >= 300) return false;
+
+  DeserializationError err = deserializeJson(doc, body);
+  if (err) {
+    Serial.print("[HTTP GET] JSON parse error: ");
+    Serial.println(err.c_str());
+    return false;
+  }
+
+  return true;
+}
 
 bool httpPostJson(const String& url, const String& json, String* response = nullptr) {
   if (!connectWifi()) {
