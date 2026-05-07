@@ -42,6 +42,47 @@
 #define WIFI3_PASS       "your-wifi-password-3"
 
 // ==============================
+// OPTIONAL OFF-GRID MODULES
+// ==============================
+// Keep these as numeric 0/1 values because the firmware uses preprocessor #if.
+// They are per-device build configuration rather than secrets, but this project
+// already uses secrets.h as the local, untracked per-device config file.
+#define ENABLE_INA219_SOLAR      0
+#define ENABLE_MAX17048_BATTERY  0
+#define ENABLE_SIM7080G          0
+
+// OTA over cellular is intentionally disabled by default to avoid large data use.
+// Normal measurement upload and command polling work over SIM7080G when enabled.
+#define CELLULAR_OTA_ENABLED     0
+
+// INA219 solar monitor. Default address is 0x40 on most breakout boards.
+#define INA219_I2C_ADDRESS       0x40
+
+// MAX17048 LiPo fuel gauge alert threshold, in percent.
+#define MAX17048_ALERT_PERCENT   20
+
+// SIM7080G network settings. APN is required for most SIMs.
+#define SIM7080G_APN             ""
+#define SIM7080G_USER            ""
+#define SIM7080G_PASS            ""
+#define SIM7080G_PIN             ""
+
+// SIM7080G UART and power-control pins.
+// Adjust RX/TX to match your ESP32 wiring. RX means ESP32 RX connected to modem TX.
+#define SIM7080G_BAUD            115200
+#define SIM7080G_RX_PIN          26
+#define SIM7080G_TX_PIN          25
+
+// Set to a GPIO if your board exposes modem PWRKEY / power enable, otherwise -1.
+#define SIM7080G_PWRKEY_PIN      -1
+#define SIM7080G_POWER_EN_PIN    -1
+#define SIM7080G_POWER_EN_ACTIVE_HIGH 1
+
+// Cellular attach timeouts. NB-IoT/LTE-M registration can be slow off-grid.
+#define SIM7080G_NETWORK_TIMEOUT_MS 180000UL
+#define SIM7080G_GPRS_TIMEOUT_MS    60000UL
+
+// ==============================
 // OPTIONAL FLAGS
 // ==============================
 

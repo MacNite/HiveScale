@@ -33,7 +33,111 @@
 #define FORCE_RESEED false
 #endif
 
-static const char* FIRMWARE_VERSION = "0.5.6-ap-sd";
+// ==============================
+// OPTIONAL OFF-GRID FEATURES
+// ==============================
+// Keep all optional hardware compiled out by default. Enable per device in
+// secrets.h with 0/1 values. Credentials such as the cellular APN belong in
+// secrets.h; feature flags can live there too in this project because it is
+// already used as the per-device build configuration file.
+#ifndef ENABLE_INA219_SOLAR
+#define ENABLE_INA219_SOLAR 0
+#endif
+
+#ifndef ENABLE_MAX17048_BATTERY
+#define ENABLE_MAX17048_BATTERY 0
+#endif
+
+#ifndef ENABLE_SIM7080G
+#define ENABLE_SIM7080G 0
+#endif
+
+#ifndef CELLULAR_OTA_ENABLED
+#define CELLULAR_OTA_ENABLED 0
+#endif
+
+#ifndef INA219_I2C_ADDRESS
+#define INA219_I2C_ADDRESS 0x40
+#endif
+
+#ifndef MAX17048_ALERT_PERCENT
+#define MAX17048_ALERT_PERCENT 20
+#endif
+
+#ifndef SIM7080G_APN
+#define SIM7080G_APN ""
+#endif
+
+#ifndef SIM7080G_USER
+#define SIM7080G_USER ""
+#endif
+
+#ifndef SIM7080G_PASS
+#define SIM7080G_PASS ""
+#endif
+
+#ifndef SIM7080G_PIN
+#define SIM7080G_PIN ""
+#endif
+
+#ifndef SIM7080G_BAUD
+#define SIM7080G_BAUD 115200
+#endif
+
+#ifndef SIM7080G_RX_PIN
+#define SIM7080G_RX_PIN 26
+#endif
+
+#ifndef SIM7080G_TX_PIN
+#define SIM7080G_TX_PIN 25
+#endif
+
+#ifndef SIM7080G_PWRKEY_PIN
+#define SIM7080G_PWRKEY_PIN -1
+#endif
+
+#ifndef SIM7080G_POWER_EN_PIN
+#define SIM7080G_POWER_EN_PIN -1
+#endif
+
+#ifndef SIM7080G_POWER_EN_ACTIVE_HIGH
+#define SIM7080G_POWER_EN_ACTIVE_HIGH 1
+#endif
+
+#ifndef SIM7080G_NETWORK_TIMEOUT_MS
+#define SIM7080G_NETWORK_TIMEOUT_MS 180000UL
+#endif
+
+#ifndef SIM7080G_GPRS_TIMEOUT_MS
+#define SIM7080G_GPRS_TIMEOUT_MS 60000UL
+#endif
+
+#ifndef SIM7080G_CONNECT_RETRIES
+#define SIM7080G_CONNECT_RETRIES 3
+#endif
+
+#ifndef SIM7080G_RETRY_BACKOFF_MS
+#define SIM7080G_RETRY_BACKOFF_MS 5000UL
+#endif
+
+#if ENABLE_INA219_SOLAR
+#include <Adafruit_INA219.h>
+#endif
+
+#if ENABLE_MAX17048_BATTERY
+#include <SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library.h>
+#endif
+
+#if ENABLE_SIM7080G
+#define TINY_GSM_MODEM_SIM7080
+#ifndef TINY_GSM_RX_BUFFER
+#define TINY_GSM_RX_BUFFER 2048
+#endif
+#include <TinyGsmClient.h>
+#include <ArduinoHttpClient.h>
+#endif
+
+static const char* FIRMWARE_VERSION = "0.6.1-offgrid-fixes";
 
 #define HX1_DOUT 16
 #define HX1_SCK  17
@@ -91,6 +195,26 @@ RTC_DS3231 rtc;
 Preferences prefs;
 WebServer setupServer(80);
 
+#if ENABLE_INA219_SOLAR
+Adafruit_INA219 solarMonitor(INA219_I2C_ADDRESS);
+bool solarMonitorOk = false;
+#endif
+
+#if ENABLE_MAX17048_BATTERY
+SFE_MAX1704X batteryGauge(MAX1704X_MAX17048);
+bool batteryMonitorOk = false;
+#endif
+
+#if ENABLE_SIM7080G
+HardwareSerial simSerial(2);
+TinyGsm simModem(simSerial);
+TinyGsmClient simClient(simModem, 0);
+TinyGsmClientSecure simSecureClient(simModem, 1);
+bool cellularModemInitialized = false;
+bool cellularConnected = false;
+int lastCellularCsq = 99;
+#endif
+
 bool sdOk = false;
 bool sdBusInitialized = false;
 bool shtOk = false;
@@ -128,6 +252,9 @@ RTC_DATA_ATTR uint32_t rtcBootCount = 0;
 
 String timestampNow();
 void syncTime();
+bool connectNetwork();
+void preparePowerMonitorsForSleep();
+void shutdownCellularForSleep();
 
 void debugLine() {
   Serial.println("----------------------------------------");
@@ -322,7 +449,9 @@ void enterDeepSleep(unsigned long sleepMs) {
   Serial.printf("[SLEEP] Entering deep sleep for %lu seconds\n", sleepMs / 1000UL);
 
   powerDownScalesForSleep();
+  preparePowerMonitorsForSleep();
   prepareSdForSleep();
+  shutdownCellularForSleep();
   shutdownWifiAndBt();
 
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
@@ -494,11 +623,10 @@ void saveScaleConfig() {
 
 int getWifiCount() {
   prefs.begin("hivescale", true);
-  int count = prefs.getUInt("wifi_count", 0);
+  uint32_t count = prefs.getUInt("wifi_count", 0);
   prefs.end();
-  if (count < 0) count = 0;
   if (count > MAX_WIFI_NETWORKS) count = MAX_WIFI_NETWORKS;
-  return count;
+  return (int)count;
 }
 
 bool saveWifiNetwork(int index, const String& ssid, const String& pass) {
@@ -544,22 +672,27 @@ bool connectWifi(unsigned long timeoutMs = WIFI_CONNECT_TIMEOUT_MS) {
     return false;
   }
 
+  String ssids[MAX_WIFI_NETWORKS];
+  String passes[MAX_WIFI_NETWORKS];
+  prefs.begin("hivescale", true);
+  for (int i = 0; i < count; i++) {
+    ssids[i] = prefs.getString(wifiSsidKey(i).c_str(), "");
+    passes[i] = prefs.getString(wifiPassKey(i).c_str(), "");
+  }
+  prefs.end();
+
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(true);
 
   for (int i = 0; i < count; i++) {
-    prefs.begin("hivescale", true);
-    String ssid = prefs.getString(wifiSsidKey(i).c_str(), "");
-    String pass = prefs.getString(wifiPassKey(i).c_str(), "");
-    prefs.end();
+    String ssid = ssids[i];
+    String pass = passes[i];
 
     if (ssid.length() == 0) continue;
 
     Serial.printf("[WIFI] Trying saved network %d/%d: %s\n", i + 1, count, ssid.c_str());
     WiFi.disconnect(true, true);
     delay(200);
-    WiFi.mode(WIFI_STA);
-    WiFi.setSleep(true);
     WiFi.begin(ssid.c_str(), pass.c_str());
 
     unsigned long start = millis();
@@ -583,6 +716,330 @@ bool connectWifi(unsigned long timeoutMs = WIFI_CONNECT_TIMEOUT_MS) {
 
   Serial.println("[WIFI] All saved networks failed. Not starting AP automatically for power saving.");
   return false;
+}
+
+#if ENABLE_SIM7080G
+struct ParsedUrl {
+  bool valid = false;
+  bool https = false;
+  String host;
+  String path;
+  int port = 80;
+};
+
+ParsedUrl parseUrl(const String& url) {
+  ParsedUrl parsed;
+  String work = url;
+  work.trim();
+
+  int schemeEnd = work.indexOf("://");
+  if (schemeEnd < 0) return parsed;
+
+  String scheme = work.substring(0, schemeEnd);
+  scheme.toLowerCase();
+  parsed.https = scheme == "https";
+  if (scheme != "http" && scheme != "https") return parsed;
+  parsed.port = parsed.https ? 443 : 80;
+
+  String rest = work.substring(schemeEnd + 3);
+  int slash = rest.indexOf('/');
+  String hostPort = slash >= 0 ? rest.substring(0, slash) : rest;
+  parsed.path = slash >= 0 ? rest.substring(slash) : "/";
+  if (parsed.path.length() == 0) parsed.path = "/";
+
+  int colon = hostPort.lastIndexOf(':');
+  if (colon > 0) {
+    parsed.host = hostPort.substring(0, colon);
+    parsed.port = hostPort.substring(colon + 1).toInt();
+  } else {
+    parsed.host = hostPort;
+  }
+
+  parsed.valid = parsed.host.length() > 0 && parsed.port > 0;
+  return parsed;
+}
+
+int csqToDbm(int csq) {
+  if (csq < 0 || csq == 99) return 0;
+  if (csq > 31) csq = 31;
+  return -113 + (2 * csq);
+}
+
+void setupCellularPowerPins() {
+  if (SIM7080G_POWER_EN_PIN >= 0) {
+    pinMode(SIM7080G_POWER_EN_PIN, OUTPUT);
+    digitalWrite(SIM7080G_POWER_EN_PIN, SIM7080G_POWER_EN_ACTIVE_HIGH ? HIGH : LOW);
+    delay(200);
+  }
+
+  if (SIM7080G_PWRKEY_PIN >= 0) {
+    pinMode(SIM7080G_PWRKEY_PIN, OUTPUT);
+    digitalWrite(SIM7080G_PWRKEY_PIN, HIGH);
+  }
+}
+
+void pulseCellularPowerKey() {
+  if (SIM7080G_PWRKEY_PIN < 0) return;
+
+  // SIM7080 wakes with a low PWRKEY pulse. Keep this short enough to avoid
+  // accidentally triggering the long reset pulse.
+  digitalWrite(SIM7080G_PWRKEY_PIN, LOW);
+  delay(1100);
+  digitalWrite(SIM7080G_PWRKEY_PIN, HIGH);
+  delay(6000);
+}
+
+bool initCellularModem() {
+  if (cellularModemInitialized) return true;
+
+  Serial.println("[SIM7080G] Initializing modem");
+  setupCellularPowerPins();
+  pulseCellularPowerKey();
+
+  simSerial.begin(SIM7080G_BAUD, SERIAL_8N1, SIM7080G_RX_PIN, SIM7080G_TX_PIN);
+  delay(300);
+
+  bool ok = simModem.init(SIM7080G_PIN);
+  if (!ok) {
+    Serial.println("[SIM7080G] init() failed; trying restart()");
+    ok = simModem.restart(SIM7080G_PIN);
+  }
+
+  if (!ok) {
+    Serial.println("[SIM7080G] Modem init failed");
+    return false;
+  }
+
+  cellularModemInitialized = true;
+  Serial.print("[SIM7080G] Modem info: ");
+  Serial.println(simModem.getModemInfo());
+
+  if (String(SIM7080G_PIN).length() > 0 && simModem.getSimStatus() != 3) {
+    Serial.println("[SIM7080G] Unlocking SIM");
+    simModem.simUnlock(SIM7080G_PIN);
+  }
+
+  return true;
+}
+
+bool connectCellular() {
+  if (!initCellularModem()) return false;
+
+  if (cellularConnected && simModem.isGprsConnected()) {
+    return true;
+  }
+
+  for (int attempt = 1; attempt <= SIM7080G_CONNECT_RETRIES; attempt++) {
+    Serial.printf("[SIM7080G] Waiting for LTE/NB-IoT network attempt %d/%d\n", attempt, SIM7080G_CONNECT_RETRIES);
+    if (!simModem.waitForNetwork(SIM7080G_NETWORK_TIMEOUT_MS, true)) {
+      Serial.println("[SIM7080G] Network registration failed");
+      cellularConnected = false;
+    } else {
+      lastCellularCsq = simModem.getSignalQuality();
+      Serial.printf("[SIM7080G] Network connected; CSQ=%d approx_rssi=%d dBm\n", lastCellularCsq, csqToDbm(lastCellularCsq));
+
+      Serial.print("[SIM7080G] Connecting APN: ");
+      Serial.println(SIM7080G_APN);
+      if (simModem.gprsConnect(SIM7080G_APN, SIM7080G_USER, SIM7080G_PASS)) {
+        cellularConnected = simModem.isGprsConnected();
+        Serial.printf("[SIM7080G] Data connection: %s\n", cellularConnected ? "OK" : "FAILED");
+        if (cellularConnected) return true;
+      } else {
+        Serial.println("[SIM7080G] APN/data connection failed");
+        cellularConnected = false;
+      }
+    }
+
+    if (attempt < SIM7080G_CONNECT_RETRIES) {
+      unsigned long backoff = SIM7080G_RETRY_BACKOFF_MS * attempt;
+      Serial.printf("[SIM7080G] Backing off for %lu ms before retry\n", backoff);
+      delay(backoff);
+    }
+  }
+
+  return false;
+}
+
+template <typename TClient>
+bool cellularGetWithClient(TClient& client, const ParsedUrl& parsed, String& body, int& code) {
+  HttpClient http(client, parsed.host.c_str(), parsed.port);
+  http.connectionKeepAlive();
+
+  Serial.print("[SIM7080G HTTP GET] ");
+  Serial.println(parsed.path);
+  http.beginRequest();
+  http.get(parsed.path.c_str());
+  if (apiKey.length() > 0) http.sendHeader("X-API-Key", apiKey.c_str());
+  http.endRequest();
+
+  code = http.responseStatusCode();
+  body = http.responseBody();
+  http.stop();
+  return true;
+}
+
+template <typename TClient>
+bool cellularPostWithClient(TClient& client, const ParsedUrl& parsed, const String& json, String& body, int& code) {
+  HttpClient http(client, parsed.host.c_str(), parsed.port);
+  http.connectionKeepAlive();
+
+  Serial.print("[SIM7080G HTTP POST] ");
+  Serial.println(parsed.path);
+  http.beginRequest();
+  http.post(parsed.path.c_str());
+  http.sendHeader("Content-Type", "application/json");
+  if (apiKey.length() > 0) http.sendHeader("X-API-Key", apiKey.c_str());
+  http.sendHeader("Content-Length", json.length());
+  http.beginBody();
+  http.print(json);
+  http.endRequest();
+
+  code = http.responseStatusCode();
+  body = http.responseBody();
+  http.stop();
+  return true;
+}
+
+bool httpGetJsonCellular(const String& url, JsonDocument& doc) {
+  if (!connectCellular()) return false;
+
+  ParsedUrl parsed = parseUrl(url);
+  if (!parsed.valid) {
+    Serial.println("[SIM7080G HTTP GET] Invalid URL");
+    return false;
+  }
+
+  String body;
+  int code = 0;
+  bool requestOk = parsed.https
+    ? cellularGetWithClient(simSecureClient, parsed, body, code)
+    : cellularGetWithClient(simClient, parsed, body, code);
+
+  if (!requestOk) return false;
+
+  Serial.printf("[SIM7080G HTTP GET] Status: %d\n", code);
+  Serial.print("[SIM7080G HTTP GET] Body: ");
+  Serial.println(body);
+
+  if (code < 200 || code >= 300) return false;
+
+  DeserializationError err = deserializeJson(doc, body);
+  if (err) {
+    Serial.print("[SIM7080G HTTP GET] JSON parse error: ");
+    Serial.println(err.c_str());
+    return false;
+  }
+
+  return true;
+}
+
+bool httpPostJsonCellular(const String& url, const String& json, String* response = nullptr) {
+  if (!connectCellular()) return false;
+
+  ParsedUrl parsed = parseUrl(url);
+  if (!parsed.valid) {
+    Serial.println("[SIM7080G HTTP POST] Invalid URL");
+    return false;
+  }
+
+  String body;
+  int code = 0;
+  bool requestOk = parsed.https
+    ? cellularPostWithClient(simSecureClient, parsed, json, body, code)
+    : cellularPostWithClient(simClient, parsed, json, body, code);
+
+  if (!requestOk) return false;
+
+  Serial.printf("[SIM7080G HTTP POST] Status: %d\n", code);
+  Serial.print("[SIM7080G HTTP POST] Response: ");
+  Serial.println(body);
+  if (response) *response = body;
+
+  return code >= 200 && code < 300;
+}
+
+bool syncTimeFromCellular() {
+  if (!connectCellular()) {
+    Serial.println("[TIME] Cannot sync time: cellular unavailable");
+    return false;
+  }
+
+  int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+  float timezone = 0.0f;
+  if (!simModem.getNetworkTime(&year, &month, &day, &hour, &minute, &second, &timezone)) {
+    Serial.println("[TIME] Cellular network time unavailable");
+    return false;
+  }
+
+  if (year < 2024 || year > 2099) {
+    Serial.println("[TIME] Cellular network time invalid");
+    return false;
+  }
+
+  DateTime localTime(year, month, day, hour, minute, second);
+  int64_t utcEpoch64 = (int64_t)localTime.unixtime() - (int64_t)(timezone * 3600.0f);
+  if (utcEpoch64 < 0) {
+    Serial.println("[TIME] Cellular network time conversion invalid");
+    return false;
+  }
+  uint32_t utcEpoch = (uint32_t)utcEpoch64;
+  DateTime utcTime(utcEpoch);
+
+  struct timeval tv;
+  tv.tv_sec = utcEpoch;
+  tv.tv_usec = 0;
+  settimeofday(&tv, nullptr);
+
+  if (rtcOk) {
+    rtc.adjust(utcTime);
+    Serial.println("[TIME] RTC updated from cellular network time");
+  }
+
+  timeSource = "cellular";
+  Serial.print("[TIME] Current timestamp: ");
+  Serial.println(timestampNow());
+  return true;
+}
+#endif
+
+bool usingCellularTransport() {
+#if ENABLE_SIM7080G
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool connectNetwork() {
+#if ENABLE_SIM7080G
+  return connectCellular();
+#else
+  return connectWifi();
+#endif
+}
+
+void shutdownCellularForSleep() {
+#if ENABLE_SIM7080G
+  if (cellularModemInitialized) {
+    if (cellularConnected) {
+      simModem.gprsDisconnect();
+      cellularConnected = false;
+    }
+    Serial.println("[SIM7080G] Powering off modem for sleep");
+    simModem.poweroff();
+    cellularModemInitialized = false;
+  }
+
+  if (SIM7080G_POWER_EN_PIN >= 0) {
+    digitalWrite(SIM7080G_POWER_EN_PIN, SIM7080G_POWER_EN_ACTIVE_HIGH ? LOW : HIGH);
+  }
+#endif
+}
+
+void preparePowerMonitorsForSleep() {
+#if ENABLE_INA219_SOLAR
+  if (solarMonitorOk) solarMonitor.powerSave(true);
+#endif
 }
 
 String htmlEscape(String s) {
@@ -937,6 +1394,18 @@ String timestampNow() {
 }
 
 void syncTime() {
+#if ENABLE_SIM7080G
+  if (syncTimeFromCellular()) return;
+
+  if (rtcOk && rtcHasValidTime()) {
+    timeSource = "rtc";
+    Serial.println("[TIME] Falling back to RTC after cellular time failure");
+    return;
+  }
+
+  timeSource = "invalid";
+  return;
+#else
   if (!connectWifi()) {
     Serial.println("[TIME] Cannot sync time: WiFi unavailable");
     return;
@@ -980,6 +1449,7 @@ void syncTime() {
   }
 
   timeSource = "invalid";
+#endif
 }
 
 void addAuthHeader(HTTPClient& http) {
@@ -987,6 +1457,9 @@ void addAuthHeader(HTTPClient& http) {
 }
 
 bool httpGetJson(const String& url, JsonDocument& doc) {
+#if ENABLE_SIM7080G
+  return httpGetJsonCellular(url, doc);
+#else
   if (!connectWifi()) return false;
 
   Serial.println("[HTTP GET]");
@@ -1022,9 +1495,15 @@ bool httpGetJson(const String& url, JsonDocument& doc) {
   }
 
   return true;
+#endif
 }
 
 bool httpPostJson(const String& url, const String& json, String* response = nullptr) {
+#if ENABLE_SIM7080G
+  bool ok = httpPostJsonCellular(url, json, response);
+  Serial.printf("[HTTP POST] %s\n", ok ? "SUCCESS" : "FAILED");
+  return ok;
+#else
   if (!connectWifi()) {
     Serial.println("[HTTP POST] No WiFi");
     return false;
@@ -1066,6 +1545,7 @@ bool httpPostJson(const String& url, const String& json, String* response = null
 
   Serial.println("[HTTP POST] FAILED");
   return false;
+#endif
 }
 
 bool appendLineToSdFile(const char* path, const String& line, const char* label) {
@@ -1135,6 +1615,20 @@ String createMeasurementJson() {
   float ambientTemp = NAN;
   float ambientHumidity = NAN;
 
+#if ENABLE_INA219_SOLAR
+  float solarBusVoltage = NAN;
+  float solarShuntVoltageMv = NAN;
+  float solarLoadVoltage = NAN;
+  float solarCurrentMa = NAN;
+  float solarPowerMw = NAN;
+#endif
+
+#if ENABLE_MAX17048_BATTERY
+  float batteryVoltage = NAN;
+  float batterySoc = NAN;
+  bool batteryAlert = false;
+#endif
+
   if (shtOk) {
     sensors_event_t humidity, temp;
     if (sht4.getEvent(&humidity, &temp)) {
@@ -1150,10 +1644,37 @@ String createMeasurementJson() {
   float weight1 = weightFromRaw(raw1, scale1Offset, scale1Factor);
   float weight2 = weightFromRaw(raw2, scale2Offset, scale2Factor);
 
+#if ENABLE_INA219_SOLAR
+  if (solarMonitorOk) {
+    solarMonitor.powerSave(false);
+    delay(10);
+    solarBusVoltage = solarMonitor.getBusVoltage_V();
+    solarShuntVoltageMv = solarMonitor.getShuntVoltage_mV();
+    solarCurrentMa = solarMonitor.getCurrent_mA();
+    solarPowerMw = solarMonitor.getPower_mW();
+    solarLoadVoltage = solarBusVoltage + (solarShuntVoltageMv / 1000.0f);
+    solarMonitor.powerSave(true);
+  }
+#endif
+
+#if ENABLE_MAX17048_BATTERY
+  if (batteryMonitorOk) {
+    batteryVoltage = batteryGauge.getVoltage();
+    batterySoc = batteryGauge.getSOC();
+    batteryAlert = batteryGauge.getAlert();
+  }
+#endif
+
   Serial.printf("[MEASURE] raw1=%ld weight1=%.3f kg\n", raw1, weight1);
   Serial.printf("[MEASURE] raw2=%ld weight2=%.3f kg\n", raw2, weight2);
   Serial.printf("[MEASURE] hiveTemp1=%.2f hiveTemp2=%.2f\n", hiveTemp1, hiveTemp2);
   Serial.printf("[MEASURE] ambientTemp=%.2f humidity=%.2f\n", ambientTemp, ambientHumidity);
+#if ENABLE_INA219_SOLAR
+  Serial.printf("[MEASURE] solar load=%.3f V current=%.2f mA power=%.2f mW\n", solarLoadVoltage, solarCurrentMa, solarPowerMw);
+#endif
+#if ENABLE_MAX17048_BATTERY
+  Serial.printf("[MEASURE] battery=%.3f V soc=%.1f%% alert=%s\n", batteryVoltage, batterySoc, batteryAlert ? "yes" : "no");
+#endif
 
   JsonDocument doc;
   doc["device_id"] = deviceId;
@@ -1165,7 +1686,16 @@ String createMeasurementJson() {
   doc["hive_2_temp_c"] = hiveTemp2;
   doc["ambient_temp_c"] = ambientTemp;
   doc["ambient_humidity_percent"] = ambientHumidity;
+#if ENABLE_SIM7080G
+  lastCellularCsq = cellularConnected ? simModem.getSignalQuality() : lastCellularCsq;
+  doc["network_transport"] = "sim7080g";
+  doc["cellular_ok"] = cellularConnected;
+  doc["cellular_csq"] = lastCellularCsq;
+  doc["rssi_dbm"] = csqToDbm(lastCellularCsq);
+#else
+  doc["network_transport"] = "wifi";
   doc["rssi_dbm"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+#endif
   doc["firmware_version"] = FIRMWARE_VERSION;
   doc["calibration_mode"] = calibrationModeActive;
   doc["boot_count"] = rtcBootCount;
@@ -1175,6 +1705,20 @@ String createMeasurementJson() {
   doc["sd_ok"] = sdOk;
   doc["rtc_ok"] = rtcOk;
   doc["sht_ok"] = shtOk;
+#if ENABLE_INA219_SOLAR
+  doc["solar_monitor_ok"] = solarMonitorOk;
+  doc["solar_bus_voltage_v"] = solarBusVoltage;
+  doc["solar_shunt_voltage_mv"] = solarShuntVoltageMv;
+  doc["solar_load_voltage_v"] = solarLoadVoltage;
+  doc["solar_current_ma"] = solarCurrentMa;
+  doc["solar_power_mw"] = solarPowerMw;
+#endif
+#if ENABLE_MAX17048_BATTERY
+  doc["battery_monitor_ok"] = batteryMonitorOk;
+  doc["battery_voltage_v"] = batteryVoltage;
+  doc["battery_soc_percent"] = batterySoc;
+  doc["battery_alert"] = batteryAlert;
+#endif
 
   String output;
   serializeJson(doc, output);
@@ -1292,7 +1836,16 @@ String absoluteUrl(String maybeRelativeUrl) {
 }
 
 bool performFirmwareUpdate(const String& firmwareUrl) {
+#if ENABLE_SIM7080G
+  if (!CELLULAR_OTA_ENABLED) {
+    Serial.println("[OTA] Skipping firmware download on cellular transport; set CELLULAR_OTA_ENABLED=1 to allow cellular OTA after validating data plan and TLS behavior");
+    return false;
+  }
+  Serial.println("[OTA] Cellular OTA is not implemented in this build path; use WiFi/provisioning for firmware updates");
+  return false;
+#else
   if (!connectWifi()) return false;
+#endif
 
   String url = absoluteUrl(firmwareUrl);
   Serial.print("[OTA] Downloading firmware: ");
@@ -1356,8 +1909,8 @@ bool performFirmwareUpdate(const String& firmwareUrl) {
 }
 
 void checkForOtaUpdate() {
-  if (!connectWifi()) {
-    Serial.println("[OTA] Skipping: WiFi unavailable");
+  if (!connectNetwork()) {
+    Serial.println("[OTA] Skipping: network unavailable");
     return;
   }
 
@@ -1400,7 +1953,7 @@ void postCommandResult(int commandId, bool success, const String& message) {
 }
 
 void checkCommands() {
-  if (!connectWifi()) return;
+  if (!connectNetwork()) return;
 
   JsonDocument doc;
   String url = apiUrl(String("/api/v1/devices/") + deviceId + "/commands/next");
@@ -1455,6 +2008,16 @@ void runUploadCycle() {
   debugLine();
   Serial.println("[CYCLE] Starting measurement/upload cycle");
 
+#if ENABLE_SIM7080G
+  // Attach once before creating the payload so the cellular status and CSQ in
+  // this measurement describe the same upload attempt. The existing cached-line
+  // uploader reuses this connection if it succeeded. If cellular is unavailable,
+  // continue and cache the measurement for the next cycle.
+  if (!connectNetwork()) {
+    Serial.println("[CYCLE] Cellular unavailable; measurement will be cached if SD is available");
+  }
+#endif
+
   String json = createMeasurementJson();
 
   if (sdOk) {
@@ -1475,9 +2038,9 @@ void runUploadCycle() {
   checkCommands();
 
   if (shouldCheckOtaThisCycle()) {
-    checkForOtaUpdate();
     lastOtaCheckMs = millis();
     markOtaChecked();
+    checkForOtaUpdate();
   } else {
     Serial.printf("[OTA] Skipping; next scheduled check in %u cycle(s)\n", rtcCyclesUntilOta);
   }
@@ -1503,6 +2066,7 @@ void setup() {
   debugLine();
   Serial.println("Hive Scale ESP32 firmware with provisioning + OTA");
   Serial.printf("Firmware version: %s\n", FIRMWARE_VERSION);
+  Serial.printf("Optional modules: SIM7080G=%d INA219=%d MAX17048=%d\n", ENABLE_SIM7080G, ENABLE_INA219_SOLAR, ENABLE_MAX17048_BATTERY);
   Serial.printf("Wake reason: %s; RTC boot count: %u\n", wakeReasonName(wakeReason).c_str(), rtcBootCount);
   debugLine();
 
@@ -1533,6 +2097,24 @@ void setup() {
     sht4.setPrecision(SHT4X_HIGH_PRECISION);
     sht4.setHeater(SHT4X_NO_HEATER);
   }
+
+#if ENABLE_INA219_SOLAR
+  solarMonitorOk = solarMonitor.begin(&Wire);
+  Serial.printf("[INA219] %s\n", solarMonitorOk ? "OK" : "MISSING");
+  if (solarMonitorOk) {
+    solarMonitor.setCalibration_32V_2A();
+    solarMonitor.powerSave(true);
+  }
+#endif
+
+#if ENABLE_MAX17048_BATTERY
+  batteryMonitorOk = batteryGauge.begin();
+  Serial.printf("[MAX17048] %s\n", batteryMonitorOk ? "OK" : "MISSING");
+  if (batteryMonitorOk) {
+    batteryGauge.quickStart();
+    batteryGauge.setThreshold(MAX17048_ALERT_PERCENT);
+  }
+#endif
 
   ds18b20.begin();
   Serial.printf("[DS18B20] Device count: %d\n", ds18b20.getDeviceCount());
