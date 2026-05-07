@@ -33,7 +33,7 @@
 #define FORCE_RESEED false
 #endif
 
-static const char* FIRMWARE_VERSION = "0.5.5-ap-sd-download";
+static const char* FIRMWARE_VERSION = "0.5.6-ap-sd";
 
 #define HX1_DOUT 16
 #define HX1_SCK  17

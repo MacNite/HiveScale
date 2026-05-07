@@ -14,7 +14,7 @@ Relevant button behavior in `main.cpp`:
 // Long press: reset Preferences and reboot.
 #define SETUP_BUTTON_PIN 27
 static const unsigned long BUTTON_DEBOUNCE_MS = 50;
-static const unsigned long BUTTON_LONG_PRESS_MS = 5000;
+static const unsigned long BUTTON_LONG_PRESS_MS = 10000;
 ```
 
 The setup button is connected to GPIO27 and should pull the pin to GND when pressed. The pin uses `INPUT_PULLUP`, so the button is considered pressed when the input reads `LOW`.
@@ -79,7 +79,7 @@ A long hold of the setup button performs a factory reset of Preferences and rebo
 Current behavior:
 
 - Short press: start AP/setup mode.
-- Long press for 5 seconds: factory reset Preferences and reboot.
+- Long press for 10 seconds: factory reset Preferences and reboot.
 
 Factory reset is triggered by this logic in `handleButton()`:
 
@@ -91,48 +91,9 @@ if (down && buttonWasDown && !longPressHandled && now - buttonDownMs >= BUTTON_L
 }
 ```
 
-### How to avoid accidental factory reset when entering AP mode
-
-When using the power-cycle method to enter AP mode:
-
-1. Hold the button before plugging in power.
-2. Plug in power.
-3. Release the button after about 1-2 seconds.
-
-Do not continue holding the button for the full long-press duration after the firmware has booted. If the button remains held long enough, the firmware will treat it as a factory-reset request.
-
-## Changing the factory reset hold time to 10 seconds
-
-In the patched `main.cpp`, change line **55**:
-
-```cpp
-static const unsigned long BUTTON_LONG_PRESS_MS = 5000;
-```
-
-To:
-
-```cpp
-static const unsigned long BUTTON_LONG_PRESS_MS = 10000;
-```
-
-The value is in milliseconds:
-
-- `5000` = 5 seconds
-- `10000` = 10 seconds
-
-After changing this value, rebuild and flash the firmware.
-
-You can also locate the setting quickly with:
-
-```bash
-grep -n "BUTTON_LONG_PRESS_MS" main.cpp
-```
-
-Note: increasing `BUTTON_LONG_PRESS_MS` also increases the upper limit for what counts as a short press. The code treats a press as short only when the held time is greater than `BUTTON_DEBOUNCE_MS` and less than `BUTTON_LONG_PRESS_MS`.
-
 ## AP-mode SD card download feature
 
-The AP-mode web interface now includes a button for downloading all data from the SD card.
+The AP-mode web interface  includes a button for downloading all data from the SD card.
 
 On the setup page, a new section is shown:
 
@@ -229,12 +190,4 @@ To factory reset:
 2. Hold the setup button for the configured long-press duration.
 3. Release after the device logs or performs the reset.
 
-Default factory-reset hold time: 5 seconds.
-
-Recommended safer factory-reset hold time: 10 seconds.
-
-To change it to 10 seconds, edit:
-
-```cpp
-static const unsigned long BUTTON_LONG_PRESS_MS = 10000;
-```
+Default factory-reset hold time: 10 seconds.
