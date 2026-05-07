@@ -79,16 +79,41 @@ Each HX711 module connects to its load cell(s) and to the ESP32. The E+/E−/A+/
 
 > HX711 modules typically accept 2.7–5 V on VCC. 3.3 V works reliably with most modules and avoids level-shifting on the data lines.
 
-**Typical load cell wiring (4-wire, single load cell per HX711):**
+---
 
-| Load cell wire | HX711 terminal |
-|---|---|
-| Red | E+ (excitation +) |
-| Black | E− (excitation −) |
-| White | A− (signal −) |
-| Green | A+ (signal +) |
+**4-cell platform scale — wiring 3-wire load cells into a Wheatstone bridge**
 
-For a **4-cell platform scale** (4 load cells combined), connect using a Wheatstone bridge combinator board or wire them in pairs: the four cells share the E+/E− supply, and the combined signal goes to A+/A−.
+A typical bathroom/kitchen-style platform scale uses four identical 3-wire load cells (one per corner). Each cell has three wires: **excitation+ (red)**, **excitation− (black)**, and **signal (white or yellow)**. Internally each cell contains a single strain gauge; you build the full Wheatstone bridge yourself by cross-connecting the four cells.
+
+The bridge works as two voltage dividers whose midpoints feed the differential signal into the HX711. Label the cells by corner: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **RR** (rear-right).
+
+**Bridge wiring — node by node:**
+
+| Node | Connect here | Goes to |
+|---|---|---|
+| E+ | Red wires of **FL** and **FR** | HX711 E+ |
+| E− | Black wires of **RL** and **RR** | HX711 E− |
+| A+ | Signal wire of **FR** + Black wires of **FL** and **FR** joined together¹ | HX711 A+ |
+| A− | Signal wire of **FL** + Red wires of **RL** and **RR** joined together¹ | HX711 A− |
+
+¹ See the detailed node description below — each midpoint node ties one signal wire together with two excitation wires from adjacent cells.
+
+More precisely, the four nodes of the bridge are formed as follows:
+
+- **E+ node:** Red (E+) of FL + Red (E+) of FR → HX711 E+
+- **E− node:** Black (E−) of RL + Black (E−) of RR → HX711 E−
+- **A+ node:** Signal of FR + Black (E−) of FL + Black (E−) of FR → HX711 A+
+- **A− node:** Signal of FL + Red (E+) of RL + Red (E+) of RR → HX711 A−
+
+> **Why this works:** Each 3-wire load cell's signal wire is the midpoint of its internal half-bridge. By cross-connecting the four cells this way, you form a complete Wheatstone bridge where all four gauges contribute to the output — giving you the same result as a dedicated 6-wire full-bridge load cell, without a combinator board.
+
+**Practical tips:**
+
+- Use all four cells from the **same batch** if possible. Mismatched cells cause zero-point drift and non-linearity.
+- Keep all signal wire runs **equal in length** to balance impedance.
+- Twist or bundle each cell's wires together and keep them away from mains wiring to reduce noise.
+- After wiring, check the unloaded differential voltage at A+/A− (should be close to 0 V) before connecting to the HX711.
+- The HX711's onboard averaging and the software tare handle any small residual offset.
 
 ---
 
