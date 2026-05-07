@@ -1,0 +1,240 @@
+# HiveScale AP Mode, Button Handling, and SD Card Download
+
+This document describes how to enter HiveScale AP/setup mode, how the setup button behaves during normal operation and deep sleep, how to perform a factory reset, and how to use the AP-mode web interface to download all SD card data.
+
+## Firmware behavior overview
+
+The firmware supports a setup/provisioning access point mode, also called AP mode. AP mode is used to configure WiFi/backend settings and, with the new SD download feature, download all files stored on the SD card.
+
+Relevant button behavior in `main.cpp`:
+
+```cpp
+// External button. Wire button between this pin and GND. Uses INPUT_PULLUP.
+// Short press: start WiFi provisioning AP.
+// Long press: reset Preferences and reboot.
+#define SETUP_BUTTON_PIN 27
+static const unsigned long BUTTON_DEBOUNCE_MS = 50;
+static const unsigned long BUTTON_LONG_PRESS_MS = 5000;
+```
+
+The setup button is connected to GPIO27 and should pull the pin to GND when pressed. The pin uses `INPUT_PULLUP`, so the button is considered pressed when the input reads `LOW`.
+
+## Entering AP mode
+
+### When the device is awake
+
+Press and release the setup button briefly.
+
+Expected result:
+
+1. The firmware detects a short press.
+2. AP mode starts.
+3. The device creates a WiFi network named similar to:
+
+```text
+HiveScale-Setup-ABCD
+```
+
+4. Connect to that WiFi network.
+5. Open the setup page in a browser:
+
+```text
+http://192.168.4.1
+```
+
+The exact AP SSID and IP address are also printed to the serial monitor when AP mode starts.
+
+### When the device is in deep sleep
+
+During deep sleep, the normal firmware loop is not running. That means a normal short press cannot be handled in the same way as when the ESP32 is awake.
+
+However, the firmware configures GPIO27 as an EXT0 wake source:
+
+```cpp
+esp_sleep_enable_ext0_wakeup((gpio_num_t)SETUP_BUTTON_PIN, 0);
+```
+
+This allows the setup button to wake the ESP32 from deep sleep when the button pulls GPIO27 LOW.
+
+Recommended method:
+
+1. Unplug power from the device.
+2. Press and hold the setup button.
+3. Plug power back in while still holding the button.
+4. Keep holding the button for about 1-2 seconds.
+5. Release the button.
+6. Connect to the `HiveScale-Setup-XXXX` WiFi network.
+7. Open:
+
+```text
+http://192.168.4.1
+```
+
+This method is more reliable than a very quick press during deep sleep, because the button is already held when the ESP32 boots and checks the setup button state.
+
+## Important: long hold / factory reset behavior
+
+A long hold of the setup button performs a factory reset of Preferences and reboots the device.
+
+Current behavior:
+
+- Short press: start AP/setup mode.
+- Long press for 5 seconds: factory reset Preferences and reboot.
+
+Factory reset is triggered by this logic in `handleButton()`:
+
+```cpp
+if (down && buttonWasDown && !longPressHandled && now - buttonDownMs >= BUTTON_LONG_PRESS_MS) {
+  longPressHandled = true;
+  Serial.println("[BUTTON] Long press detected: factory reset Preferences");
+  factoryResetPreferences();
+}
+```
+
+### How to avoid accidental factory reset when entering AP mode
+
+When using the power-cycle method to enter AP mode:
+
+1. Hold the button before plugging in power.
+2. Plug in power.
+3. Release the button after about 1-2 seconds.
+
+Do not continue holding the button for the full long-press duration after the firmware has booted. If the button remains held long enough, the firmware will treat it as a factory-reset request.
+
+## Changing the factory reset hold time to 10 seconds
+
+In the patched `main.cpp`, change line **55**:
+
+```cpp
+static const unsigned long BUTTON_LONG_PRESS_MS = 5000;
+```
+
+To:
+
+```cpp
+static const unsigned long BUTTON_LONG_PRESS_MS = 10000;
+```
+
+The value is in milliseconds:
+
+- `5000` = 5 seconds
+- `10000` = 10 seconds
+
+After changing this value, rebuild and flash the firmware.
+
+You can also locate the setting quickly with:
+
+```bash
+grep -n "BUTTON_LONG_PRESS_MS" main.cpp
+```
+
+Note: increasing `BUTTON_LONG_PRESS_MS` also increases the upper limit for what counts as a short press. The code treats a press as short only when the held time is greater than `BUTTON_DEBOUNCE_MS` and less than `BUTTON_LONG_PRESS_MS`.
+
+## AP-mode SD card download feature
+
+The AP-mode web interface now includes a button for downloading all data from the SD card.
+
+On the setup page, a new section is shown:
+
+```text
+SD card data
+[Download all SD data (.tar)]
+```
+
+Clicking this button downloads the SD card contents as a TAR archive:
+
+```text
+hivescale-sd-data.tar
+```
+
+The firmware endpoint is:
+
+```text
+GET /sd/download-all
+```
+
+The route is registered in `startProvisioningPortal()`:
+
+```cpp
+setupServer.on("/sd/download-all", HTTP_GET, handleSdDownloadAll);
+```
+
+The button is added to the AP-mode HTML page:
+
+```cpp
+html += "<p><a class='button' href='/sd/download-all'>Download all SD data (.tar)</a></p>";
+```
+
+## Why TAR instead of ZIP?
+
+The download uses TAR instead of ZIP because TAR can be streamed directly from the ESP32 with very little RAM usage.
+
+This is important because the ESP32 should not try to load the full SD card contents into memory before sending the download. The firmware walks the SD card directory tree and streams each file into the TAR response.
+
+## Extracting the downloaded data
+
+### macOS / Linux
+
+```bash
+tar -xf hivescale-sd-data.tar
+```
+
+### Windows PowerShell
+
+```powershell
+tar -xf hivescale-sd-data.tar
+```
+
+Modern Windows includes `tar` by default. If that is not available, 7-Zip can also open `.tar` files.
+
+## Operational notes
+
+- The SD download button is only shown when the SD card is available.
+- Large SD cards or slow connections may take a while to download.
+- Keep the browser open until the download completes.
+- The firmware streams the TAR file directly, so RAM usage stays low.
+- Very long file paths may be skipped because the simple TAR header implementation only supports names up to 99 characters.
+- AP mode currently times out after the configured provisioning timeout if no reset/save action keeps the device active.
+
+## Related code locations
+
+In the patched `main.cpp`:
+
+| Purpose | Code reference |
+|---|---|
+| Setup button pin | `SETUP_BUTTON_PIN`, line 53 |
+| Factory reset hold duration | `BUTTON_LONG_PRESS_MS`, line 55 |
+| Deep-sleep wake from button | `configureButtonWake()` |
+| Boot-time AP entry check | `digitalRead(SETUP_BUTTON_PIN) == LOW || wakeReason == ESP_SLEEP_WAKEUP_EXT0` |
+| Button short/long press handling | `handleButton()` |
+| SD TAR streaming helpers | `tarSafeName()`, `writeTarHeader()`, `streamTarDirectory()` |
+| SD download HTTP handler | `handleSdDownloadAll()` |
+| AP-mode download button | `handleSetupRoot()` |
+| SD download route | `setupServer.on("/sd/download-all", HTTP_GET, handleSdDownloadAll)` |
+
+## Recommended user instructions
+
+To enter setup mode reliably:
+
+1. Unplug the device.
+2. Hold the setup button.
+3. Plug the device back in.
+4. Release the button after 1-2 seconds.
+5. Connect to the `HiveScale-Setup-XXXX` WiFi network.
+6. Open `http://192.168.4.1`.
+
+To factory reset:
+
+1. Make sure the device is powered and awake.
+2. Hold the setup button for the configured long-press duration.
+3. Release after the device logs or performs the reset.
+
+Default factory-reset hold time: 5 seconds.
+
+Recommended safer factory-reset hold time: 10 seconds.
+
+To change it to 10 seconds, edit:
+
+```cpp
+static const unsigned long BUTTON_LONG_PRESS_MS = 10000;
+```

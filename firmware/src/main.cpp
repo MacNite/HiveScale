@@ -33,7 +33,7 @@
 #define FORCE_RESEED false
 #endif
 
-static const char* FIRMWARE_VERSION = "0.5.4-calibration-mode";
+static const char* FIRMWARE_VERSION = "0.5.5-ap-sd-download";
 
 #define HX1_DOUT 16
 #define HX1_SCK  17
@@ -52,7 +52,7 @@ static const char* FIRMWARE_VERSION = "0.5.4-calibration-mode";
 // Long press: reset Preferences and reboot.
 #define SETUP_BUTTON_PIN 27
 static const unsigned long BUTTON_DEBOUNCE_MS = 50;
-static const unsigned long BUTTON_LONG_PRESS_MS = 5000;
+static const unsigned long BUTTON_LONG_PRESS_MS = 10000;
 
 static const int MAX_WIFI_NETWORKS = 3;
 static const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
@@ -92,6 +92,7 @@ Preferences prefs;
 WebServer setupServer(80);
 
 bool sdOk = false;
+bool sdBusInitialized = false;
 bool shtOk = false;
 bool rtcOk = false;
 bool provisioningActive = false;
@@ -226,12 +227,27 @@ void shutdownWifiAndBt() {
   delay(100);
 }
 
+bool initSdCard() {
+  if (sdOk) return true;
+
+  if (!sdBusInitialized) {
+    SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+    sdBusInitialized = true;
+  }
+
+  sdOk = SD.begin(SD_CS);
+  Serial.printf("[SD] %s\n", sdOk ? "OK" : "MISSING");
+  return sdOk;
+}
+
 void prepareSdForSleep() {
   if (sdOk) {
     SD.end();
+    sdOk = false;
   }
 
   SPI.end();
+  sdBusInitialized = false;
 
   // Leave the SD card deselected if it remains powered.
   pinMode(SD_CS, OUTPUT);
@@ -577,13 +593,183 @@ String htmlEscape(String s) {
   return s;
 }
 
+String tarSafeName(String path) {
+  path.trim();
+  path.replace("\\", "/");
+  while (path.startsWith("/")) path.remove(0, 1);
+  if (path.length() == 0) path = "sd-root";
+  return path;
+}
+
+void writeTarOctal(char* field, size_t fieldSize, uint64_t value) {
+  // TAR numeric fields are ASCII octal, NUL-terminated.
+  char fmt[12];
+  snprintf(fmt, sizeof(fmt), "%%0%dllo", (int)fieldSize - 1);
+  snprintf(field, fieldSize, fmt, (unsigned long long)value);
+}
+
+bool writeTarHeader(WiFiClient& client, const String& name, uint64_t size, bool directory) {
+  String safeName = tarSafeName(name);
+  if (safeName.length() > 99) {
+    Serial.printf("[SD] Skipping TAR entry with too-long name: %s\n", safeName.c_str());
+    return false;
+  }
+
+  uint8_t header[512];
+  memset(header, 0, sizeof(header));
+
+  strncpy((char*)header, safeName.c_str(), 100);
+  writeTarOctal((char*)header + 100, 8, directory ? 0755 : 0644);
+  writeTarOctal((char*)header + 108, 8, 0);
+  writeTarOctal((char*)header + 116, 8, 0);
+  writeTarOctal((char*)header + 124, 12, directory ? 0 : size);
+  writeTarOctal((char*)header + 136, 12, 0);
+  memset(header + 148, ' ', 8);
+  header[156] = directory ? '5' : '0';
+  memcpy(header + 257, "ustar", 5);
+  memcpy(header + 263, "00", 2);
+
+  unsigned int checksum = 0;
+  for (size_t i = 0; i < sizeof(header); i++) checksum += header[i];
+  snprintf((char*)header + 148, 8, "%06o", checksum);
+  header[154] = '\0';
+  header[155] = ' ';
+
+  return client.write(header, sizeof(header)) == sizeof(header);
+}
+
+uint64_t paddedTarContentSize(uint64_t size) {
+  return size + ((512 - (size % 512)) % 512);
+}
+
+uint64_t tarDirectorySize(File& dir, const String& prefix) {
+  uint64_t total = 0;
+  File entry = dir.openNextFile();
+  while (entry) {
+    String entryName = String(entry.name());
+    int slash = entryName.lastIndexOf('/');
+    if (slash >= 0) entryName = entryName.substring(slash + 1);
+
+    String tarName = prefix.length() > 0 ? prefix + "/" + entryName : entryName;
+    if (tarSafeName(tarName).length() <= 99) {
+      if (entry.isDirectory()) {
+        total += 512;
+        total += tarDirectorySize(entry, tarName);
+      } else {
+        total += 512 + paddedTarContentSize(entry.size());
+      }
+    } else {
+      Serial.printf("[SD] Skipping TAR size entry with too-long name: %s\n", tarName.c_str());
+    }
+
+    entry.close();
+    entry = dir.openNextFile();
+    delay(0);
+  }
+  return total;
+}
+
+void streamTarFile(WiFiClient& client, File& file, const String& name) {
+  uint64_t size = file.size();
+  if (!writeTarHeader(client, name, size, false)) return;
+
+  uint8_t buf[1024];
+  uint64_t remaining = size;
+  while (remaining > 0 && file.available() && client.connected()) {
+    size_t toRead = remaining > sizeof(buf) ? sizeof(buf) : (size_t)remaining;
+    size_t n = file.read(buf, toRead);
+    if (n == 0) break;
+    client.write(buf, n);
+    remaining -= n;
+    delay(0);
+  }
+
+  size_t pad = (512 - (size % 512)) % 512;
+  if (pad > 0) {
+    uint8_t zeros[512];
+    memset(zeros, 0, sizeof(zeros));
+    client.write(zeros, pad);
+  }
+}
+
+void streamTarDirectory(WiFiClient& client, File& dir, const String& prefix) {
+  File entry = dir.openNextFile();
+  while (entry && client.connected()) {
+    String entryName = String(entry.name());
+    int slash = entryName.lastIndexOf('/');
+    if (slash >= 0) entryName = entryName.substring(slash + 1);
+
+    String tarName = prefix.length() > 0 ? prefix + "/" + entryName : entryName;
+
+    if (entry.isDirectory()) {
+      writeTarHeader(client, tarName + "/", 0, true);
+      streamTarDirectory(client, entry, tarName);
+    } else {
+      streamTarFile(client, entry, tarName);
+    }
+
+    entry.close();
+    entry = dir.openNextFile();
+    delay(0);
+  }
+}
+
+void handleSdDownloadAll() {
+  if (!initSdCard()) {
+    setupServer.send(503, "text/plain", "SD card not available");
+    return;
+  }
+
+  File root = SD.open("/");
+  if (!root || !root.isDirectory()) {
+    setupServer.send(500, "text/plain", "Could not open SD root directory");
+    return;
+  }
+
+  uint64_t tarSize = tarDirectorySize(root, "") + 1024;
+  root.close();
+
+  if (tarSize > 0xFFFFFFFFULL) {
+    setupServer.send(413, "text/plain", "SD data is too large to stream in one download on this firmware");
+    return;
+  }
+
+  root = SD.open("/");
+  if (!root || !root.isDirectory()) {
+    setupServer.send(500, "text/plain", "Could not reopen SD root directory");
+    return;
+  }
+
+  setupServer.sendHeader("Content-Disposition", "attachment; filename=\"hivescale-sd-data.tar\"");
+  setupServer.sendHeader("Connection", "close");
+  setupServer.setContentLength((size_t)tarSize);
+  setupServer.send(200, "application/x-tar", "");
+
+  WiFiClient client = setupServer.client();
+  streamTarDirectory(client, root, "");
+
+  uint8_t zeros[1024];
+  memset(zeros, 0, sizeof(zeros));
+  client.write(zeros, sizeof(zeros));
+  root.close();
+  Serial.println("[SD] Download-all TAR completed");
+}
+
 void handleSetupRoot() {
   String html;
   html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
   html += "<title>HiveScale Setup</title>";
-  html += "<style>body{font-family:system-ui;margin:24px;max-width:760px}input{width:100%;padding:10px;margin:6px 0 14px}button{padding:12px 16px}fieldset{margin:16px 0;padding:16px}</style>";
+  html += "<style>body{font-family:system-ui;margin:24px;max-width:760px}input{width:100%;padding:10px;margin:6px 0 14px}button,a.button{display:inline-block;padding:12px 16px;margin:4px 0;text-decoration:none;border:1px solid #333;border-radius:4px;background:#f4f4f4;color:#111}fieldset{margin:16px 0;padding:16px}</style>";
   html += "</head><body><h1>HiveScale Setup</h1>";
   html += "<p>Firmware: " + String(FIRMWARE_VERSION) + "</p>";
+  html += "<fieldset><legend>SD card data</legend>";
+  if (sdOk) {
+    html += "<p><a class='button' href='/sd/download-all'>Download all SD data (.tar)</a></p>";
+    html += "<p>This streams the SD card contents directly; large cards can take a while.</p>";
+  } else {
+    html += "<p>SD card not available.</p>";
+  }
+  html += "</fieldset>";
   html += "<form method='POST' action='/save'>";
   html += "<fieldset><legend>Backend</legend>";
   html += "<label>Device ID</label><input name='device_id' value='" + htmlEscape(deviceId) + "'>";
@@ -679,6 +865,7 @@ void startProvisioningPortal() {
   setupServer.on("/", HTTP_GET, handleSetupRoot);
   setupServer.on("/save", HTTP_POST, handleSetupSave);
   setupServer.on("/reset", HTTP_POST, handleSetupReset);
+  setupServer.on("/sd/download-all", HTTP_GET, handleSdDownloadAll);
   setupServer.onNotFound([]() {
     setupServer.sendHeader("Location", "/", true);
     setupServer.send(302, "text/plain", "");
@@ -1324,6 +1511,7 @@ void setup() {
 
   if (digitalRead(SETUP_BUTTON_PIN) == LOW || wakeReason == ESP_SLEEP_WAKEUP_EXT0) {
     Serial.println("[SETUP] Button wake/press detected; starting provisioning portal");
+    initSdCard();
     startProvisioningPortal();
     return;
   }
@@ -1353,9 +1541,7 @@ void setup() {
   scale2.begin(HX2_DOUT, HX2_SCK);
   Serial.println("[HX711] Initialized");
 
-  SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-  sdOk = SD.begin(SD_CS);
-  Serial.printf("[SD] %s\n", sdOk ? "OK" : "MISSING");
+  initSdCard();
 
   initializeTime(wokeFromDeepSleep);
 
