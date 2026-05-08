@@ -96,6 +96,26 @@
 #define SIM7080G_PWRKEY_PIN -1
 #endif
 
+#ifndef SIM7080G_PWRKEY_WAKE_PULSE_MS
+#define SIM7080G_PWRKEY_WAKE_PULSE_MS 1100UL
+#endif
+
+#ifndef SIM7080G_PWRKEY_RESET_PULSE_MS
+#define SIM7080G_PWRKEY_RESET_PULSE_MS 13000UL
+#endif
+
+#ifndef SIM7080G_PWRKEY_POWER_OFF_PULSE_MS
+#define SIM7080G_PWRKEY_POWER_OFF_PULSE_MS 1800UL
+#endif
+
+#ifndef SIM7080G_PWRKEY_BOOT_DELAY_MS
+#define SIM7080G_PWRKEY_BOOT_DELAY_MS 6000UL
+#endif
+
+#ifndef SIM7080G_POWER_CYCLE_OFF_MS
+#define SIM7080G_POWER_CYCLE_OFF_MS 3000UL
+#endif
+
 #ifndef SIM7080G_POWER_EN_PIN
 #define SIM7080G_POWER_EN_PIN -1
 #endif
@@ -137,7 +157,7 @@
 #include <ArduinoHttpClient.h>
 #endif
 
-static const char* FIRMWARE_VERSION = "0.6.1-offgrid-fixes";
+static const char* FIRMWARE_VERSION = "0.6.2-sim7080g-pwrkey-reset";
 
 #define HX1_DOUT 16
 #define HX1_SCK  17
@@ -212,6 +232,8 @@ TinyGsmClient simClient(simModem, 0);
 TinyGsmClientSecure simSecureClient(simModem, 1);
 bool cellularModemInitialized = false;
 bool cellularConnected = false;
+bool cellularModemMayBeOn = false;
+bool cellularRecoveryResetAttempted = false;
 int lastCellularCsq = 99;
 #endif
 
@@ -765,28 +787,84 @@ int csqToDbm(int csq) {
   return -113 + (2 * csq);
 }
 
+void releaseCellularPowerKeyPin() {
+  if (SIM7080G_PWRKEY_PIN < 0) return;
+
+  // PWRKEY is pulled up inside the SIM7080G to 1.8 V. Use open-drain so the
+  // ESP32 only pulls it low and never drives 3.3 V into the modem pin.
+  pinMode(SIM7080G_PWRKEY_PIN, OUTPUT_OPEN_DRAIN);
+  digitalWrite(SIM7080G_PWRKEY_PIN, HIGH);
+}
+
+void assertCellularPowerKeyPin() {
+  if (SIM7080G_PWRKEY_PIN < 0) return;
+
+  pinMode(SIM7080G_PWRKEY_PIN, OUTPUT_OPEN_DRAIN);
+  digitalWrite(SIM7080G_PWRKEY_PIN, LOW);
+}
+
 void setupCellularPowerPins() {
   if (SIM7080G_POWER_EN_PIN >= 0) {
     pinMode(SIM7080G_POWER_EN_PIN, OUTPUT);
     digitalWrite(SIM7080G_POWER_EN_PIN, SIM7080G_POWER_EN_ACTIVE_HIGH ? HIGH : LOW);
+    cellularModemMayBeOn = true;
     delay(200);
   }
 
-  if (SIM7080G_PWRKEY_PIN >= 0) {
-    pinMode(SIM7080G_PWRKEY_PIN, OUTPUT);
-    digitalWrite(SIM7080G_PWRKEY_PIN, HIGH);
-  }
+  releaseCellularPowerKeyPin();
 }
 
-void pulseCellularPowerKey() {
+void pulseCellularPowerKey(unsigned long lowMs = SIM7080G_PWRKEY_WAKE_PULSE_MS, unsigned long afterMs = SIM7080G_PWRKEY_BOOT_DELAY_MS) {
   if (SIM7080G_PWRKEY_PIN < 0) return;
 
-  // SIM7080 wakes with a low PWRKEY pulse. Keep this short enough to avoid
-  // accidentally triggering the long reset pulse.
-  digitalWrite(SIM7080G_PWRKEY_PIN, LOW);
-  delay(1100);
-  digitalWrite(SIM7080G_PWRKEY_PIN, HIGH);
-  delay(6000);
+  assertCellularPowerKeyPin();
+  delay(lowMs);
+  releaseCellularPowerKeyPin();
+  if (afterMs > 0) delay(afterMs);
+}
+
+void wakeCellularModemWithPowerKey() {
+  pulseCellularPowerKey(SIM7080G_PWRKEY_WAKE_PULSE_MS, SIM7080G_PWRKEY_BOOT_DELAY_MS);
+  if (SIM7080G_PWRKEY_PIN >= 0) cellularModemMayBeOn = true;
+}
+
+void powerOffCellularModemWithPowerKey() {
+  if (SIM7080G_PWRKEY_PIN < 0) return;
+
+  Serial.println("[SIM7080G] Powering off modem with PWRKEY pulse");
+  pulseCellularPowerKey(SIM7080G_PWRKEY_POWER_OFF_PULSE_MS, 2000UL);
+  cellularModemMayBeOn = false;
+}
+
+void resetCellularModem(const char* reason) {
+  Serial.print("[SIM7080G] Resetting modem");
+  if (reason && reason[0]) {
+    Serial.print(": ");
+    Serial.println(reason);
+  } else {
+    Serial.println();
+  }
+
+  cellularConnected = false;
+  cellularModemInitialized = false;
+  simSerial.end();
+  setupCellularPowerPins();
+
+  if (SIM7080G_POWER_EN_PIN >= 0) {
+    Serial.println("[SIM7080G] Power-cycling modem enable pin");
+    digitalWrite(SIM7080G_POWER_EN_PIN, SIM7080G_POWER_EN_ACTIVE_HIGH ? LOW : HIGH);
+    delay(SIM7080G_POWER_CYCLE_OFF_MS);
+    digitalWrite(SIM7080G_POWER_EN_PIN, SIM7080G_POWER_EN_ACTIVE_HIGH ? HIGH : LOW);
+    cellularModemMayBeOn = true;
+    delay(200);
+    wakeCellularModemWithPowerKey();
+  } else if (SIM7080G_PWRKEY_PIN >= 0) {
+    Serial.println("[SIM7080G] Holding PWRKEY low for hardware reset");
+    pulseCellularPowerKey(SIM7080G_PWRKEY_RESET_PULSE_MS, SIM7080G_PWRKEY_BOOT_DELAY_MS);
+    cellularModemMayBeOn = true;
+  } else {
+    Serial.println("[SIM7080G] No PWRKEY or power-enable pin configured; cannot hardware-reset modem");
+  }
 }
 
 bool initCellularModem() {
@@ -794,7 +872,7 @@ bool initCellularModem() {
 
   Serial.println("[SIM7080G] Initializing modem");
   setupCellularPowerPins();
-  pulseCellularPowerKey();
+  wakeCellularModemWithPowerKey();
 
   simSerial.begin(SIM7080G_BAUD, SERIAL_8N1, SIM7080G_RX_PIN, SIM7080G_TX_PIN);
   delay(300);
@@ -803,6 +881,20 @@ bool initCellularModem() {
   if (!ok) {
     Serial.println("[SIM7080G] init() failed; trying restart()");
     ok = simModem.restart(SIM7080G_PIN);
+  }
+
+  if (!ok && !cellularRecoveryResetAttempted && (SIM7080G_PWRKEY_PIN >= 0 || SIM7080G_POWER_EN_PIN >= 0)) {
+    cellularRecoveryResetAttempted = true;
+    resetCellularModem("init failed");
+    simSerial.begin(SIM7080G_BAUD, SERIAL_8N1, SIM7080G_RX_PIN, SIM7080G_TX_PIN);
+    delay(300);
+
+    Serial.println("[SIM7080G] Retrying init after hardware reset");
+    ok = simModem.init(SIM7080G_PIN);
+    if (!ok) {
+      Serial.println("[SIM7080G] init() still failed; trying restart()");
+      ok = simModem.restart(SIM7080G_PIN);
+    }
   }
 
   if (!ok) {
@@ -826,6 +918,7 @@ bool connectCellular() {
   if (!initCellularModem()) return false;
 
   if (cellularConnected && simModem.isGprsConnected()) {
+    cellularRecoveryResetAttempted = false;
     return true;
   }
 
@@ -843,7 +936,10 @@ bool connectCellular() {
       if (simModem.gprsConnect(SIM7080G_APN, SIM7080G_USER, SIM7080G_PASS)) {
         cellularConnected = simModem.isGprsConnected();
         Serial.printf("[SIM7080G] Data connection: %s\n", cellularConnected ? "OK" : "FAILED");
-        if (cellularConnected) return true;
+        if (cellularConnected) {
+          cellularRecoveryResetAttempted = false;
+          return true;
+        }
       } else {
         Serial.println("[SIM7080G] APN/data connection failed");
         cellularConnected = false;
@@ -855,6 +951,12 @@ bool connectCellular() {
       Serial.printf("[SIM7080G] Backing off for %lu ms before retry\n", backoff);
       delay(backoff);
     }
+  }
+
+  if (!cellularRecoveryResetAttempted && (SIM7080G_PWRKEY_PIN >= 0 || SIM7080G_POWER_EN_PIN >= 0)) {
+    cellularRecoveryResetAttempted = true;
+    resetCellularModem("network/APN connect failed");
+    return connectCellular();
   }
 
   return false;
@@ -1028,10 +1130,17 @@ void shutdownCellularForSleep() {
     Serial.println("[SIM7080G] Powering off modem for sleep");
     simModem.poweroff();
     cellularModemInitialized = false;
+    cellularModemMayBeOn = false;
+  } else if (cellularModemMayBeOn && SIM7080G_POWER_EN_PIN < 0) {
+    // If init failed after a PWRKEY wake/reset, AT+CPOWD is unavailable. Use a
+    // shorter PWRKEY power-off pulse before ESP32 deep sleep to avoid leaving
+    // the modem draining the battery.
+    powerOffCellularModemWithPowerKey();
   }
 
   if (SIM7080G_POWER_EN_PIN >= 0) {
     digitalWrite(SIM7080G_POWER_EN_PIN, SIM7080G_POWER_EN_ACTIVE_HIGH ? LOW : HIGH);
+    cellularModemMayBeOn = false;
   }
 #endif
 }
