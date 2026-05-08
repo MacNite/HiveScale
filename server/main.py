@@ -134,6 +134,11 @@ class AppDeviceConfigUpdate(DeviceConfigUpdate):
     pass
 
 
+class AppCalibrationModeStartIn(BaseModel):
+    interval_seconds: int = Field(default=5, ge=1, le=3600)
+    timeout_seconds: int = Field(default=600, ge=1, le=86400)
+
+
 def require_api_key(x_api_key: str = Header(default="")):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
@@ -1107,6 +1112,51 @@ def latest_device_measurements(device_id: str, limit: int = 50, user_id: str = D
 def update_device_config_from_app(device_id: str, patch: AppDeviceConfigUpdate, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin"])
     return update_device_config(device_id, patch)
+
+
+@app.post("/api/v1/app/devices/{device_id}/calibration/start", dependencies=[Depends(require_hivepal_service_key)])
+def start_calibration_mode_from_app(
+    device_id: str,
+    payload: Optional[AppCalibrationModeStartIn] = None,
+    user_id: str = Depends(require_user_id),
+):
+    require_device_role(user_id, device_id, ["owner", "admin"])
+    payload = payload or AppCalibrationModeStartIn()
+    command_payload = {
+        "interval_seconds": payload.interval_seconds,
+        "timeout_seconds": payload.timeout_seconds,
+    }
+    result = create_command(
+        device_id,
+        DeviceCommandIn(
+            command_type="start_calibration_mode",
+            payload=command_payload,
+        ),
+    )
+    return {
+        "status": result["status"],
+        "id": result["id"],
+        "command_type": "start_calibration_mode",
+        "payload": command_payload,
+    }
+
+
+@app.post("/api/v1/app/devices/{device_id}/calibration/stop", dependencies=[Depends(require_hivepal_service_key)])
+def stop_calibration_mode_from_app(device_id: str, user_id: str = Depends(require_user_id)):
+    require_device_role(user_id, device_id, ["owner", "admin"])
+    result = create_command(
+        device_id,
+        DeviceCommandIn(
+            command_type="stop_calibration_mode",
+            payload={},
+        ),
+    )
+    return {
+        "status": result["status"],
+        "id": result["id"],
+        "command_type": "stop_calibration_mode",
+        "payload": {},
+    }
 
 
 @app.get("/api/v1/time", dependencies=[Depends(require_api_key)])
