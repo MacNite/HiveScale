@@ -148,8 +148,8 @@ static const char* FIRMWARE_VERSION = "0.6.1-offgrid-fixes";
 #define I2C_SCL 22
 #define SD_CS   5
 #define SD_SCK  18
-#define SD_MISO 19
-#define SD_MOSI 23
+#define SD_MISO 23
+#define SD_MOSI 19
 
 // External button. Wire button between this pin and GND. Uses INPUT_PULLUP.
 // Short press: start WiFi provisioning AP.

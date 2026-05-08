@@ -21,7 +21,7 @@ DB_POOL_MAX_SIZE = int(os.environ.get("DB_POOL_MAX_SIZE", "10"))
 app = FastAPI(
     title="HiveScale API",
     description="HTTP endpoint for ESP32-based dual hive scales.",
-    version="0.3.1",
+    version="0.3.2",
 )
 
 
@@ -51,6 +51,9 @@ class MeasurementIn(BaseModel):
     network_transport: Optional[str] = None
     cellular_ok: Optional[bool] = None
     cellular_csq: Optional[int] = None
+    calibration_mode: Optional[bool] = None
+    boot_count: Optional[int] = None
+    time_source: Optional[str] = None
     rssi_dbm: Optional[int] = None
     firmware_version: Optional[str] = None
     config_version: Optional[int] = None
@@ -222,6 +225,21 @@ def init_db():
                     ambient_temp_c DOUBLE PRECISION,
                     ambient_humidity_percent DOUBLE PRECISION,
                     battery_voltage DOUBLE PRECISION,
+                    battery_soc_percent DOUBLE PRECISION,
+                    battery_alert BOOLEAN,
+                    battery_monitor_ok BOOLEAN,
+                    solar_monitor_ok BOOLEAN,
+                    solar_bus_voltage_v DOUBLE PRECISION,
+                    solar_shunt_voltage_mv DOUBLE PRECISION,
+                    solar_load_voltage_v DOUBLE PRECISION,
+                    solar_current_ma DOUBLE PRECISION,
+                    solar_power_mw DOUBLE PRECISION,
+                    network_transport TEXT,
+                    cellular_ok BOOLEAN,
+                    cellular_csq INTEGER,
+                    calibration_mode BOOLEAN,
+                    boot_count BIGINT,
+                    time_source TEXT,
                     rssi_dbm INTEGER,
                     firmware_version TEXT,
                     config_version INTEGER,
@@ -233,6 +251,21 @@ def init_db():
                     raw_json JSONB NOT NULL
                 );
 
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS battery_soc_percent DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS battery_alert BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS battery_monitor_ok BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS solar_monitor_ok BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS solar_bus_voltage_v DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS solar_shunt_voltage_mv DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS solar_load_voltage_v DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS solar_current_ma DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS solar_power_mw DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS network_transport TEXT;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS cellular_ok BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS cellular_csq INTEGER;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS calibration_mode BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS boot_count BIGINT;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS time_source TEXT;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS firmware_version TEXT;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS config_version INTEGER;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS sd_ok BOOLEAN;
@@ -430,15 +463,25 @@ def create_measurement(payload: MeasurementIn):
                 INSERT INTO measurements (
                     device_id, measured_at, scale_1_weight_kg, scale_2_weight_kg,
                     hive_1_temp_c, hive_2_temp_c, ambient_temp_c,
-                    ambient_humidity_percent, battery_voltage, rssi_dbm,
-                    firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
-                    scale_1_raw, scale_2_raw, raw_json
+                    ambient_humidity_percent, battery_voltage, battery_soc_percent,
+                    battery_alert, battery_monitor_ok, solar_monitor_ok,
+                    solar_bus_voltage_v, solar_shunt_voltage_mv, solar_load_voltage_v,
+                    solar_current_ma, solar_power_mw, network_transport,
+                    cellular_ok, cellular_csq, calibration_mode, boot_count,
+                    time_source, rssi_dbm, firmware_version, config_version, sd_ok,
+                    rtc_ok, sht_ok, scale_1_raw, scale_2_raw, raw_json
                 )
                 VALUES (
                     %(device_id)s, %(measured_at)s, %(scale_1_weight_kg)s,
                     %(scale_2_weight_kg)s, %(hive_1_temp_c)s, %(hive_2_temp_c)s,
                     %(ambient_temp_c)s, %(ambient_humidity_percent)s,
-                    %(battery_voltage)s, %(rssi_dbm)s, %(firmware_version)s,
+                    %(battery_voltage)s, %(battery_soc_percent)s,
+                    %(battery_alert)s, %(battery_monitor_ok)s, %(solar_monitor_ok)s,
+                    %(solar_bus_voltage_v)s, %(solar_shunt_voltage_mv)s,
+                    %(solar_load_voltage_v)s, %(solar_current_ma)s,
+                    %(solar_power_mw)s, %(network_transport)s, %(cellular_ok)s,
+                    %(cellular_csq)s, %(calibration_mode)s, %(boot_count)s,
+                    %(time_source)s, %(rssi_dbm)s, %(firmware_version)s,
                     %(config_version)s, %(sd_ok)s, %(rtc_ok)s, %(sht_ok)s,
                     %(scale_1_raw)s, %(scale_2_raw)s, %(raw_json)s
                 )
@@ -454,6 +497,21 @@ def create_measurement(payload: MeasurementIn):
                     "ambient_temp_c": payload.ambient_temp_c,
                     "ambient_humidity_percent": payload.ambient_humidity_percent,
                     "battery_voltage": payload.battery_voltage_v if payload.battery_voltage_v is not None else payload.battery_voltage,
+                    "battery_soc_percent": payload.battery_soc_percent,
+                    "battery_alert": payload.battery_alert,
+                    "battery_monitor_ok": payload.battery_monitor_ok,
+                    "solar_monitor_ok": payload.solar_monitor_ok,
+                    "solar_bus_voltage_v": payload.solar_bus_voltage_v,
+                    "solar_shunt_voltage_mv": payload.solar_shunt_voltage_mv,
+                    "solar_load_voltage_v": payload.solar_load_voltage_v,
+                    "solar_current_ma": payload.solar_current_ma,
+                    "solar_power_mw": payload.solar_power_mw,
+                    "network_transport": payload.network_transport,
+                    "cellular_ok": payload.cellular_ok,
+                    "cellular_csq": payload.cellular_csq,
+                    "calibration_mode": payload.calibration_mode,
+                    "boot_count": payload.boot_count,
+                    "time_source": payload.time_source,
                     "rssi_dbm": payload.rssi_dbm,
                     "firmware_version": payload.firmware_version,
                     "config_version": payload.config_version,
@@ -470,18 +528,79 @@ def create_measurement(payload: MeasurementIn):
     return {"status": "ok", "id": new_id, "measured_at": measured_at.isoformat()}
 
 
+MEASUREMENT_SELECT_COLUMNS = """
+    id, device_id, measured_at, received_at, scale_1_weight_kg,
+    scale_2_weight_kg, hive_1_temp_c, hive_2_temp_c,
+    ambient_temp_c, ambient_humidity_percent,
+    COALESCE(battery_voltage, NULLIF(raw_json->>'battery_voltage_v', '')::double precision, NULLIF(raw_json->>'battery_voltage', '')::double precision) AS battery_voltage,
+    rssi_dbm, firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
+    scale_1_raw, scale_2_raw,
+    COALESCE(battery_soc_percent, NULLIF(raw_json->>'battery_soc_percent', '')::double precision) AS battery_soc_percent,
+    COALESCE(battery_alert, NULLIF(raw_json->>'battery_alert', '')::boolean) AS battery_alert,
+    COALESCE(battery_monitor_ok, NULLIF(raw_json->>'battery_monitor_ok', '')::boolean) AS battery_monitor_ok,
+    COALESCE(solar_monitor_ok, NULLIF(raw_json->>'solar_monitor_ok', '')::boolean) AS solar_monitor_ok,
+    COALESCE(solar_bus_voltage_v, NULLIF(raw_json->>'solar_bus_voltage_v', '')::double precision) AS solar_bus_voltage_v,
+    COALESCE(solar_shunt_voltage_mv, NULLIF(raw_json->>'solar_shunt_voltage_mv', '')::double precision) AS solar_shunt_voltage_mv,
+    COALESCE(solar_load_voltage_v, NULLIF(raw_json->>'solar_load_voltage_v', '')::double precision) AS solar_load_voltage_v,
+    COALESCE(solar_current_ma, NULLIF(raw_json->>'solar_current_ma', '')::double precision) AS solar_current_ma,
+    COALESCE(solar_power_mw, NULLIF(raw_json->>'solar_power_mw', '')::double precision) AS solar_power_mw,
+    COALESCE(network_transport, raw_json->>'network_transport') AS network_transport,
+    COALESCE(cellular_ok, NULLIF(raw_json->>'cellular_ok', '')::boolean) AS cellular_ok,
+    COALESCE(cellular_csq, NULLIF(raw_json->>'cellular_csq', '')::integer) AS cellular_csq,
+    COALESCE(calibration_mode, NULLIF(raw_json->>'calibration_mode', '')::boolean) AS calibration_mode,
+    COALESCE(boot_count, NULLIF(raw_json->>'boot_count', '')::bigint) AS boot_count,
+    COALESCE(time_source, raw_json->>'time_source') AS time_source
+"""
+
+
+def measurement_row_to_dict(r):
+    return {
+        "id": r[0],
+        "device_id": r[1],
+        "measured_at": r[2],
+        "received_at": r[3],
+        "scale_1_weight_kg": r[4],
+        "scale_2_weight_kg": r[5],
+        "hive_1_temp_c": r[6],
+        "hive_2_temp_c": r[7],
+        "ambient_temp_c": r[8],
+        "ambient_humidity_percent": r[9],
+        "battery_voltage": r[10],
+        "battery_voltage_v": r[10],
+        "rssi_dbm": r[11],
+        "firmware_version": r[12],
+        "config_version": r[13],
+        "sd_ok": r[14],
+        "rtc_ok": r[15],
+        "sht_ok": r[16],
+        "scale_1_raw": r[17],
+        "scale_2_raw": r[18],
+        "battery_soc_percent": r[19],
+        "battery_alert": r[20],
+        "battery_monitor_ok": r[21],
+        "solar_monitor_ok": r[22],
+        "solar_bus_voltage_v": r[23],
+        "solar_shunt_voltage_mv": r[24],
+        "solar_load_voltage_v": r[25],
+        "solar_current_ma": r[26],
+        "solar_power_mw": r[27],
+        "network_transport": r[28],
+        "cellular_ok": r[29],
+        "cellular_csq": r[30],
+        "calibration_mode": r[31],
+        "boot_count": r[32],
+        "time_source": r[33],
+    }
+
+
 @app.get("/api/v1/measurements/latest", dependencies=[Depends(require_api_key)])
 def latest_measurements(limit: int = 50):
     limit = min(max(limit, 1), 500)
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT id, device_id, measured_at, received_at, scale_1_weight_kg,
-                       scale_2_weight_kg, hive_1_temp_c, hive_2_temp_c,
-                       ambient_temp_c, ambient_humidity_percent, battery_voltage,
-                       rssi_dbm, firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
-                       scale_1_raw, scale_2_raw
+                f"""
+                SELECT {MEASUREMENT_SELECT_COLUMNS}
                 FROM measurements
                 ORDER BY measured_at DESC
                 LIMIT %s;
@@ -489,18 +608,7 @@ def latest_measurements(limit: int = 50):
                 (limit,),
             )
             rows = cur.fetchall()
-    return [
-        {
-            "id": r[0], "device_id": r[1], "measured_at": r[2], "received_at": r[3],
-            "scale_1_weight_kg": r[4], "scale_2_weight_kg": r[5],
-            "hive_1_temp_c": r[6], "hive_2_temp_c": r[7],
-            "ambient_temp_c": r[8], "ambient_humidity_percent": r[9],
-            "battery_voltage": r[10], "rssi_dbm": r[11], "firmware_version": r[12],
-            "config_version": r[13], "sd_ok": r[14], "rtc_ok": r[15], "sht_ok": r[16],
-            "scale_1_raw": r[17], "scale_2_raw": r[18],
-        }
-        for r in rows
-    ]
+    return [measurement_row_to_dict(r) for r in rows]
 
 
 @app.get("/api/v1/devices/{device_id}/config", dependencies=[Depends(require_api_key)])
@@ -962,11 +1070,7 @@ def list_device_measurements(
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT id, device_id, measured_at, received_at, scale_1_weight_kg,
-                       scale_2_weight_kg, hive_1_temp_c, hive_2_temp_c,
-                       ambient_temp_c, ambient_humidity_percent, battery_voltage,
-                       rssi_dbm, firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
-                       scale_1_raw, scale_2_raw
+                SELECT {MEASUREMENT_SELECT_COLUMNS}
                 FROM measurements
                 WHERE {' AND '.join(where_parts)}
                 ORDER BY measured_at DESC
@@ -976,18 +1080,7 @@ def list_device_measurements(
             )
             rows = cur.fetchall()
 
-    return [
-        {
-            "id": r[0], "device_id": r[1], "measured_at": r[2], "received_at": r[3],
-            "scale_1_weight_kg": r[4], "scale_2_weight_kg": r[5],
-            "hive_1_temp_c": r[6], "hive_2_temp_c": r[7],
-            "ambient_temp_c": r[8], "ambient_humidity_percent": r[9],
-            "battery_voltage": r[10], "rssi_dbm": r[11], "firmware_version": r[12],
-            "config_version": r[13], "sd_ok": r[14], "rtc_ok": r[15], "sht_ok": r[16],
-            "scale_1_raw": r[17], "scale_2_raw": r[18],
-        }
-        for r in rows
-    ]
+    return [measurement_row_to_dict(r) for r in rows]
 
 
 @app.get("/api/v1/app/devices/{device_id}/measurements/latest", dependencies=[Depends(require_hivepal_service_key)])
@@ -997,12 +1090,8 @@ def latest_device_measurements(device_id: str, limit: int = 50, user_id: str = D
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT id, device_id, measured_at, received_at, scale_1_weight_kg,
-                       scale_2_weight_kg, hive_1_temp_c, hive_2_temp_c,
-                       ambient_temp_c, ambient_humidity_percent, battery_voltage,
-                       rssi_dbm, firmware_version, config_version, sd_ok, rtc_ok, sht_ok,
-                       scale_1_raw, scale_2_raw
+                f"""
+                SELECT {MEASUREMENT_SELECT_COLUMNS}
                 FROM measurements
                 WHERE device_id = %s
                 ORDER BY measured_at DESC
@@ -1011,18 +1100,7 @@ def latest_device_measurements(device_id: str, limit: int = 50, user_id: str = D
                 (device_id, limit),
             )
             rows = cur.fetchall()
-    return [
-        {
-            "id": r[0], "device_id": r[1], "measured_at": r[2], "received_at": r[3],
-            "scale_1_weight_kg": r[4], "scale_2_weight_kg": r[5],
-            "hive_1_temp_c": r[6], "hive_2_temp_c": r[7],
-            "ambient_temp_c": r[8], "ambient_humidity_percent": r[9],
-            "battery_voltage": r[10], "rssi_dbm": r[11], "firmware_version": r[12],
-            "config_version": r[13], "sd_ok": r[14], "rtc_ok": r[15], "sht_ok": r[16],
-            "scale_1_raw": r[17], "scale_2_raw": r[18],
-        }
-        for r in rows
-    ]
+    return [measurement_row_to_dict(r) for r in rows]
 
 
 @app.patch("/api/v1/app/devices/{device_id}/config", dependencies=[Depends(require_hivepal_service_key)])
