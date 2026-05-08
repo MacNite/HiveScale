@@ -34,12 +34,12 @@
 #define WIFI1_PASS       "your-wifi-password-1"
 
 // --- WiFi Set 2 ---
-#define WIFI2_SSID       "your-wifi-ssid-2"
-#define WIFI2_PASS       "your-wifi-password-2"
+//#define WIFI2_SSID       "your-wifi-ssid-2"
+//#define WIFI2_PASS       "your-wifi-password-2"
 
 // --- WiFi Set 3 ---
-#define WIFI3_SSID       "your-wifi-ssid-3"
-#define WIFI3_PASS       "your-wifi-password-3"
+//#define WIFI3_SSID       "your-wifi-ssid-3"
+//#define WIFI3_PASS       "your-wifi-password-3"
 
 // ==============================
 // OPTIONAL OFF-GRID MODULES
