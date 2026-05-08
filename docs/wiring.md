@@ -1,221 +1,266 @@
-# HiveScale — Wiring Reference
+# HiveScale wiring reference
 
-This document describes how to connect all hardware components to the ESP32 development board.
+This document describes the current ESP32 firmware pin mapping and the wiring for the core HiveScale hardware plus the optional off-grid modules.
+
+---
+
+## Current firmware pin mapping
+
+The firmware pin definitions live in `firmware/src/main.cpp`. Keep this table aligned with those definitions whenever pins change.
+
+| Signal | ESP32 GPIO | Direction | Notes |
+|---|---:|---|---|
+| HX711 #1 DOUT | 16 | Input | Scale 1 data |
+| HX711 #1 SCK | 17 | Output | Scale 1 clock; used to power down HX711 during deep sleep |
+| HX711 #2 DOUT | 32 | Input | Scale 2 data |
+| HX711 #2 SCK | 33 | Output | Scale 2 clock; used to power down HX711 during deep sleep |
+| DS18B20 data | 4 | Bidirectional | Shared 1-Wire bus for both hive probes |
+| I2C SDA | 21 | Bidirectional | RTC, SHT4x, optional INA219, optional MAX17048 |
+| I2C SCL | 22 | Output | RTC, SHT4x, optional INA219, optional MAX17048 |
+| SD CS | 5 | Output | SD card chip select |
+| SD SCK | 18 | Output | SPI clock |
+| SD MISO | 23 | Input | Updated firmware mapping |
+| SD MOSI | 19 | Output | Updated firmware mapping |
+| Setup button | 27 | Input | `INPUT_PULLUP`, button to GND |
+| SIM7080G RX | 26 | Input | ESP32 RX connected to modem TX; configurable |
+| SIM7080G TX | 25 | Output | ESP32 TX connected to modem RX; configurable |
+| SIM7080G power/PWRKEY | Optional, PCB exposes GPIO14 | Output/open drain depending wiring | Configure with `SIM7080G_PWRKEY_PIN` or `SIM7080G_POWER_EN_PIN` |
+
+> Important pin change: the current firmware uses **GPIO23 as SD MISO** and **GPIO19 as SD MOSI**. Older wiring notes and many generic ESP32 examples use the opposite mapping.
 
 ---
 
 ## Component overview
 
-| Component | Interface | ESP32 Pins |
+| Component | Interface | ESP32 pins |
 |---|---|---|
-| HX711 #1 (scale 1) | Digital I/O | GPIO 16 (DOUT), GPIO 17 (SCK) |
-| HX711 #2 (scale 2) | Digital I/O | GPIO 32 (DOUT), GPIO 33 (SCK) |
-| DS18B20 × 2 (hive temps) | 1-Wire | GPIO 4 |
-| SHT4x (ambient temp + humidity) | I²C | GPIO 21 (SDA), GPIO 22 (SCL) |
-| DS3231 RTC | I²C | GPIO 21 (SDA), GPIO 22 (SCL) |
-| MicroSD card module | SPI | GPIO 5 (CS), GPIO 18 (SCK), GPIO 19 (MISO), GPIO 23 (MOSI) |
-| Setup / reset button | Digital input | GPIO 27 → GND |
-| Power input | — | VIN or 5 V pin via MP1584EN DC-DC converter |
+| HX711 #1 | Digital I/O | GPIO16 DOUT, GPIO17 SCK |
+| HX711 #2 | Digital I/O | GPIO32 DOUT, GPIO33 SCK |
+| DS18B20 x2 | 1-Wire | GPIO4 data with 4.7 kOhm pull-up to 3.3 V |
+| SHT4x | I2C | GPIO21 SDA, GPIO22 SCL |
+| DS3231 RTC | I2C | GPIO21 SDA, GPIO22 SCL |
+| MicroSD card module | SPI | CS 5, SCK 18, MISO 23, MOSI 19 |
+| Setup button | Digital input | GPIO27 to GND |
+| SIM7080G | UART + optional power pin | RX 26, TX 25, optional GPIO14 control |
+| INA219 | I2C | GPIO21 SDA, GPIO22 SCL |
+| MAX17048 | I2C | GPIO21 SDA, GPIO22 SCL |
 
 ---
 
-## Pin mapping (quick reference)
+## Power supply
 
-| GPIO | Signal | Direction |
-|---|---|---|
-| 4 | DS18B20 1-Wire data | Bidirectional |
-| 5 | SD card CS (chip select) | Output |
-| 16 | HX711 #1 DOUT | Input |
-| 17 | HX711 #1 SCK | Output |
-| 18 | SD card SCK | Output |
-| 19 | SD card MISO | Input |
-| 21 | I²C SDA (RTC + SHT4x) | Bidirectional |
-| 22 | I²C SCL (RTC + SHT4x) | Output |
-| 23 | SD card MOSI | Output |
-| 27 | Setup button (INPUT_PULLUP) | Input |
-| 32 | HX711 #2 DOUT | Input |
-| 33 | HX711 #2 SCK | Output |
+For development, power the ESP32 from USB. For field use, power the system from a regulated 5 V rail into the ESP32 `VIN` or 5 V pin, or use the breakout PCB's power modules.
 
----
-
-## Wiring details
-
-### Power supply
-
-The system is designed to run from a DC power source (e.g. a 12 V solar panel, lead-acid battery, or mains adapter). An **MP1584EN** DC-DC step-down converter reduces the input voltage to 5 V for the ESP32 and peripherals.
-
-```
-DC input (+) ──→ MP1584EN IN+ ──→ MP1584EN OUT+ ──→ ESP32 VIN (5 V)
-DC input (−) ──→ MP1584EN IN− ──→ MP1584EN OUT− ──→ ESP32 GND
+```text
+DC / solar / battery path -> regulator -> stable 5 V or 3.3 V rails -> ESP32 and sensors
+All module grounds must be tied together.
 ```
 
-Set the MP1584EN output to **5 V** using the onboard trimmer before connecting the ESP32.
+Assembly notes:
 
-> If running from USB power only (e.g. during development), skip the converter and connect via the USB port directly.
+- Set adjustable converters to the correct output voltage before connecting the ESP32.
+- Keep the load-cell analog wiring away from switching regulators and LTE antenna/power wiring.
+- Use one common ground reference, but route high-current modem and solar paths with wider traces or wires.
+- For the breakout PCB, review `pcb-design/README.md` and `pcb-design/todo-list.md` before ordering prototypes.
 
 ---
 
-### HX711 load cell amplifiers
+## HX711 load cell amplifiers
 
-Each HX711 module connects to its load cell(s) and to the ESP32. The E+/E−/A+/A−/B+/B− terminals on the HX711 match the coloured wires from standard load cell kits (colours vary by supplier — consult your load cell datasheet).
-
-**HX711 #1 → ESP32:**
+### HX711 #1 to ESP32
 
 | HX711 pin | ESP32 pin |
 |---|---|
 | VCC | 3.3 V |
 | GND | GND |
-| DT (DOUT) | GPIO 16 |
-| SCK | GPIO 17 |
+| DT / DOUT | GPIO16 |
+| SCK | GPIO17 |
 
-**HX711 #2 → ESP32:**
+### HX711 #2 to ESP32
 
 | HX711 pin | ESP32 pin |
 |---|---|
 | VCC | 3.3 V |
 | GND | GND |
-| DT (DOUT) | GPIO 32 |
-| SCK | GPIO 33 |
+| DT / DOUT | GPIO32 |
+| SCK | GPIO33 |
 
-> HX711 modules typically accept 2.7–5 V on VCC. 3.3 V works reliably with most modules and avoids level-shifting on the data lines.
+HX711 modules typically accept 2.7-5 V. Running them at 3.3 V avoids level shifting on the ESP32 GPIOs.
 
----
+### Four 3-wire load cells per platform
 
-**4-cell platform scale — wiring 3-wire load cells into a Wheatstone bridge**
+A common platform scale uses four 3-wire half-bridge load cells. Use a combinator board or build the Wheatstone bridge manually. The exact color code varies by supplier, so verify with the load-cell datasheet.
 
-A typical bathroom/kitchen-style platform scale uses four identical 3-wire load cells (one per corner). Each cell has three wires: **excitation+ (red)**, **excitation− (black)**, and **signal (white or yellow)**. Internally each cell contains a single strain gauge; you build the full Wheatstone bridge yourself by cross-connecting the four cells.
+Practical rules:
 
-The bridge works as two voltage dividers whose midpoints feed the differential signal into the HX711. Label the cells by corner: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **RR** (rear-right).
-
-**Bridge wiring — node by node:**
-
-| Node | Connect here | Goes to |
-|---|---|---|
-| E+ | Red wires of **FL** and **FR** | HX711 E+ |
-| E− | Black wires of **RL** and **RR** | HX711 E− |
-| A+ | Signal wire of **FR** + Black wires of **FL** and **FR** joined together¹ | HX711 A+ |
-| A− | Signal wire of **FL** + Red wires of **RL** and **RR** joined together¹ | HX711 A− |
-
-¹ See the detailed node description below — each midpoint node ties one signal wire together with two excitation wires from adjacent cells.
-
-More precisely, the four nodes of the bridge are formed as follows:
-
-- **E+ node:** Red (E+) of FL + Red (E+) of FR → HX711 E+
-- **E− node:** Black (E−) of RL + Black (E−) of RR → HX711 E−
-- **A+ node:** Signal of FR + Black (E−) of FL + Black (E−) of FR → HX711 A+
-- **A− node:** Signal of FL + Red (E+) of RL + Red (E+) of RR → HX711 A−
-
-> **Why this works:** Each 3-wire load cell's signal wire is the midpoint of its internal half-bridge. By cross-connecting the four cells this way, you form a complete Wheatstone bridge where all four gauges contribute to the output — giving you the same result as a dedicated 6-wire full-bridge load cell, without a combinator board.
-
-**Practical tips:**
-
-- Use all four cells from the **same batch** if possible. Mismatched cells cause zero-point drift and non-linearity.
-- Keep all signal wire runs **equal in length** to balance impedance.
-- Twist or bundle each cell's wires together and keep them away from mains wiring to reduce noise.
-- After wiring, check the unloaded differential voltage at A+/A− (should be close to 0 V) before connecting to the HX711.
-- The HX711's onboard averaging and the software tare handle any small residual offset.
+- Use four matched cells from the same kit.
+- Keep all load-cell cable lengths similar.
+- Twist or bundle each cell's wires and keep them away from LTE and regulator wiring.
+- Check the unloaded A+/A- differential voltage before connecting to the HX711.
+- Calibrate each channel after final mechanical installation.
 
 ---
 
-### DS18B20 temperature sensors (1-Wire)
+## DS18B20 hive temperature probes
 
-Both DS18B20 sensors share the same single-wire data bus. Up to dozens of sensors can be on one bus — the firmware addresses each by its unique 64-bit ROM ID.
+Both DS18B20 probes share GPIO4.
 
-```
-DS18B20 VDD  ──→ 3.3 V
-DS18B20 GND  ──→ GND
-DS18B20 DATA ──→ GPIO 4  (also connect a 4.7 kΩ pull-up resistor from DATA to 3.3 V)
+```text
+DS18B20 VDD  -> 3.3 V
+DS18B20 GND  -> GND
+DS18B20 DATA -> GPIO4
+GPIO4        -> 4.7 kOhm pull-up -> 3.3 V
 ```
 
-Both sensors connect **in parallel** to the same three lines. If using waterproof probes with cables, the wires are typically:
-
-| Wire colour | DS18B20 pin |
-|---|---|
-| Red | VDD |
-| Black | GND |
-| Yellow / White | DATA |
-
-> The **4.7 kΩ pull-up resistor** from DATA to 3.3 V is required. Without it the bus will not operate reliably, especially with longer cables. One resistor covers both sensors on the shared bus.
+Both sensors are connected in parallel. Waterproof probes often use red for VDD, black for GND, and yellow/white for data.
 
 ---
 
-### SHT4x (ambient temperature & humidity)
-
-The SHT4x uses I²C. It shares the bus with the DS3231 RTC.
+## SHT4x ambient sensor
 
 | SHT4x pin | ESP32 pin |
 |---|---|
 | VCC | 3.3 V |
 | GND | GND |
-| SDA | GPIO 21 |
-| SCL | GPIO 22 |
+| SDA | GPIO21 |
+| SCL | GPIO22 |
 
-The SHT4x I²C address is `0x44` (default). The DS3231 is at `0x68`. Both coexist on the same bus without conflict.
+Place the SHT4x outside the electronics box but shield it from rain and direct sunlight.
 
 ---
 
-### DS3231 RTC (real-time clock)
+## DS3231 RTC
 
 | DS3231 pin | ESP32 pin |
 |---|---|
 | VCC | 3.3 V |
 | GND | GND |
-| SDA | GPIO 21 |
-| SCL | GPIO 22 |
+| SDA | GPIO21 |
+| SCL | GPIO22 |
 
-The DS3231 module typically includes a CR2032 coin cell holder for backup power. Install a CR2032 to keep the clock running when the main supply is off.
-
-> **I²C pull-ups:** Most breakout modules for the SHT4x and DS3231 include 4.7 kΩ pull-up resistors on SDA and SCL. If using bare chips, add your own pull-ups (4.7 kΩ from SDA/SCL to 3.3 V).
+Install a backup coin cell if the module supports it. The firmware can use the RTC as a fallback when cellular or Wi-Fi time sync fails.
 
 ---
 
-### MicroSD card module (SPI)
+## MicroSD module
 
-The SD module uses the ESP32's VSPI bus.
+The SD module uses SPI with the current firmware mapping below.
 
-| SD module pin | ESP32 pin |
+| SD module pin | ESP32 GPIO |
+|---|---:|
+| VCC | 3.3 V |
+| GND | GND |
+| CS | 5 |
+| SCK | 18 |
+| MISO | 23 |
+| MOSI | 19 |
+
+Use a FAT32-formatted card. The firmware keeps an append-only backup file and a retry queue for uploads that still need to reach the backend.
+
+---
+
+## Setup / factory reset button
+
+Wire a momentary normally-open button between GPIO27 and GND.
+
+```text
+GPIO27 -> button -> GND
+```
+
+| Press | Firmware behavior |
+|---|---|
+| Short press | Start Wi-Fi provisioning AP |
+| Long press, 10 seconds | Clear Preferences and reboot |
+
+GPIO27 is RTC-capable and can wake the ESP32 from deep sleep when button wake is enabled.
+
+---
+
+## Optional SIM7080G LTE/NB-IoT modem
+
+Default firmware UART pins:
+
+| SIM7080G signal | ESP32 GPIO | Firmware define |
+|---|---:|---|
+| Modem TX -> ESP32 RX | 26 | `SIM7080G_RX_PIN` |
+| Modem RX <- ESP32 TX | 25 | `SIM7080G_TX_PIN` |
+| PWRKEY or regulator enable | Optional, PCB exposes GPIO14 | `SIM7080G_PWRKEY_PIN` or `SIM7080G_POWER_EN_PIN` |
+| VCC | Use modem-board requirement | Do not assume ESP32 3.3 V can supply peak current |
+| GND | GND | Common ground required |
+
+Power notes:
+
+- LTE modems can draw high current pulses. Use a power source and regulator sized for the modem board.
+- Add local bulk and high-frequency decoupling close to the modem power pins.
+- If using a PWRKEY pin, the firmware drives it as open drain for the wake/reset/off pulses.
+- If using a regulator enable pin, set `SIM7080G_POWER_EN_PIN` and `SIM7080G_POWER_EN_ACTIVE_HIGH` to match the hardware.
+- Keep the antenna clear of the HX711/load-cell wiring.
+
+---
+
+## Optional INA219 solar/load monitor
+
+The INA219 shares the I2C bus.
+
+| INA219 pin | ESP32 pin |
 |---|---|
 | VCC | 3.3 V |
 | GND | GND |
-| CS | GPIO 5 |
-| SCK | GPIO 18 |
-| MISO | GPIO 19 |
-| MOSI | GPIO 23 |
+| SDA | GPIO21 |
+| SCL | GPIO22 |
 
-Use a **FAT32**-formatted microSD card. The firmware creates a `measurements/` directory and buffers data there when offline.
+Default address is `0x40`. Enable with:
+
+```cpp
+#define ENABLE_INA219_SOLAR 1
+#define INA219_I2C_ADDRESS  0x40
+```
+
+The firmware reports bus voltage, shunt voltage, load voltage, current, and power when the module is present.
 
 ---
 
-### Setup / factory-reset button
+## Optional MAX17048 LiPo fuel gauge
 
-A momentary normally-open pushbutton connects between GPIO 27 and GND. The firmware configures GPIO 27 as `INPUT_PULLUP`, so no external resistor is needed.
+The MAX17048 shares the I2C bus and monitors the LiPo cell.
 
-```
-GPIO 27 ──→ Button ──→ GND
-```
-
-**Short press:** starts the Wi-Fi provisioning portal.  
-**Long press (5 s):** factory-resets all stored settings.
-
-The button is optional — if not installed, the provisioning portal can still be triggered via a remote command.
-
----
-
-## I²C bus summary
-
-Both I²C devices (DS3231 and SHT4x) share GPIO 21 / GPIO 22. Their addresses are distinct so there is no conflict:
-
-| Device | I²C address |
+| MAX17048 pin | Connection |
 |---|---|
-| DS3231 RTC | 0x68 |
-| SHT4x | 0x44 |
+| VCC / logic | 3.3 V, depending breakout board |
+| GND | GND |
+| SDA | GPIO21 |
+| SCL | GPIO22 |
+| BAT | LiPo battery positive through the breakout's intended connection |
+
+Enable with:
+
+```cpp
+#define ENABLE_MAX17048_BATTERY 1
+#define MAX17048_ALERT_PERCENT  20
+```
+
+The firmware reports battery voltage, state-of-charge, monitor status, and low-battery alert state.
+
+---
+
+## I2C bus summary
+
+| Device | Address |
+|---|---|
+| DS3231 RTC | `0x68` |
+| SHT4x | `0x44` |
+| INA219 | `0x40` by default |
+| MAX17048 | Fixed by device/library |
+
+Most breakout boards include SDA/SCL pull-ups. If multiple breakout boards are installed, verify the effective pull-up resistance is not too low.
 
 ---
 
 ## Assembly tips
 
-- Mount all electronics in an **IP67-rated enclosure** (at least 150 × 150 mm). Drill cable glands for sensor cables.
-- Run DS18B20 probe cables through the gland into the hive body. Seal the entry point with silicone to prevent bee ingress.
-- Place the SHT4x sensor outside the main electronics box but under a small radiation shield to get accurate ambient readings away from heat generated by the ESP32.
-- Use ferrule-crimped wires or solder connections inside the box — push-in terminals can vibrate loose outdoors.
-- Label the HX711 modules (scale 1 / scale 2) to avoid confusion during calibration.
+- Use an IP-rated enclosure and cable glands for all external probes and load-cell wiring.
+- Put strain relief on load-cell and sensor cables.
+- Label scale 1 and scale 2 wiring at both the sensor and electronics box.
+- Use ferrules, locking connectors, or soldered joints where vibration or condensation is expected.
+- Keep the SD card accessible for debugging, but protected from water ingress.
+- In off-grid builds, test modem attach and upload current before sealing the enclosure.

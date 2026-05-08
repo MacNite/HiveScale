@@ -1,29 +1,27 @@
-# HiveScale — Test Commands
+# HiveScale test commands
 
-A collection of `curl` commands for verifying and interacting with the HiveScale API. Replace the placeholders below before use:
+Use these `curl` examples to verify a HiveScale backend and to simulate firmware/HivePal traffic.
+
+Replace placeholders before running:
 
 | Placeholder | Replace with |
 |---|---|
-| `HOST` | IP address or domain name of your server (e.g. `192.168.1.100` or `hivescale.example.com`) |
-| `YOUR_API_KEY` | Value of `API_KEY` in your `.env` file |
-| `YOUR_HIVEPAL_KEY` | Value of `HIVEPAL_SERVICE_API_KEY` in your `.env` file |
-| `DEVICE_ID` | Your device ID (e.g. `hive_scale_dual_01`) |
+| `HOST` | Server host or domain, for example `192.168.1.100` or `hivescale.example.com` |
+| `YOUR_API_KEY` | HiveScale `API_KEY` used by ESP32 devices |
+| `YOUR_HIVEPAL_KEY` | HiveScale `HIVEPAL_SERVICE_API_KEY`, also configured in HivePal as `HIVESCALE_SERVICE_API_KEY` |
+| `DEVICE_ID` | Device ID, for example `hive_scale_dual_01` |
+| `USER_ID` | HivePal user ID forwarded through `X-User-Id` |
+
+The examples assume HTTP on port `31115`. Use HTTPS and omit the port when running behind a reverse proxy.
 
 ---
 
-## Health & connectivity
+## Health and time
 
-**Check the API is running:**
 ```bash
 curl http://HOST:31115/health
 ```
 
-Expected response:
-```json
-{ "status": "ok" }
-```
-
-**Get current server time:**
 ```bash
 curl http://HOST:31115/api/v1/time \
   -H "X-API-Key: YOUR_API_KEY"
@@ -31,28 +29,10 @@ curl http://HOST:31115/api/v1/time \
 
 ---
 
-## Measurements
+## Submit measurements
 
-**Submit a test measurement:**
-```bash
-curl -X POST http://HOST:31115/api/v1/measurements \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -d '{
-    "device_id": "DEVICE_ID",
-    "scale_1_weight_kg": 42.5,
-    "scale_2_weight_kg": 38.2,
-    "hive_1_temp_c": 34.1,
-    "hive_2_temp_c": 33.7,
-    "ambient_temp_c": 18.4,
-    "ambient_humidity_percent": 61.2,
-    "battery_voltage": 3.85,
-    "rssi_dbm": -65,
-    "firmware_version": "0.4.1"
-  }'
-```
+### Basic Wi-Fi style payload
 
-**Submit a measurement with a claim code** (simulates first boot of an unregistered device):
 ```bash
 curl -X POST http://HOST:31115/api/v1/measurements \
   -H "Content-Type: application/json" \
@@ -61,53 +41,100 @@ curl -X POST http://HOST:31115/api/v1/measurements \
     "device_id": "DEVICE_ID",
     "claim_code": "ABCD-1234",
     "scale_1_weight_kg": 42.5,
-    "scale_2_weight_kg": 38.2
+    "scale_2_weight_kg": 38.2,
+    "hive_1_temp_c": 34.1,
+    "hive_2_temp_c": 33.7,
+    "ambient_temp_c": 18.4,
+    "ambient_humidity_percent": 61.2,
+    "network_transport": "wifi",
+    "rssi_dbm": -65,
+    "firmware_version": "0.6.2-sim7080g-pwrkey-reset",
+    "config_version": 3,
+    "sd_ok": true,
+    "rtc_ok": true,
+    "sht_ok": true,
+    "scale_1_raw": -298450,
+    "scale_2_raw": -271900
   }'
 ```
 
-**Get the latest measurements (no auth required):**
-```bash
-# Default: last 50
-curl "http://HOST:31115/api/v1/measurements/latest"
+### Off-grid SIM7080G + solar + LiPo payload
 
-# Custom limit
-curl "http://HOST:31115/api/v1/measurements/latest?limit=10"
+```bash
+curl -X POST http://HOST:31115/api/v1/measurements \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "device_id": "DEVICE_ID",
+    "claim_code": "ABCD-1234",
+    "scale_1_weight_kg": 42.5,
+    "scale_2_weight_kg": 38.2,
+    "hive_1_temp_c": 34.1,
+    "hive_2_temp_c": 33.7,
+    "ambient_temp_c": 18.4,
+    "ambient_humidity_percent": 61.2,
+    "network_transport": "sim7080g",
+    "cellular_ok": true,
+    "cellular_csq": 18,
+    "rssi_dbm": -77,
+    "battery_voltage_v": 3.94,
+    "battery_soc_percent": 73.2,
+    "battery_alert": false,
+    "battery_monitor_ok": true,
+    "solar_monitor_ok": true,
+    "solar_bus_voltage_v": 5.22,
+    "solar_shunt_voltage_mv": 12.4,
+    "solar_load_voltage_v": 5.232,
+    "solar_current_ma": 184.0,
+    "solar_power_mw": 960.0,
+    "calibration_mode": false,
+    "boot_count": 128,
+    "time_source": "cellular",
+    "firmware_version": "0.6.2-sim7080g-pwrkey-reset",
+    "config_version": 3,
+    "sd_ok": true,
+    "rtc_ok": true,
+    "sht_ok": true,
+    "scale_1_raw": -298450,
+    "scale_2_raw": -271900
+  }'
+```
+
+### Latest measurements
+
+```bash
+curl "http://HOST:31115/api/v1/measurements/latest?limit=10" \
+  -H "X-API-Key: YOUR_API_KEY"
 ```
 
 ---
 
 ## Device configuration
 
-**Get device configuration:**
 ```bash
 curl http://HOST:31115/api/v1/devices/DEVICE_ID/config \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-**Update measurement interval to 5 minutes:**
-```bash
-curl -X PATCH http://HOST:31115/api/v1/devices/DEVICE_ID/config \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -d '{"send_interval_seconds": 300}'
-```
-
-**Update scale calibration factors:**
 ```bash
 curl -X PATCH http://HOST:31115/api/v1/devices/DEVICE_ID/config \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY" \
   -d '{
-    "scale1_factor": -7200.0,
-    "scale2_factor": -7100.0
+    "send_interval_seconds": 300,
+    "scale1_offset": 0,
+    "scale1_factor": -7050.0,
+    "scale2_offset": 0,
+    "scale2_factor": -7050.0
   }'
 ```
 
 ---
 
-## Remote commands
+## Commands
 
-**Tare scale 1 (zero at current weight):**
+### Queue tare and calibration commands
+
 ```bash
 curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -H "Content-Type: application/json" \
@@ -115,23 +142,6 @@ curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -d '{"command_type": "tare_scale_1", "payload": {}}'
 ```
 
-**Tare scale 2:**
-```bash
-curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -d '{"command_type": "tare_scale_2", "payload": {}}'
-```
-
-**Calibrate scale 1 with a 10 kg reference weight:**
-```bash
-curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -d '{"command_type": "calibrate_scale_1", "payload": {"known_weight_kg": 10.0}}'
-```
-
-**Calibrate scale 2 with a 20 kg reference weight:**
 ```bash
 curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -H "Content-Type: application/json" \
@@ -139,23 +149,24 @@ curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -d '{"command_type": "calibrate_scale_2", "payload": {"known_weight_kg": 20.0}}'
 ```
 
-**Reboot the device:**
+### Start and stop calibration mode
+
 ```bash
 curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY" \
-  -d '{"command_type": "reboot", "payload": {}}'
+  -d '{"command_type": "start_calibration_mode", "payload": {"interval_seconds": 5, "timeout_seconds": 600}}'
 ```
 
-**Trigger an immediate OTA check:**
 ```bash
 curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY" \
-  -d '{"command_type": "ota_update", "payload": {}}'
+  -d '{"command_type": "stop_calibration_mode", "payload": {}}'
 ```
 
-**Start the Wi-Fi provisioning portal:**
+### Reset / provisioning / OTA commands
+
 ```bash
 curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -H "Content-Type: application/json" \
@@ -163,7 +174,6 @@ curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -d '{"command_type": "start_provisioning", "payload": {}}'
 ```
 
-**Factory reset the device:**
 ```bash
 curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -H "Content-Type: application/json" \
@@ -171,101 +181,123 @@ curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -d '{"command_type": "factory_reset", "payload": {}}'
 ```
 
-**Check for pending commands** (simulates what the device does each cycle):
+```bash
+curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"command_type": "ota_update", "payload": {}}'
+```
+
+### Simulate device command polling
+
 ```bash
 curl http://HOST:31115/api/v1/devices/DEVICE_ID/commands/next \
   -H "X-API-Key: YOUR_API_KEY"
+```
+
+### Report command result
+
+```bash
+curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands/55/result \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "success": true,
+    "message": "Tare applied",
+    "result": {"scale1_offset": -124800}
+  }'
 ```
 
 ---
 
 ## OTA firmware
 
-**Register a new firmware release** (binary must already be in `FIRMWARE_DIR`):
+Register a release. The binary must already exist in `FIRMWARE_DIR`.
+
 ```bash
 curl -X POST http://HOST:31115/api/v1/firmware/releases \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY" \
-  -d '{"version": "0.5.0", "filename": "hivescale-0.5.0.bin", "active": true}'
+  -d '{"version": "0.6.3", "filename": "hivescale-0.6.3.bin", "active": true}'
 ```
 
-**Check if a firmware update is available for a device:**
+Check for an update:
+
 ```bash
-curl "http://HOST:31115/api/v1/devices/DEVICE_ID/firmware?version=0.4.1" \
+curl "http://HOST:31115/api/v1/devices/DEVICE_ID/firmware?version=0.6.2-sim7080g-pwrkey-reset" \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
 ---
 
-## App / HivePal endpoints
+## HivePal app endpoints
 
-**Claim a device** (after the device has sent at least one measurement with the claim code):
+### Claim a device
+
+The device must have sent at least one measurement containing the claim code.
+
 ```bash
 curl -X POST http://HOST:31115/api/v1/app/devices/claim \
   -H "Content-Type: application/json" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: user-001" \
+  -H "X-User-Id: USER_ID" \
   -d '{
     "claim_code": "ABCD-1234",
-    "display_name": "Back garden hive",
+    "display_name": "Back garden scale",
     "scale_1_display_name": "Hive A",
     "scale_2_display_name": "Hive B"
   }'
 ```
 
-**List devices for a user:**
+### List devices
+
 ```bash
 curl http://HOST:31115/api/v1/app/devices \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: user-001"
+  -H "X-User-Id: USER_ID"
 ```
 
-**Get measurements for a specific device (last 100):**
+### Get device measurements
+
 ```bash
 curl "http://HOST:31115/api/v1/app/devices/DEVICE_ID/measurements?limit=100" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: user-001"
+  -H "X-User-Id: USER_ID"
 ```
 
-**Get measurements in a date range:**
 ```bash
 curl "http://HOST:31115/api/v1/app/devices/DEVICE_ID/measurements?start_at=2026-05-01T00:00:00Z&end_at=2026-05-07T00:00:00Z" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: user-001"
+  -H "X-User-Id: USER_ID"
 ```
 
-**Share a device with another user:**
+### Get latest measurements
+
 ```bash
-curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/members \
-  -H "Content-Type: application/json" \
+curl "http://HOST:31115/api/v1/app/devices/DEVICE_ID/measurements/latest?limit=10" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: user-001" \
-  -d '{"user_id": "user-002", "role": "viewer"}'
+  -H "X-User-Id: USER_ID"
 ```
 
-**Revoke a user's access:**
-```bash
-curl -X DELETE http://HOST:31115/api/v1/app/devices/DEVICE_ID/members/user-002 \
-  -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: user-001"
-```
+### Update channel names
 
-**Update channel display names:**
 ```bash
 curl -X PATCH http://HOST:31115/api/v1/app/devices/DEVICE_ID/channels \
   -H "Content-Type: application/json" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: user-001" \
-  -d '{"scale_1_display_name": "Buckfast colony", "scale_2_display_name": "Carnica colony"}'
+  -H "X-User-Id: USER_ID" \
+  -d '{
+    "scale_1_display_name": "Hive A",
+    "scale_2_display_name": "Hive B"
+  }'
 ```
 
----
+### Share a device with another HivePal user ID
 
-## Tips
-
-- The interactive Swagger UI at `http://HOST:31115/docs` lets you execute all endpoints in the browser and inspect request/response schemas.
-- If you need pretty-printed JSON output from curl, pipe through `python3 -m json.tool` or `jq .`:
-  ```bash
-  curl http://HOST:31115/api/v1/measurements/latest | jq .
-  ```
-- Commands are picked up by the device only on its next measurement cycle. If `send_interval_seconds` is 600, you may need to wait up to 10 minutes after queueing a command.
+```bash
+curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/members \
+  -H "Content-Type: application/json" \
+  -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
+  -H "X-User-Id: USER_ID" \
+  -d '{"user_id": "other-user-id", "role": "viewer"}'
+```
