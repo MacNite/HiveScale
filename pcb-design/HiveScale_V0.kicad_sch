@@ -2798,6 +2798,12 @@
 		(uuid "36047919-f499-4847-bc71-11c60812906c")
 	)
 	(junction
+		(at 55.88 43.18)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "4e7a8f6a-4d63-4208-b7d9-888615d686b4")
+	)
+	(junction
 		(at 148.59 119.38)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -2832,12 +2838,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "719eabd3-26b6-407b-866d-471bb9a56133")
-	)
-	(junction
-		(at 53.34 143.51)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "75fc0f9f-1f12-41c4-9d80-408c09f3826d")
 	)
 	(junction
 		(at 85.09 35.56)
@@ -3054,6 +3054,16 @@
 			(type default)
 		)
 		(uuid "0f90080d-8985-4e5e-97d9-f3b4dff28258")
+	)
+	(wire
+		(pts
+			(xy 55.88 43.18) (xy 55.88 116.84)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "11307250-1fbc-4ab1-ac95-b2fe33eee377")
 	)
 	(wire
 		(pts
@@ -3327,7 +3337,7 @@
 	)
 	(wire
 		(pts
-			(xy 26.67 116.84) (xy 53.34 116.84)
+			(xy 26.67 116.84) (xy 55.88 116.84)
 		)
 		(stroke
 			(width 0)
@@ -3937,7 +3947,7 @@
 	)
 	(wire
 		(pts
-			(xy 34.29 43.18) (xy 64.77 43.18)
+			(xy 34.29 43.18) (xy 55.88 43.18)
 		)
 		(stroke
 			(width 0)
@@ -4004,16 +4014,6 @@
 			(type default)
 		)
 		(uuid "9877bea5-2f82-4084-a197-236c10984d07")
-	)
-	(wire
-		(pts
-			(xy 53.34 116.84) (xy 53.34 143.51)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "99beb6a4-18b5-4536-a918-765fb2d987e0")
 	)
 	(wire
 		(pts
@@ -4084,6 +4084,16 @@
 			(type default)
 		)
 		(uuid "a64705b5-5e35-42f8-a029-077ecf9c18ea")
+	)
+	(wire
+		(pts
+			(xy 55.88 43.18) (xy 64.77 43.18)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "a688fc85-7534-4e41-bfad-14495bf2fdc2")
 	)
 	(wire
 		(pts
@@ -5535,7 +5545,7 @@
 				(font
 					(size 1.27 1.27)
 				)
-				(justify left)
+				(justify right)
 			)
 		)
 		(property "Footprint" "Connector_PinSocket_2.54mm:PinSocket_1x02_P2.54mm_Vertical"
@@ -6786,12 +6796,12 @@
 			)
 		)
 		(property "Value" "TPS63020-3.3V-OUT"
-			(at 74.93 35.5599 0)
+			(at 77.216 33.02 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
-				(justify left)
+				(justify right)
 			)
 		)
 		(property "Footprint" "Connector_PinSocket_2.54mm:PinSocket_1x02_P2.54mm_Vertical"
