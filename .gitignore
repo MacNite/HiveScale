@@ -7,6 +7,9 @@
 .vscode/ipch/
 compile_commands.json
 
+#PCB-Design
+/_OLD DESIGN V0 PCB
+
 # Python
 __pycache__/
 *.pyc

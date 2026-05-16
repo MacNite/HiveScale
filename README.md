@@ -2,6 +2,11 @@
 
 **ESP32-based dual beehive scale system** for monitoring the weight, temperature, humidity, power state, and network state of two beehives. Measurements are sent to a self-hosted FastAPI backend backed by PostgreSQL and can be displayed in HivePal.
 
+**Notice: The V0 PCB and system design will soon be split into:
+ - Power Module (with battery and / or solar power and MODEM, connected to other componentens via i2c or ESPnow)
+ - Scale Module including the most sensors (connected to other componentens via i2c or ESPnow)
+ - beecounter (connected to other componentens via i2c or ESPnow)
+
 ---
 
 ## Features
