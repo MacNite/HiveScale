@@ -157,7 +157,7 @@
 #include <ArduinoHttpClient.h>
 #endif
 
-static const char* FIRMWARE_VERSION = "0.6.2-sim7080g-pwrkey-reset";
+static const char* FIRMWARE_VERSION = "0.6.3-sd-cache-fix";
 
 #define HX1_DOUT 16
 #define HX1_SCK  17
@@ -198,13 +198,18 @@ static const uint64_t US_PER_MS = 1000ULL;
 
 static const char* CACHE_FILE = "/cache.ndjson";
 static const char* TEMP_FILE = "/cache.tmp";
+static const char* CACHE_BAD_FILE = "/cache_bad.ndjson";
 static const char* BACKUP_FILE = "/measurements.ndjson";
 
 // SD behavior:
 // - BACKUP_FILE is append-only and is never deleted by the firmware.
-// - CACHE_FILE is the retry queue for rows that still need backend upload.
+// - CACHE_FILE is ONLY the retry queue for rows that still need backend upload.
+//   Successful live uploads are not written to the cache file.
 static const bool SD_KEEP_PERSISTENT_BACKUP = true;
 static const size_t BACKUP_WARN_SIZE_BYTES = 50UL * 1024UL * 1024UL;
+static const size_t CACHE_MAX_BYTES = 512UL * 1024UL;
+static const size_t CACHE_MAX_LINE_BYTES = 4096UL;
+static const uint16_t CACHE_UPLOAD_MAX_LINES_PER_CYCLE = 25;
 
 HX711 scale1;
 HX711 scale2;
@@ -1657,9 +1662,71 @@ bool httpPostJson(const String& url, const String& json, String* response = null
 #endif
 }
 
+size_t sdFileSize(const char* path) {
+  if (!sdOk || !SD.exists(path)) return 0;
+
+  File file = SD.open(path, FILE_READ);
+  if (!file) return 0;
+
+  size_t size = file.size();
+  file.close();
+  return size;
+}
+
+bool quarantineSdFile(const char* path, const char* quarantinePath, const char* label) {
+  if (!sdOk || !SD.exists(path)) return true;
+
+  Serial.printf("[%s] Quarantining %s as %s\n", label, path, quarantinePath);
+  SD.remove(quarantinePath);
+
+  if (SD.rename(path, quarantinePath)) {
+    Serial.printf("[%s] Quarantined %s\n", label, quarantinePath);
+    return true;
+  }
+
+  Serial.printf("[%s] Rename failed; removing %s instead\n", label, path);
+  return SD.remove(path);
+}
+
+bool cacheFileLooksSane() {
+  if (!sdOk || !SD.exists(CACHE_FILE)) return true;
+
+  File file = SD.open(CACHE_FILE, FILE_READ);
+  if (!file) {
+    Serial.println("[CACHE] Cache file exists but cannot be opened. Quarantining/removing it.");
+    quarantineSdFile(CACHE_FILE, CACHE_BAD_FILE, "CACHE");
+    return false;
+  }
+
+  size_t size = file.size();
+  file.close();
+
+  if (size > CACHE_MAX_BYTES) {
+    Serial.printf(
+      "[CACHE] Cache file is too large (%u bytes > %u bytes). Quarantining it. Backup file remains available.\n",
+      (unsigned)size,
+      (unsigned)CACHE_MAX_BYTES
+    );
+    quarantineSdFile(CACHE_FILE, CACHE_BAD_FILE, "CACHE");
+    return false;
+  }
+
+  return true;
+}
+
 bool appendLineToSdFile(const char* path, const String& line, const char* label) {
   if (!sdOk) {
     Serial.printf("[%s] SD unavailable, cannot write %s\n", label, path);
+    return false;
+  }
+
+  if (line.length() == 0) {
+    Serial.printf("[%s] Refusing to append empty line to %s\n", label, path);
+    return false;
+  }
+
+  if (line.length() > CACHE_MAX_LINE_BYTES) {
+    Serial.printf("[%s] Refusing to append oversized line (%u bytes) to %s\n", label, (unsigned)line.length(), path);
     return false;
   }
 
@@ -1669,9 +1736,15 @@ bool appendLineToSdFile(const char* path, const String& line, const char* label)
     return false;
   }
 
-  file.println(line);
+  size_t written = file.println(line);
+  file.flush();
   size_t currentSize = file.size();
   file.close();
+
+  if (written == 0) {
+    Serial.printf("[%s] Write failed for %s\n", label, path);
+    return false;
+  }
 
   Serial.printf("[%s] Appended line to %s (%u bytes)\n", label, path, (unsigned)currentSize);
   return true;
@@ -1683,19 +1756,23 @@ bool appendBackupLine(const String& line) {
   bool ok = appendLineToSdFile(BACKUP_FILE, line, "BACKUP");
   if (!ok) return false;
 
-  File file = SD.open(BACKUP_FILE, FILE_READ);
-  if (file) {
-    size_t currentSize = file.size();
-    file.close();
-    if (currentSize >= BACKUP_WARN_SIZE_BYTES) {
-      Serial.printf("[BACKUP] Warning: %s is larger than %u bytes. Replace or offload SD soon.\n", BACKUP_FILE, (unsigned)BACKUP_WARN_SIZE_BYTES);
-    }
+  size_t currentSize = sdFileSize(BACKUP_FILE);
+  if (currentSize >= BACKUP_WARN_SIZE_BYTES) {
+    Serial.printf(
+      "[BACKUP] Warning: %s is larger than %u bytes. Replace or offload SD soon.\n",
+      BACKUP_FILE,
+      (unsigned)BACKUP_WARN_SIZE_BYTES
+    );
   }
 
   return true;
 }
 
 bool appendCacheLine(const String& line) {
+  // The cache is only for failed live uploads. If it ever grows too large,
+  // quarantine it and start a fresh retry queue. The persistent backup still
+  // contains the complete measurement history for manual recovery.
+  cacheFileLooksSane();
   return appendLineToSdFile(CACHE_FILE, line, "CACHE");
 }
 
@@ -1858,6 +1935,11 @@ bool uploadCachedLines() {
     return true;
   }
 
+  if (!cacheFileLooksSane()) {
+    Serial.println("[CACHE] Cache file was quarantined or removed; skipping cached upload this cycle");
+    return false;
+  }
+
   File in = SD.open(CACHE_FILE, FILE_READ);
   if (!in) {
     Serial.println("[CACHE] Failed to open cache file for read");
@@ -1872,10 +1954,12 @@ bool uploadCachedLines() {
     return false;
   }
 
-  bool allOk = true;
+  bool encounteredFailure = false;
+  bool hitUploadLimit = false;
   int total = 0;
   int uploaded = 0;
   int kept = 0;
+  int dropped = 0;
 
   while (in.available()) {
     String line = in.readStringUntil('\n');
@@ -1883,27 +1967,64 @@ bool uploadCachedLines() {
     if (line.length() == 0) continue;
 
     total++;
-    Serial.printf("[CACHE] Uploading cached line %d\n", total);
 
-    if (allOk && uploadLine(line)) {
-      uploaded++;
-      delay(100);
-    } else {
-      allOk = false;
-      kept++;
-      out.println(line);
+    if (line.length() > CACHE_MAX_LINE_BYTES) {
+      dropped++;
+      Serial.printf("[CACHE] Dropping oversized cached line %d (%u bytes)\n", total, (unsigned)line.length());
+      continue;
+    }
+
+    bool mayUpload = !encounteredFailure && uploaded < CACHE_UPLOAD_MAX_LINES_PER_CYCLE;
+
+    if (mayUpload) {
+      Serial.printf("[CACHE] Uploading cached line %d\n", total);
+      if (uploadLine(line)) {
+        uploaded++;
+        delay(100);
+        continue;
+      }
+
+      encounteredFailure = true;
+      Serial.println("[CACHE] Cached upload failed; keeping this and remaining cached lines");
+    } else if (!encounteredFailure && uploaded >= CACHE_UPLOAD_MAX_LINES_PER_CYCLE) {
+      hitUploadLimit = true;
+    }
+
+    kept++;
+    size_t written = out.println(line);
+    if (written == 0) {
+      Serial.println("[CACHE] Failed to write retained line to temp cache");
+      encounteredFailure = true;
     }
   }
 
   in.close();
+  out.flush();
   out.close();
 
-  SD.remove(CACHE_FILE);
-  if (allOk) SD.remove(TEMP_FILE);
-  else SD.rename(TEMP_FILE, CACHE_FILE);
+  if (!SD.remove(CACHE_FILE)) {
+    Serial.println("[CACHE] Warning: failed to remove old cache file");
+  }
 
-  Serial.printf("[CACHE] Total=%d Uploaded=%d Kept=%d\n", total, uploaded, kept);
-  return allOk;
+  if (kept > 0) {
+    if (!SD.rename(TEMP_FILE, CACHE_FILE)) {
+      Serial.println("[CACHE] ERROR: failed to rename temp cache file back to cache file");
+      return false;
+    }
+  } else {
+    SD.remove(TEMP_FILE);
+  }
+
+  Serial.printf(
+    "[CACHE] Total=%d Uploaded=%d Kept=%d Dropped=%d Limit=%s\n",
+    total,
+    uploaded,
+    kept,
+    dropped,
+    hitUploadLimit ? "yes" : "no"
+  );
+
+  return kept == 0 && !encounteredFailure;
 }
 
 void fetchRemoteConfig() {
@@ -2119,8 +2240,8 @@ void runUploadCycle() {
 
 #if ENABLE_SIM7080G
   // Attach once before creating the payload so the cellular status and CSQ in
-  // this measurement describe the same upload attempt. The existing cached-line
-  // uploader reuses this connection if it succeeded. If cellular is unavailable,
+  // this measurement describe the same upload attempt. The uploadLine() call
+  // below reuses this connection if it succeeded. If cellular is unavailable,
   // continue and cache the measurement for the next cycle.
   if (!connectNetwork()) {
     Serial.println("[CYCLE] Cellular unavailable; measurement will be cached if SD is available");
@@ -2133,14 +2254,26 @@ void runUploadCycle() {
     // Keep a durable local copy first. This file is never deleted by uploads,
     // so it works as a long-term backup and as an offline data log.
     appendBackupLine(json);
+  }
 
-    // Also add the row to the retry queue. uploadCachedLines() removes rows
-    // from this queue only after the backend accepts them.
-    appendCacheLine(json);
+  // Important: always try to upload the current measurement directly first.
+  // The retry cache is only for failed live uploads. The previous firmware
+  // added every row to the cache and then depended on cache replay, which could
+  // stop all uploads if the cache file or FAT metadata became corrupted.
+  bool currentUploaded = uploadLine(json);
+
+  if (!currentUploaded) {
+    if (sdOk) {
+      Serial.println("[CYCLE] Live upload failed; adding measurement to retry cache");
+      appendCacheLine(json);
+    } else {
+      Serial.println("[CYCLE] Live upload failed and no SD card is available; measurement not cached");
+    }
+  } else if (sdOk) {
+    // Now that the network/backend is known to work, retry a small bounded
+    // number of older cached rows. This prevents a large cache from blocking
+    // the fresh measurement or keeping the device awake for too long.
     uploadCachedLines();
-  } else {
-    Serial.println("[CYCLE] No SD card, trying direct upload only");
-    uploadLine(json);
   }
 
   fetchRemoteConfig();
