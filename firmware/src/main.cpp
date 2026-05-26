@@ -2,6 +2,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <WebServer.h>
+#include <DNSServer.h>
 #include <Update.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -99,7 +100,7 @@
 #include <driver/i2s.h>
 #endif
 
-static const char* FIRMWARE_VERSION = "0.7.0-mics-no-modem";
+static const char* FIRMWARE_VERSION = "0.7.1-ap-mode";
 
 #define HX1_DOUT 16
 #define HX1_SCK  17
@@ -152,6 +153,8 @@ static const size_t BACKUP_WARN_SIZE_BYTES = 50UL * 1024UL * 1024UL;
 static const size_t CACHE_MAX_BYTES = 512UL * 1024UL;
 static const size_t CACHE_MAX_LINE_BYTES = 4096UL;
 static const uint16_t CACHE_UPLOAD_MAX_LINES_PER_CYCLE = 25;
+static const uint16_t CAPTIVE_DNS_PORT = 53;
+static const size_t LAST_MEASUREMENT_TAIL_BYTES = CACHE_MAX_LINE_BYTES * 2;
 
 HX711 scale1;
 HX711 scale2;
@@ -161,6 +164,7 @@ Adafruit_SHT4x sht4;
 RTC_DS3231 rtc;
 Preferences prefs;
 WebServer setupServer(80);
+DNSServer setupDnsServer;
 
 #if ENABLE_INA219_SOLAR
 Adafruit_INA219 solarMonitor(INA219_I2C_ADDRESS);
@@ -212,6 +216,8 @@ String apiKey;
 String deviceId;
 String claimCode;
 String activeWifiSsid;
+String lastMeasurementJson;
+unsigned long lastMeasurementUpdatedMs = 0;
 
 long scale1Offset = 0;
 long scale2Offset = 0;
@@ -317,6 +323,7 @@ void powerDownScalesForSleep() {
 
 void shutdownWifiAndBt() {
   if (provisioningActive) {
+    setupDnsServer.stop();
     setupServer.stop();
     WiFi.softAPdisconnect(true);
     provisioningActive = false;
@@ -878,6 +885,173 @@ String htmlEscape(String s) {
   return s;
 }
 
+IPAddress provisioningPortalIp() {
+  return IPAddress(192, 168, 4, 1);
+}
+
+String provisioningPortalUrl() {
+  return String("http://") + provisioningPortalIp().toString() + "/";
+}
+
+void sendNoCacheHeaders() {
+  setupServer.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  setupServer.sendHeader("Pragma", "no-cache");
+  setupServer.sendHeader("Expires", "0");
+}
+
+void sendPortalRedirect() {
+  sendNoCacheHeaders();
+  setupServer.sendHeader("Location", provisioningPortalUrl(), true);
+  setupServer.send(302, "text/plain", "Redirecting to HiveScale setup portal");
+}
+
+void handleCaptivePortalProbe() {
+  sendPortalRedirect();
+}
+
+String readLastNonEmptySdLine(const char* path) {
+  if (!sdOk || !SD.exists(path)) return "";
+
+  File file = SD.open(path, FILE_READ);
+  if (!file) return "";
+
+  size_t fileSize = file.size();
+  if (fileSize == 0) {
+    file.close();
+    return "";
+  }
+
+  size_t start = fileSize > LAST_MEASUREMENT_TAIL_BYTES ? fileSize - LAST_MEASUREMENT_TAIL_BYTES : 0;
+  if (!file.seek(start)) {
+    file.close();
+    return "";
+  }
+
+  // If we start in the middle of a large backup file, discard the partial line.
+  if (start > 0) {
+    file.readStringUntil('\n');
+  }
+
+  String lastLine;
+  while (file.available()) {
+    String line = file.readStringUntil('\n');
+    line.trim();
+    if (line.length() > 0 && line.length() <= CACHE_MAX_LINE_BYTES) {
+      lastLine = line;
+    }
+    delay(0);
+  }
+
+  file.close();
+  return lastLine;
+}
+
+void rememberLastMeasurement(const String& line) {
+  if (line.length() == 0 || line.length() > CACHE_MAX_LINE_BYTES) return;
+  lastMeasurementJson = line;
+  lastMeasurementUpdatedMs = millis();
+}
+
+void ensureLastMeasurementLoaded() {
+  if (lastMeasurementJson.length() > 0) return;
+
+  if (!sdOk) {
+    initSdCard();
+  }
+
+  String line = readLastNonEmptySdLine(BACKUP_FILE);
+  if (line.length() > 0) {
+    rememberLastMeasurement(line);
+  }
+}
+
+String jsonStringOrNA(JsonDocument& doc, const char* key) {
+  if (doc[key].isNull()) return "n/a";
+  String value = doc[key].as<String>();
+  value.trim();
+  return value.length() > 0 ? value : String("n/a");
+}
+
+String jsonNumberOrNA(JsonDocument& doc, const char* key, uint8_t decimals, const char* unit) {
+  if (doc[key].isNull()) return "n/a";
+  double value = doc[key].as<double>();
+  if (isnan(value)) return "n/a";
+
+  String text = String(value, decimals);
+  if (unit != nullptr && unit[0] != '\0') {
+    text += " ";
+    text += unit;
+  }
+  return text;
+}
+
+String jsonBoolOrNA(JsonDocument& doc, const char* key) {
+  if (doc[key].isNull()) return "n/a";
+  return doc[key].as<bool>() ? "yes" : "no";
+}
+
+void addMeasurementRow(String& html, const String& label, const String& value) {
+  html += "<tr><th>" + htmlEscape(label) + "</th><td>" + htmlEscape(value) + "</td></tr>";
+}
+
+void appendLastSensorPanel(String& html) {
+  ensureLastMeasurementLoaded();
+
+  html += "<fieldset><legend>Last sensor values</legend>";
+
+  if (lastMeasurementJson.length() == 0) {
+    html += "<p>No saved sensor values are available yet. After the next measurement cycle this panel will show the latest stored reading.</p>";
+    html += "</fieldset>";
+    return;
+  }
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, lastMeasurementJson);
+  if (err) {
+    html += "<p>The last stored measurement could not be parsed.</p>";
+    html += "</fieldset>";
+    return;
+  }
+
+  html += "<table>";
+  addMeasurementRow(html, "Timestamp", jsonStringOrNA(doc, "timestamp"));
+  addMeasurementRow(html, "Scale 1 weight", jsonNumberOrNA(doc, "scale_1_weight_kg", 3, "kg"));
+  addMeasurementRow(html, "Scale 2 weight", jsonNumberOrNA(doc, "scale_2_weight_kg", 3, "kg"));
+  addMeasurementRow(html, "Hive 1 temperature", jsonNumberOrNA(doc, "hive_1_temp_c", 2, "C"));
+  addMeasurementRow(html, "Hive 2 temperature", jsonNumberOrNA(doc, "hive_2_temp_c", 2, "C"));
+  addMeasurementRow(html, "Ambient temperature", jsonNumberOrNA(doc, "ambient_temp_c", 2, "C"));
+  addMeasurementRow(html, "Ambient humidity", jsonNumberOrNA(doc, "ambient_humidity_percent", 1, "%"));
+  addMeasurementRow(html, "Scale 1 raw", jsonNumberOrNA(doc, "scale_1_raw", 0, ""));
+  addMeasurementRow(html, "Scale 2 raw", jsonNumberOrNA(doc, "scale_2_raw", 0, ""));
+  addMeasurementRow(html, "WiFi RSSI", jsonNumberOrNA(doc, "rssi_dbm", 0, "dBm"));
+  addMeasurementRow(html, "SD card OK", jsonBoolOrNA(doc, "sd_ok"));
+  addMeasurementRow(html, "RTC OK", jsonBoolOrNA(doc, "rtc_ok"));
+  addMeasurementRow(html, "SHT4x OK", jsonBoolOrNA(doc, "sht_ok"));
+
+  if (!doc["solar_load_voltage_v"].isNull() || !doc["solar_current_ma"].isNull() || !doc["solar_power_mw"].isNull()) {
+    addMeasurementRow(html, "Solar voltage", jsonNumberOrNA(doc, "solar_load_voltage_v", 3, "V"));
+    addMeasurementRow(html, "Solar current", jsonNumberOrNA(doc, "solar_current_ma", 1, "mA"));
+    addMeasurementRow(html, "Solar power", jsonNumberOrNA(doc, "solar_power_mw", 1, "mW"));
+  }
+
+  if (!doc["battery_voltage_v"].isNull() || !doc["battery_soc_percent"].isNull()) {
+    addMeasurementRow(html, "Battery voltage", jsonNumberOrNA(doc, "battery_voltage_v", 3, "V"));
+    addMeasurementRow(html, "Battery state of charge", jsonNumberOrNA(doc, "battery_soc_percent", 1, "%"));
+    addMeasurementRow(html, "Battery alert", jsonBoolOrNA(doc, "battery_alert"));
+  }
+
+  if (!doc["mic_left_rms_dbfs"].isNull() || !doc["mic_right_rms_dbfs"].isNull()) {
+    addMeasurementRow(html, "Mic left RMS", jsonNumberOrNA(doc, "mic_left_rms_dbfs", 1, "dBFS"));
+    addMeasurementRow(html, "Mic right RMS", jsonNumberOrNA(doc, "mic_right_rms_dbfs", 1, "dBFS"));
+  }
+
+  html += "</table>";
+  html += "<p class='meta'>Shown from the latest measurement in memory or from ";
+  html += BACKUP_FILE;
+  html += " on the SD card. Refresh this page after a new cycle to update it.</p>";
+  html += "</fieldset>";
+}
+
 String tarSafeName(String path) {
   path.trim();
   path.replace("\\", "/");
@@ -1041,12 +1215,16 @@ void handleSdDownloadAll() {
 }
 
 void handleSetupRoot() {
+  sendNoCacheHeaders();
+
   String html;
   html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
   html += "<title>HiveScale Setup</title>";
-  html += "<style>body{font-family:system-ui;margin:24px;max-width:760px}input{width:100%;padding:10px;margin:6px 0 14px}button,a.button{display:inline-block;padding:12px 16px;margin:4px 0;text-decoration:none;border:1px solid #333;border-radius:4px;background:#f4f4f4;color:#111}fieldset{margin:16px 0;padding:16px}</style>";
+  html += "<style>body{font-family:system-ui;margin:24px;max-width:760px}input{width:100%;padding:10px;margin:6px 0 14px}button,a.button{display:inline-block;padding:12px 16px;margin:4px 0;text-decoration:none;border:1px solid #333;border-radius:4px;background:#f4f4f4;color:#111}fieldset{margin:16px 0;padding:16px}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #ddd;padding:6px}th{width:48%}.meta{color:#666;font-size:.9em}</style>";
   html += "</head><body><h1>HiveScale Setup</h1>";
   html += "<p>Firmware: " + String(FIRMWARE_VERSION) + "</p>";
+  html += "<p>Setup portal: <a href='" + provisioningPortalUrl() + "'>" + provisioningPortalUrl() + "</a></p>";
+  appendLastSensorPanel(html);
   html += "<fieldset><legend>SD card data</legend>";
   if (sdOk) {
     html += "<p><a class='button' href='/sd/download-all'>Download all SD data (.tar)</a></p>";
@@ -1137,6 +1315,12 @@ void startProvisioningPortal() {
   delay(200);
   WiFi.mode(WIFI_AP);
 
+  IPAddress apIp = provisioningPortalIp();
+  IPAddress subnet(255, 255, 255, 0);
+  if (!WiFi.softAPConfig(apIp, apIp, subnet)) {
+    Serial.println("[SETUP] softAPConfig failed; continuing with default AP configuration");
+  }
+
   String suffix = String((uint32_t)ESP.getEfuseMac(), HEX);
   suffix.toUpperCase();
   String apName = "HiveScale-Setup-" + suffix.substring(suffix.length() - 4);
@@ -1151,23 +1335,37 @@ void startProvisioningPortal() {
   setupServer.on("/save", HTTP_POST, handleSetupSave);
   setupServer.on("/reset", HTTP_POST, handleSetupReset);
   setupServer.on("/sd/download-all", HTTP_GET, handleSdDownloadAll);
-  setupServer.onNotFound([]() {
-    setupServer.sendHeader("Location", "/", true);
-    setupServer.send(302, "text/plain", "");
-  });
+
+  // Common captive-portal probe URLs used by Android, iOS/macOS, Windows, and Firefox.
+  // Redirecting these makes most phones/laptops show the setup page automatically
+  // after they connect to the HiveScale AP. Devices that suppress captive portals
+  // can still open http://192.168.4.1/ manually.
+  setupServer.on("/generate_204", HTTP_GET, handleCaptivePortalProbe);
+  setupServer.on("/gen_204", HTTP_GET, handleCaptivePortalProbe);
+  setupServer.on("/hotspot-detect.html", HTTP_GET, handleCaptivePortalProbe);
+  setupServer.on("/library/test/success.html", HTTP_GET, handleCaptivePortalProbe);
+  setupServer.on("/connecttest.txt", HTTP_GET, handleCaptivePortalProbe);
+  setupServer.on("/ncsi.txt", HTTP_GET, handleCaptivePortalProbe);
+  setupServer.on("/canonical.html", HTTP_GET, handleCaptivePortalProbe);
+  setupServer.on("/fwlink", HTTP_GET, handleCaptivePortalProbe);
+  setupServer.onNotFound(handleCaptivePortalProbe);
   setupServer.begin();
+
+  setupDnsServer.start(CAPTIVE_DNS_PORT, "*", WiFi.softAPIP());
 
   provisioningActive = true;
   provisioningStartedMs = millis();
 
   Serial.printf("[SETUP] AP SSID: %s\n", apName.c_str());
-  Serial.print("[SETUP] Open http://");
-  Serial.println(WiFi.softAPIP());
+  Serial.print("[SETUP] Open ");
+  Serial.println(provisioningPortalUrl());
+  Serial.println("[SETUP] Captive DNS redirect enabled for AP clients");
 }
 
 void stopProvisioningPortal() {
   if (!provisioningActive) return;
   Serial.println("[SETUP] Stopping provisioning AP");
+  setupDnsServer.stop();
   setupServer.stop();
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
@@ -1608,6 +1806,7 @@ String createMeasurementJson() {
 
   String output;
   serializeJson(doc, output);
+  rememberLastMeasurement(output);
 
   Serial.print("[MEASURE] JSON: ");
   Serial.println(output);
@@ -2070,6 +2269,7 @@ void loop() {
   handleButton();
 
   if (provisioningActive) {
+    setupDnsServer.processNextRequest();
     setupServer.handleClient();
     if (millis() - provisioningStartedMs > PROVISIONING_TIMEOUT_MS) {
       stopProvisioningPortal();
