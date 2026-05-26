@@ -1,6 +1,6 @@
 import hashlib
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Literal, Any
 
@@ -9,6 +9,7 @@ from psycopg_pool import ConnectionPool
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ConfigDict
+from insights import compute_insights, summarize
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 API_KEY = os.environ["API_KEY"]
@@ -1158,6 +1159,92 @@ def stop_calibration_mode_from_app(device_id: str, user_id: str = Depends(requir
         "payload": {},
     }
 
+@app.get(
+    "/api/v1/app/devices/{device_id}/insights",
+    dependencies=[Depends(require_hivepal_service_key)],
+)
+def get_device_insights(
+    device_id: str,
+    lookback_days: int = Query(14, ge=1, le=90),
+    user_id: str = Depends(require_user_id),
+):
+    """
+    Compute current sensor-based alerts/insights for a device.
+
+    See server/insights.py for the algorithms and their literature sources.
+    The detectors run over the last `lookback_days` of measurements (default
+    14 days, max 90). All channels (scale 1 and scale 2) are evaluated.
+    """
+    require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
+    end_at = datetime.now(timezone.utc)
+    start_at = end_at - timedelta(days=lookback_days)
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {MEASUREMENT_SELECT_COLUMNS}
+                FROM measurements
+                WHERE device_id = %s AND measured_at >= %s
+                ORDER BY measured_at ASC;
+                """,
+                (device_id, start_at),
+            )
+            rows = cur.fetchall()
+
+    measurements = [measurement_row_to_dict(r) for r in rows]
+    alerts = compute_insights(measurements, now=end_at)
+    return {
+        "device_id": device_id,
+        "computed_at": end_at.isoformat(),
+        "lookback_days": lookback_days,
+        "measurement_count": len(measurements),
+        "alerts": [a.model_dump() for a in alerts],
+    }
+
+
+@app.get(
+    "/api/v1/app/devices/{device_id}/insights/summary",
+    dependencies=[Depends(require_hivepal_service_key)],
+)
+def get_device_insights_summary(
+    device_id: str,
+    user_id: str = Depends(require_user_id),
+):
+    """
+    Highest-severity summary of current alerts, suitable for dashboard
+    cards. Always uses the default 14-day lookback.
+    """
+    require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
+    end_at = datetime.now(timezone.utc)
+    start_at = end_at - timedelta(days=14)
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {MEASUREMENT_SELECT_COLUMNS}
+                FROM measurements
+                WHERE device_id = %s AND measured_at >= %s
+                ORDER BY measured_at ASC;
+                """,
+                (device_id, start_at),
+            )
+            rows = cur.fetchall()
+
+    measurements = [measurement_row_to_dict(r) for r in rows]
+    alerts = compute_insights(measurements, now=end_at)
+    summary = summarize(device_id, alerts, end_at)
+    return {
+        "device_id": summary.device_id,
+        "computed_at": summary.computed_at.isoformat(),
+        "alert_count": summary.alert_count,
+        "highest_severity": summary.highest_severity,
+        "highest_alert": (
+            summary.highest_alert.model_dump() if summary.highest_alert else None
+        ),
+        "categories": summary.categories,
+    }
 
 @app.get("/api/v1/time", dependencies=[Depends(require_api_key)])
 def get_server_time():
