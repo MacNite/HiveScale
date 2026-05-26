@@ -69,29 +69,32 @@ HiveScale/
 
 ### Core components
 
+All links are affilliate links and support this project directly.
+
 | Component | Role |
 |---|---|
 | [ESP32 Dev Board](https://s.click.aliexpress.com/e/_c3LV3nfF)| Main controller |
-| 2x HX711 + load cells | Weight measurement for scale 1 and scale 2 |
-| 2x DS18B20 waterproof probes | Internal hive temperature probes |
-| 2x INMP441 sound sensors  | Internal hive sound sensors |
-| SHT4x | Ambient temperature and humidity |
-| DS3231 RTC | Offline timekeeping |
-| MicroSD card module + card | Local cache and backup storage |
-| Momentary pushbutton | Provisioning and factory reset |
+| 2x [HX711](https://s.click.aliexpress.com/e/_c3DkGsAN) + [load cells](https://s.click.aliexpress.com/e/_c33VsCl7) | Weight measurement for scale 1 and scale 2 |
+| 2x [DS18B20 waterproof probes](https://s.click.aliexpress.com/e/_c4X4ktmv) | Internal hive temperature probes |
+| 2x [INMP441 sound sensors](https://s.click.aliexpress.com/e/_c313NoAd)  | Internal hive sound sensors |
+| [SHT4x](https://s.click.aliexpress.com/e/_c3CvaIKz) | Ambient temperature and humidity |
+| [DS3231 RTC](https://s.click.aliexpress.com/e/_c4mfPBtR) | Offline timekeeping |
+| [MicroSD card module](https://s.click.aliexpress.com/e/_c3oDcFM9) + card | Local cache and backup storage |
+| [Momentary pushbutton](https://s.click.aliexpress.com/e/_c4sqg7Lx) | Provisioning and factory reset |
 | 3.3 V power supply with at least 1A / or Power Module | ESP32 and peripheral supply |
-| IP-rated enclosure, glands, wiring, frame hardware | Outdoor installation |
+| [IP-rated enclosure](https://s.click.aliexpress.com/e/_c30msn9R), [glands](https://de.aliexpress.com/item/1005007921366362.html?spm=a2g0o.order_list.order_list_main.181.95e75c5fEc35Ct&gatewayAdapt=glo2deu), frame hardware | Outdoor installation |
 
 ### Optional off-grid components
 
 | Component | Firmware flag | Role |
 |---|---|---|
-| INA219 | `ENABLE_INA219_SOLAR` | Solar/load voltage, shunt voltage, current, and power telemetry |
-| MAX17048 | `ENABLE_MAX17048_BATTERY` | LiPo voltage, state-of-charge, and low-battery alert |
-| CN3971 / solar charger module | Hardware only | Solar charging path used by the breakout PCB design |
-| TPS63020 buck-boost module | Hardware only | Stable 3.3 V rail for low-power/off-grid builds |
-| 10.000 mAh Lipo Battery | Hardware only | Backup if no solar power is available |
-| 6V 4.5W Solar panel | Hardware only |  |
+| [INA219](https://s.click.aliexpress.com/e/_c3LAZEO9) | `ENABLE_INA219_SOLAR` | Solar/load voltage, shunt voltage, current, and power telemetry |
+| [MAX17048](https://s.click.aliexpress.com/e/_c3JKEzrL) | `ENABLE_MAX17048_BATTERY` | LiPo voltage, state-of-charge, and low-battery alert |
+| [CN3971 / solar charger module](https://s.click.aliexpress.com/e/_c4T7Ve5x) | Hardware only | Solar charging path used by the breakout PCB design |
+| [TPS63020 buck-boost module](https://s.click.aliexpress.com/e/_c2uscIy1) | Hardware only | Stable 3.3 V rail for low-power/off-grid builds |
+| [TP4056 lipo charging board](https://s.click.aliexpress.com/e/_c4beU1nL) | Hardware only | lipo charging via usb |
+| [10.000 mAh Lipo Battery](https://s.click.aliexpress.com/e/_c45jfAGv) | Hardware only | Backup if no solar power is available |
+| [6V 4.5W Solar panel](https://s.click.aliexpress.com/e/_c3njKuVF) | Hardware only |  |
 
 ### Optional BeeCounter
 
