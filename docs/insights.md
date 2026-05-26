@@ -1,0 +1,412 @@
+# HiveScale Insights
+
+**Preview - the skeleton for this exists, the final evaluation / testing / implementation is WIP**
+
+The **Insights** panel in HivePal surfaces rule-based alerts derived from the
+time-series your HiveScale device already records: weight (per channel),
+internal hive temperature (per channel), and ambient temperature/humidity.
+
+Insights are computed in [`server/insights.py`](../server/insights.py) and
+exposed through `/api/v1/devices/{device_id}/insights`. The HivePal frontend
+displays them in the **HiveScale → Insights** card.
+
+This document is the authoritative reference for **what is detected**,
+**how**, **when an alert is raised**, and **where the rule comes from**.
+
+---
+
+## Quick facts
+
+| Property | Value |
+|---|---|
+| Computation source | `server/insights.py` (pure Python, no DB access) |
+| Trigger | Every call to the insights endpoint; cached on the frontend for 5 minutes |
+| Inputs | Weight, hive temperature, ambient temperature/humidity time-series |
+| Lookback | Up to 14 days, configurable via the `lookback_days` query parameter |
+| Per-channel | Each detector runs independently for scale 1 and scale 2 |
+| Output | A flat list of `Alert` objects, sorted by severity then time |
+
+---
+
+## Severities
+
+Alerts are tagged with one of four severity levels. The frontend uses these
+to colour-code the alert rows and per-hive badges on the latest-value panels.
+
+| Severity | Meaning | Frontend colour |
+|---|---|---|
+| `info` | Informational classification, no action required | Blue |
+| `watch` | Trend worth monitoring; inspect in the next routine visit | Yellow |
+| `warning` | Something is happening now; investigate within hours | Amber |
+| `critical` | Acute event; immediate attention recommended | Red |
+
+A single detector can emit different severities depending on the inputs
+(e.g. a swarm event during daylight hours is `critical`, at night it is
+`warning`).
+
+---
+
+## Detector catalogue
+
+Each section below describes one detector function in `insights.py`. The
+heading is the alert title; the table is the rule it fires on.
+
+### 1. Pre-swarm watch (Phase 1)
+
+| | |
+|---|---|
+| Function | `detect_pre_swarm_temp_instability` |
+| Category | `swarm` |
+| Severity | `watch` |
+| Inputs | Hive temperature, last 24 h and prior 7 days |
+| Rule | 24 h std-dev of hive temperature ≥ **1.5×** the 7-day baseline std-dev |
+| Confidence | 0.4 plus `(ratio − 1.5) × 0.5`, capped at 1.0 |
+| Source | Project spec **Phase 1** (temperature half); MSPB arXiv 2311.10876 |
+
+**Why it fires.** A healthy brood nest is held at 34–35 °C with very little
+variation (std-dev typically < 0.5 °C). When the colony starts preparing to
+swarm, thermoregulation becomes less precise hours-to-days before the actual
+event, and the rolling 24 h variance widens.
+
+**What it tells you.** Inspect for queen cells in the next 24–48 hours.
+
+**Not implemented.** The strongest swarm-preparation signal in the
+literature is acoustic (piping/tooting in the 300–550 Hz band), which
+requires a microphone HiveScale does not currently ship.
+
+---
+
+### 2. Imminent swarm (Phase 2)
+
+| | |
+|---|---|
+| Function | `detect_imminent_swarm` |
+| Category | `swarm` |
+| Severity | `warning` |
+| Inputs | Hive temperature, last 1 h vs. preceding 3 h |
+| Rule | All three: <br/>• current temp − 4 h baseline ≥ **1.5 °C** <br/>• slope ≥ **0.5 °C/h** (still rising) <br/>• absolute temp > **36.5 °C** (above brood-nest tolerance) |
+| Confidence | 0.5 plus `delta / 5`, capped at 1.0 |
+| Source | Project spec **Phase 2**; Stalidzans & Berzonis 2013 |
+
+**Why it fires.** In the final ~10–30 minutes before a swarm issues, the
+cluster gathers near the entrance and the upper-hive temperature spikes
+sharply above the normal brood-rearing band.
+
+**What it tells you.** A swarm may leave within the next half hour. If you
+are on site and want to catch the swarm, prepare a swarm box now.
+
+---
+
+### 3. Swarm event (Phase 3)
+
+| | |
+|---|---|
+| Function | `detect_swarm_event` |
+| Category | `swarm` |
+| Severity | `critical` (daytime) / `warning` (otherwise) |
+| Inputs | Weight, last 2 h |
+| Rule | Weight drop ≥ **1.5 kg** within a window of ≤ **30 minutes** |
+| Daytime window | 09:00–17:00 local |
+| Confidence | 0.6 plus `(drop − 1.5) × 0.1`, capped at 1.0 |
+| Source | Project spec **Phase 3** (weight half) |
+
+**Why it fires.** When a swarm leaves, a substantial fraction of the colony
+(typically 50–70 % of adult bees) departs in minutes. On a hive scale this
+shows up as a near-step drop in weight.
+
+**What it tells you.** A swarm has very likely just departed. Check the
+hive, look for the cluster nearby if recovery is desired.
+
+**Not implemented.** With a bee counter the spec calls for AND-ing the
+weight signature with massive asymmetric outflow (`out_count > 3× baseline`
+AND `out / (in + 1) > 5`). When such a sensor is added, severity and
+confidence should both be raised when the signals agree.
+
+---
+
+### 4. Queenlessness (rule-based fallback)
+
+| | |
+|---|---|
+| Function | `detect_queenlessness` |
+| Category | `queenless` |
+| Severity | `warning` |
+| Inputs | Hive temperature and weight, last 7 days; only fires during the active season (Mar–Sep, northern hemisphere) |
+| Rule | Both: <br/>• 7-day hive-temp std-dev > **1.0 °C** <br/>• 7-day net weight change ≤ **0.2 kg** (stagnant) |
+| Confidence | 0.55 (moderate without acoustic confirmation) |
+| Source | Project spec **Queenlessness detection** (2-of-3 rule, no audio) |
+
+**Why it fires.** Without a queen, brood rearing stops within days. The
+nurse bees no longer thermoregulate a brood nest, so hive-temperature
+variance widens. At the same time, foraging effort drops and the weight
+curve stalls during what would otherwise be a productive season.
+
+**What it tells you.** Inspect for eggs and a healthy brood pattern. If
+both are missing, plan a queen introduction.
+
+**Not implemented.** The gold-standard signal is the acoustic queenless
+signature (broad-band, lower fundamental). Forager-count decline (~5 % per
+day for 7+ days) is also part of the original spec — both would require
+extra sensors.
+
+---
+
+### 5. Robbing
+
+| | |
+|---|---|
+| Function | `detect_robbing` |
+| Category | `robbing` |
+| Severity | `warning` (late afternoon) / `watch` (other times) |
+| Inputs | Weight, last 2 h |
+| Rule | Sustained weight loss ≥ **0.4 kg/h** over ≥ **30 min**, NOT matching the swarm-event signature |
+| Late-afternoon window | 15:00–19:00 local (dearth-period robbing peak) |
+| Confidence | 0.5 baseline, +0.2 if late afternoon |
+| Source | Project spec **Robbing detection** (weight component) |
+
+**Why it fires.** A weak hive being robbed loses honey rapidly — much faster
+than normal foraging-day swings. The detector deliberately ignores cases
+that look like a swarm departure (covered by detector 3 above) to avoid
+double-firing.
+
+**What it tells you.** Reduce entrance size, consider closing the hive
+temporarily, or move the colony if robbing is sustained.
+
+**Not implemented.** The canonical signals are an incoming-count spike with
+low outgoing AND an agitated acoustic spectrum — both require sensors
+HiveScale does not yet ship.
+
+---
+
+### 6. Foraging intensity (informational)
+
+| | |
+|---|---|
+| Function | `detect_foraging_intensity` |
+| Category | `foraging` |
+| Severity | `info` (strong/moderate flow) or `watch` (net loss) |
+| Inputs | Weight, last 24 h |
+| Rule | 24 h weight delta: <br/>• ≥ **+1.0 kg** → strong flow (`info`) <br/>• ≥ **+0.2 kg** → moderate flow (`info`) <br/>• ≤ **−0.2 kg** → negative (`watch`) <br/>• otherwise → no alert |
+| Confidence | 0.8 |
+| Source | Project spec **Foraging intensity**; Meikle et al. 2008 |
+
+**Why it fires.** Day-to-day weight delta is the classical proxy for
+nectar-flow intensity. A negative delta during the active season is worth
+flagging because it indicates the colony is consuming more than it gathers.
+
+**What it tells you.** Strong flow → consider adding a super. Negative
+delta → check for dearth, disease, robbing, or queen problems depending on
+context.
+
+---
+
+### 7. Brood cycle / colony state
+
+| | |
+|---|---|
+| Function | `detect_brood_cycle_state` |
+| Category | `brood` |
+| Severity | `info` (active brood) or `watch` (broodless / weak) |
+| Inputs | Hive temperature, last 24 h |
+| Rule | 24 h std-dev: <br/>• < **0.5 °C** *and* mean within 34–36.5 °C → active brood rearing (`info`) <br/>• > **2.0 °C** → broodless / weak colony (`watch`) <br/>• otherwise → no alert (in transition) |
+| Confidence | 0.7 |
+| Source | Project spec **Brood cycle / colony state** |
+
+**Why it fires.** Brood requires tight thermoregulation. A narrow std-dev
+around the canonical 34–35 °C is a positive confirmation that brood
+rearing is active; a wide std-dev usually means there is little or no
+brood to thermoregulate.
+
+**What it tells you.** Use it as a quick health check: an `info` here is
+reassuring, a `watch` warrants an inspection — combined with detector 4
+(queenlessness) it strongly suggests an inspection.
+
+---
+
+### 8. Absconding / collapse trend
+
+| | |
+|---|---|
+| Function | `detect_absconding_trend` |
+| Category | `decline` |
+| Severity | `watch` |
+| Inputs | Hive temperature and weight, last 14 days |
+| Rule | Both: <br/>• Weight loss > **100 g/day** sustained over 14 days <br/>• Daily-std-dev regression slope **positive** (variance widening) |
+| Confidence | 0.5 |
+| Source | Project spec **Absconding / collapse early warning** (2-of-3 rule) |
+
+**Why it fires.** A colony in slow decline — disease, queen problems,
+chronic robbing, pre-absconding stress — typically shows both a sustained
+weight bleed and a deteriorating thermoregulation pattern in the days to
+weeks before the colony collapses or absconds.
+
+**What it tells you.** Inspect within the next routine cycle. Look for
+disease, queen status, and stressors.
+
+**Not implemented.** The third leg of the original rule is a declining
+linear trend on the daily peak entrance traffic, which requires a counter.
+When a counter is added, severity should auto-promote to `warning` on a
+3-of-3 match.
+
+---
+
+### 9. Winter survival risk
+
+| | |
+|---|---|
+| Function | `detect_winter_risk` |
+| Category | `winter` |
+| Severity | `warning` (both rules fire) / `watch` (one rule fires) |
+| Inputs | Hive temperature, ambient temperature, weight; last 7 days; only fires Oct–Feb (northern hemisphere) |
+| Rule | At least one of: <br/>• Cluster weak: min hive temp 7d < mean ambient 7d + **2.0 °C** <br/>• High consumption: weight loss > **300 g/week** sustained |
+| Confidence | 0.6 |
+| Source | Project spec **Winter survival risk** |
+
+**Why it fires.** Over winter, a strong cluster keeps its core well above
+ambient even on the coldest days, and consumes stored honey at a roughly
+predictable rate. A cluster that fails to maintain a temperature gap, or
+that consumes substantially more than expected, is at risk.
+
+**What it tells you.** Verify food stores on the next mild day; consider
+emergency feeding (fondant). A persistently cold cluster may have already
+died and stopped generating heat.
+
+**Not implemented.** Cleansing-flight detection on warm winter days
+(out_count > 50) would corroborate cluster health, but requires a counter.
+
+---
+
+### 10. Harvest window
+
+| | |
+|---|---|
+| Function | `detect_harvest_window` |
+| Category | `harvest` |
+| Severity | `info` |
+| Inputs | Weight, last 11 days |
+| Rule | 7-day weight delta transitions from > **2.0 kg/week** (earlier window) to < **0.3 kg/week** (current window), with the plateau lasting ≥ **4 days** |
+| Confidence | 0.7 |
+| Source | Project spec **Honey-ready / harvest timing** |
+
+**Why it fires.** Honey flows have a typical shape: rapid gain during peak
+bloom, then a plateau when the source stops producing. Harvesting at the
+top of the plateau maximises yield and minimises stress on the colony.
+
+**What it tells you.** The current flow appears to be finished; supers may
+be ready to remove. Confirm by inspection (capped frames, water content).
+
+---
+
+## Severity precedence
+
+When multiple detectors fire for the same channel, all alerts are kept and
+displayed. The per-channel pill in the latest-value panel shows the
+**highest** active severity for that channel, with `critical > warning >
+watch > info`. The full list is in the Insights card.
+
+---
+
+## Tuning thresholds
+
+All thresholds are constants near the top of `server/insights.py`:
+
+```python
+SWARM_WEIGHT_DROP_KG          = 1.5
+SWARM_WEIGHT_WINDOW_MIN       = 30
+SWARM_DAYTIME_HOURS           = (9, 17)
+PRE_SWARM_STD_MULTIPLIER      = 1.5
+PRE_SWARM_BASELINE_DAYS       = 7
+ROBBING_WEIGHT_LOSS_KG_PER_HOUR = 0.4
+ROBBING_LATE_AFTERNOON_HOURS  = (15, 19)
+ROBBING_MIN_DURATION_MIN      = 30
+QUEENLESS_TEMP_STDDEV_C       = 1.0
+QUEENLESS_DAYS_WINDOW         = 7
+QUEENLESS_WEIGHT_STAGNANT_KG  = 0.2
+FORAGING_STRONG_KG_PER_DAY    = 1.0
+FORAGING_MODERATE_KG_PER_DAY  = 0.2
+BROOD_ACTIVE_STDDEV_C         = 0.5
+BROOD_BROODLESS_STDDEV_C      = 2.0
+ABSCONDING_LOOKBACK_DAYS      = 14
+ABSCONDING_WEIGHT_LOSS_G_PER_DAY = 100
+WINTER_CLUSTER_DELTA_C        = 2.0
+WINTER_WEIGHT_LOSS_G_PER_WEEK = 300
+HARVEST_FLOW_KG_PER_WEEK      = 2.0
+HARVEST_PLATEAU_KG_PER_WEEK   = 0.3
+HARVEST_PLATEAU_DAYS          = 4
+```
+
+These are starting values calibrated against the project spec and the
+public literature listed below. They should be **re-tuned against your own
+historical data**, especially:
+
+- the swarm-event drop threshold (depends on hive box size and colony
+  strength),
+- the winter consumption rate (depends on climate and stores),
+- the foraging delta thresholds (depends on regional flow strength).
+
+Future work: expose these via `/api/v1/devices/{id}/config` so users can
+tune them per device without redeploying the backend.
+
+---
+
+## Hardware roadmap
+
+Several detectors are listed in the spec but require sensors HiveScale does
+not currently ship. The orchestrator already has hooks marked
+`# NOT IMPLEMENTED:` so they can be wired up later:
+
+| Sensor | Detectors that would benefit |
+|---|---|
+| Microphone | Pre-swarm (piping/tooting), queenlessness (acoustic signature), robbing (agitated spectrum) |
+| Entrance counter | Swarm event (asymmetric outflow), robbing (incoming-spike pattern), queenlessness (forager decline), absconding (daily-peak decline), winter (cleansing flights) |
+
+Adding either sensor would let several detectors graduate from a 2-of-3 or
+weight-only rule to the full multi-modal rule, raising both confidence and
+the maximum severity they can emit.
+
+---
+
+## Sources
+
+- **Project spec** — local design document, reproduced in conversation history.
+  Defines Phase 1/2/3 swarm warnings, queenlessness, robbing, foraging, brood
+  cycle, absconding, winter survival, and harvest timing.
+- **Seeley, T. D. (2010).** *Honeybee Democracy.* Princeton University Press.
+  Swarm-preparation behaviour and timing.
+- **Stalidzans, E. & Berzonis, A. (2013).** "Temperature changes above the
+  upper hive entrance show signs of bee colony swarming preparation."
+  *Agronomy Research,* 11(2). Brood-nest baseline temperatures and the
+  pre-swarm rise.
+- **Meikle, W. G. et al. (2008).** "Within-day variation in continuous hive
+  weight data as a measure of honey bee colony activity." *Apidologie* 39(6).
+  Day-night weight-delta foraging algorithm.
+- **Kulkarni & Murphy** — time-series benchmark, weight + in-hive temp +
+  entrance traffic. PMC 11479372 (Frontiers, open access). Recommended
+  validation dataset because the sensor stack matches HiveScale most closely.
+- **MSPB multi-modal dataset** — arXiv 2311.10876. Audio + temperature +
+  humidity across 53 hives over 1 year; cited as validation for the
+  temperature-based queenlessness fallback.
+
+Other public datasets useful for validation: BeeTogether, UrBAN, NU-Hive,
+OSBH, BUZZ1–4.
+
+---
+
+## Frontend reference
+
+The Insights card lives at:
+
+```
+apps/frontend/src/pages/hivescale/hivescale-insights-card.tsx
+```
+
+It renders the alert list, a severity summary, and an `(i)` tooltip
+listing every detector with a short version of the rule and a link back to
+this document. The per-hive severity pill (used in the latest-value panels)
+is exported from the same file as `HiveScaleSeverityPill`.
+
+The TanStack Query hook is `useHiveScaleInsights` in
+`apps/frontend/src/api/hooks/useHiveScale.ts`. The corresponding TypeScript
+types — `HiveScaleInsightSeverity`, `HiveScaleInsightCategory`,
+`HiveScaleInsightAlert`, `HiveScaleInsightsResponse` — mirror the Pydantic
+models in `server/insights.py`.
