@@ -71,25 +71,33 @@ HiveScale/
 
 | Component | Role |
 |---|---|
-| ESP32 Dev Board | Main controller |
+| [ESP32 Dev Board](https://s.click.aliexpress.com/e/_c3LV3nfF)| Main controller |
 | 2x HX711 + load cells | Weight measurement for scale 1 and scale 2 |
 | 2x DS18B20 waterproof probes | Internal hive temperature probes |
+| 2x INMP441 sound sensors  | Internal hive sound sensors |
 | SHT4x | Ambient temperature and humidity |
 | DS3231 RTC | Offline timekeeping |
 | MicroSD card module + card | Local cache and backup storage |
 | Momentary pushbutton | Provisioning and factory reset |
-| 5 V power supply / DC-DC converter | ESP32 and peripheral supply |
+| 3.3 V power supply with at least 1A / or Power Module | ESP32 and peripheral supply |
 | IP-rated enclosure, glands, wiring, frame hardware | Outdoor installation |
 
 ### Optional off-grid components
 
 | Component | Firmware flag | Role |
 |---|---|---|
-| SIM7080G LTE/NB-IoT modem | `ENABLE_SIM7080G` | Cellular upload, config polling, command polling, and cellular time sync |
 | INA219 | `ENABLE_INA219_SOLAR` | Solar/load voltage, shunt voltage, current, and power telemetry |
 | MAX17048 | `ENABLE_MAX17048_BATTERY` | LiPo voltage, state-of-charge, and low-battery alert |
 | CN3971 / solar charger module | Hardware only | Solar charging path used by the breakout PCB design |
 | TPS63020 buck-boost module | Hardware only | Stable 3.3 V rail for low-power/off-grid builds |
+| 10.000 mAh Lipo Battery | Hardware only | Backup if no solar power is available |
+| 6V 4.5W Solar panel | Hardware only |  |
+
+### Optional BeeCounter
+
+Information on the BeeCounter can be found here:
+
+ [BeeCounter 2026 GitHub Repo](https://github.com/MacNite/2026-easy-bee-counter)
 
 ### Firmware pin mapping
 
