@@ -26,6 +26,14 @@ This document is the authoritative reference for **what is detected**,
 | Per-channel | Each detector runs independently for scale 1 and scale 2 |
 | Output | A flat list of `Alert` objects, sorted by severity then time |
 
+
+---
+
+## Sources
+
+You can find a quick tldr on the sources [here](https://github.com/MacNite/HiveScale/blob/main/docs/insights.md)
+
+
 ---
 
 ## Severities
