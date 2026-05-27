@@ -63,6 +63,30 @@ class MeasurementIn(BaseModel):
     sht_ok: Optional[bool] = None
     scale_1_raw: Optional[int] = None
     scale_2_raw: Optional[int] = None
+    # ── INMP441 stereo microphone telemetry ──────────────────────────────────
+    mic_ok: Optional[bool] = None
+    mic_sample_rate_hz: Optional[int] = None
+    mic_sample_frames: Optional[int] = None
+    mic_left_ok: Optional[bool] = None
+    mic_left_rms_dbfs: Optional[float] = None
+    mic_left_peak_dbfs: Optional[float] = None
+    mic_left_rms_normalized: Optional[float] = None
+    mic_right_ok: Optional[bool] = None
+    mic_right_rms_dbfs: Optional[float] = None
+    mic_right_peak_dbfs: Optional[float] = None
+    mic_right_rms_normalized: Optional[float] = None
+    # ── INMP441 FFT frequency band energy (dBFS) ─────────────────────────────
+    # 5 bands × 2 channels = 10 fields.  Null when firmware has no FFT support.
+    mic_left_band_sub_bass_dbfs:  Optional[float] = None  #   50–150 Hz
+    mic_left_band_hum_dbfs:       Optional[float] = None  #  150–300 Hz colony hum
+    mic_left_band_piping_dbfs:    Optional[float] = None  #  300–550 Hz piping/tooting
+    mic_left_band_stress_dbfs:    Optional[float] = None  #  550–1500 Hz agitation
+    mic_left_band_high_dbfs:      Optional[float] = None  # 1500–3000 Hz
+    mic_right_band_sub_bass_dbfs: Optional[float] = None
+    mic_right_band_hum_dbfs:      Optional[float] = None
+    mic_right_band_piping_dbfs:   Optional[float] = None
+    mic_right_band_stress_dbfs:   Optional[float] = None
+    mic_right_band_high_dbfs:     Optional[float] = None
 
 
 class DeviceConfig(BaseModel):
@@ -155,18 +179,9 @@ def require_hivepal_service_key(x_hivepal_service_key: str = Header(default=""))
 def require_user_id(x_user_id: str = Header(default="")) -> str:
     # Temporary bridge until HivePal JWT/session validation is wired in.
     # In HivePal, replace this with token verification and return the logged-in user id.
-    user_id = x_user_id.strip()
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing X-User-Id")
-    return user_id
-
-
-def normalize_claim_code(claim_code: str) -> str:
-    return claim_code.strip().upper().replace(" ", "")
-
-
-def hash_claim_code(claim_code: str) -> str:
-    return hashlib.sha256(normalize_claim_code(claim_code).encode("utf-8")).hexdigest()
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="X-User-Id header is required")
+    return x_user_id
 
 
 db_pool = ConnectionPool(
@@ -179,6 +194,10 @@ db_pool = ConnectionPool(
 
 def get_conn():
     return db_pool.connection()
+
+
+def hash_claim_code(code: str) -> str:
+    return hashlib.sha256(code.strip().upper().encode()).hexdigest()
 
 
 def init_db():
@@ -196,20 +215,14 @@ def init_db():
                     last_firmware_version TEXT
                 );
 
-                CREATE INDEX IF NOT EXISTS idx_devices_claim_code_hash
-                    ON devices (claim_code_hash) WHERE claimed_at IS NULL;
-
                 CREATE TABLE IF NOT EXISTS device_members (
+                    id BIGSERIAL PRIMARY KEY,
                     device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
                     user_id TEXT NOT NULL,
-                    role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'viewer')),
-                    invited_by TEXT,
+                    role TEXT NOT NULL DEFAULT 'viewer',
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    PRIMARY KEY (device_id, user_id)
+                    UNIQUE (device_id, user_id)
                 );
-
-                CREATE INDEX IF NOT EXISTS idx_device_members_user
-                    ON device_members (user_id, device_id);
 
                 CREATE TABLE IF NOT EXISTS device_channels (
                     device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
@@ -254,6 +267,29 @@ def init_db():
                     sht_ok BOOLEAN,
                     scale_1_raw BIGINT,
                     scale_2_raw BIGINT,
+                    -- INMP441 stereo microphone columns
+                    mic_ok                   BOOLEAN,
+                    mic_sample_rate_hz       INTEGER,
+                    mic_sample_frames        INTEGER,
+                    mic_left_ok              BOOLEAN,
+                    mic_left_rms_dbfs        DOUBLE PRECISION,
+                    mic_left_peak_dbfs       DOUBLE PRECISION,
+                    mic_left_rms_normalized  DOUBLE PRECISION,
+                    mic_right_ok             BOOLEAN,
+                    mic_right_rms_dbfs       DOUBLE PRECISION,
+                    mic_right_peak_dbfs      DOUBLE PRECISION,
+                    mic_right_rms_normalized DOUBLE PRECISION,
+                    -- INMP441 FFT frequency band energy columns (dBFS)
+                    mic_left_band_sub_bass_dbfs  DOUBLE PRECISION,
+                    mic_left_band_hum_dbfs       DOUBLE PRECISION,
+                    mic_left_band_piping_dbfs    DOUBLE PRECISION,
+                    mic_left_band_stress_dbfs    DOUBLE PRECISION,
+                    mic_left_band_high_dbfs      DOUBLE PRECISION,
+                    mic_right_band_sub_bass_dbfs DOUBLE PRECISION,
+                    mic_right_band_hum_dbfs      DOUBLE PRECISION,
+                    mic_right_band_piping_dbfs   DOUBLE PRECISION,
+                    mic_right_band_stress_dbfs   DOUBLE PRECISION,
+                    mic_right_band_high_dbfs     DOUBLE PRECISION,
                     raw_json JSONB NOT NULL
                 );
 
@@ -279,6 +315,29 @@ def init_db():
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS sht_ok BOOLEAN;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS scale_1_raw BIGINT;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS scale_2_raw BIGINT;
+                -- mic columns (idempotent for existing deployments)
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_ok                   BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_sample_rate_hz       INTEGER;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_sample_frames        INTEGER;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_left_ok              BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_left_rms_dbfs        DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_left_peak_dbfs       DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_left_rms_normalized  DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_right_ok             BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_right_rms_dbfs       DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_right_peak_dbfs      DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_right_rms_normalized DOUBLE PRECISION;
+                -- fft band columns (idempotent)
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_left_band_sub_bass_dbfs  DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_left_band_hum_dbfs       DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_left_band_piping_dbfs    DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_left_band_stress_dbfs    DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_left_band_high_dbfs      DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_right_band_sub_bass_dbfs DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_right_band_hum_dbfs      DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_right_band_piping_dbfs   DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_right_band_stress_dbfs   DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS mic_right_band_high_dbfs     DOUBLE PRECISION;
 
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS claim_code_hash TEXT;
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
@@ -320,58 +379,29 @@ def init_db():
                     claimed_at TIMESTAMPTZ,
                     completed_at TIMESTAMPTZ
                 );
-
-                CREATE INDEX IF NOT EXISTS idx_device_commands_pending
-                    ON device_commands (device_id, status, created_at);
                 """
             )
             conn.commit()
 
 
-def ensure_device(device_id: str, claim_code: Optional[str] = None, firmware_version: Optional[str] = None):
-    claim_hash = hash_claim_code(claim_code) if claim_code else None
+def ensure_device_config(device_id: str, claim_code: Optional[str] = None, firmware_version: Optional[str] = None):
     with get_conn() as conn:
         with conn.cursor() as cur:
+            claim_hash = hash_claim_code(claim_code) if claim_code else None
             cur.execute(
                 """
                 INSERT INTO devices (device_id, claim_code_hash, last_seen_at, last_firmware_version)
                 VALUES (%s, %s, now(), %s)
                 ON CONFLICT (device_id) DO UPDATE
-                SET last_seen_at = now(),
-                    last_firmware_version = COALESCE(EXCLUDED.last_firmware_version, devices.last_firmware_version),
-                    claim_code_hash = CASE
-                        WHEN devices.claimed_at IS NULL AND EXCLUDED.claim_code_hash IS NOT NULL
-                        THEN EXCLUDED.claim_code_hash
-                        ELSE devices.claim_code_hash
-                    END;
+                    SET last_seen_at = now(),
+                        last_firmware_version = COALESCE(EXCLUDED.last_firmware_version, devices.last_firmware_version),
+                        claim_code_hash = COALESCE(devices.claim_code_hash, EXCLUDED.claim_code_hash);
                 """,
                 (device_id, claim_hash, firmware_version),
             )
             cur.execute(
                 """
-                INSERT INTO device_channels (device_id, channel_number, name)
-                VALUES (%s, 1, 'Scale 1'), (%s, 2, 'Scale 2')
-                ON CONFLICT (device_id, channel_number) DO NOTHING;
-                """,
-                (device_id, device_id),
-            )
-            conn.commit()
-
-
-def ensure_device_config(
-    device_id: str,
-    claim_code: Optional[str] = None,
-    firmware_version: Optional[str] = None,
-    touch_device: bool = True,
-):
-    if touch_device:
-        ensure_device(device_id, claim_code, firmware_version)
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO device_configs (device_id)
-                VALUES (%s)
+                INSERT INTO device_configs (device_id) VALUES (%s)
                 ON CONFLICT (device_id) DO NOTHING;
                 """,
                 (device_id,),
@@ -379,61 +409,21 @@ def ensure_device_config(
             conn.commit()
 
 
-def require_device_role(user_id: str, device_id: str, roles: list[str]):
+def require_device_role(user_id: str, device_id: str, allowed_roles: list[str]):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT role FROM device_members
-                WHERE device_id = %s AND user_id = %s;
-                """,
+                "SELECT role FROM device_members WHERE device_id = %s AND user_id = %s;",
                 (device_id, user_id),
             )
-            row = cur.fetchone()
-    if not row or row[0] not in roles:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient device permissions")
-    return row[0]
+            r = cur.fetchone()
+    if not r or r[0] not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Insufficient permissions for this device")
 
 
-def get_device_channels(device_id: str) -> list[dict[str, Any]]:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT channel_number, name
-                FROM device_channels
-                WHERE device_id = %s
-                ORDER BY channel_number;
-                """,
-                (device_id,),
-            )
-            rows = cur.fetchall()
-    return [{"channel_number": r[0], "name": r[1]} for r in rows]
-
-
-def upsert_device_channel_names(cur, device_id: str, scale_1_name: Optional[str], scale_2_name: Optional[str]):
-    updates = [(1, scale_1_name), (2, scale_2_name)]
-    for channel_number, name in updates:
-        if name is None:
-            continue
-        clean_name = name.strip()
-        if not clean_name:
-            continue
-        cur.execute(
-            """
-            INSERT INTO device_channels (device_id, channel_number, name)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (device_id, channel_number) DO UPDATE
-            SET name = EXCLUDED.name;
-            """,
-            (device_id, channel_number, clean_name),
-        )
-
-
-def version_tuple(v: str) -> tuple[int, ...]:
-    clean = v.strip().lstrip("v")
+def parse_version(v: str) -> tuple:
     parts = []
-    for p in clean.split("."):
+    for p in v.split("."):
         try:
             parts.append(int("".join(ch for ch in p if ch.isdigit()) or "0"))
         except ValueError:
@@ -475,7 +465,15 @@ def create_measurement(payload: MeasurementIn):
                     solar_current_ma, solar_power_mw, network_transport,
                     cellular_ok, cellular_csq, calibration_mode, boot_count,
                     time_source, rssi_dbm, firmware_version, config_version, sd_ok,
-                    rtc_ok, sht_ok, scale_1_raw, scale_2_raw, raw_json
+                    rtc_ok, sht_ok, scale_1_raw, scale_2_raw,
+                    mic_ok, mic_sample_rate_hz, mic_sample_frames,
+                    mic_left_ok, mic_left_rms_dbfs, mic_left_peak_dbfs, mic_left_rms_normalized,
+                    mic_right_ok, mic_right_rms_dbfs, mic_right_peak_dbfs, mic_right_rms_normalized,
+                    mic_left_band_sub_bass_dbfs, mic_left_band_hum_dbfs, mic_left_band_piping_dbfs,
+                    mic_left_band_stress_dbfs, mic_left_band_high_dbfs,
+                    mic_right_band_sub_bass_dbfs, mic_right_band_hum_dbfs, mic_right_band_piping_dbfs,
+                    mic_right_band_stress_dbfs, mic_right_band_high_dbfs,
+                    raw_json
                 )
                 VALUES (
                     %(device_id)s, %(measured_at)s, %(scale_1_weight_kg)s,
@@ -489,7 +487,15 @@ def create_measurement(payload: MeasurementIn):
                     %(cellular_csq)s, %(calibration_mode)s, %(boot_count)s,
                     %(time_source)s, %(rssi_dbm)s, %(firmware_version)s,
                     %(config_version)s, %(sd_ok)s, %(rtc_ok)s, %(sht_ok)s,
-                    %(scale_1_raw)s, %(scale_2_raw)s, %(raw_json)s
+                    %(scale_1_raw)s, %(scale_2_raw)s,
+                    %(mic_ok)s, %(mic_sample_rate_hz)s, %(mic_sample_frames)s,
+                    %(mic_left_ok)s, %(mic_left_rms_dbfs)s, %(mic_left_peak_dbfs)s, %(mic_left_rms_normalized)s,
+                    %(mic_right_ok)s, %(mic_right_rms_dbfs)s, %(mic_right_peak_dbfs)s, %(mic_right_rms_normalized)s,
+                    %(mic_left_band_sub_bass_dbfs)s, %(mic_left_band_hum_dbfs)s, %(mic_left_band_piping_dbfs)s,
+                    %(mic_left_band_stress_dbfs)s, %(mic_left_band_high_dbfs)s,
+                    %(mic_right_band_sub_bass_dbfs)s, %(mic_right_band_hum_dbfs)s, %(mic_right_band_piping_dbfs)s,
+                    %(mic_right_band_stress_dbfs)s, %(mic_right_band_high_dbfs)s,
+                    %(raw_json)s
                 )
                 RETURNING id;
                 """,
@@ -526,6 +532,27 @@ def create_measurement(payload: MeasurementIn):
                     "sht_ok": payload.sht_ok,
                     "scale_1_raw": payload.scale_1_raw,
                     "scale_2_raw": payload.scale_2_raw,
+                    "mic_ok": payload.mic_ok,
+                    "mic_sample_rate_hz": payload.mic_sample_rate_hz,
+                    "mic_sample_frames": payload.mic_sample_frames,
+                    "mic_left_ok": payload.mic_left_ok,
+                    "mic_left_rms_dbfs": payload.mic_left_rms_dbfs,
+                    "mic_left_peak_dbfs": payload.mic_left_peak_dbfs,
+                    "mic_left_rms_normalized": payload.mic_left_rms_normalized,
+                    "mic_right_ok": payload.mic_right_ok,
+                    "mic_right_rms_dbfs": payload.mic_right_rms_dbfs,
+                    "mic_right_peak_dbfs": payload.mic_right_peak_dbfs,
+                    "mic_right_rms_normalized": payload.mic_right_rms_normalized,
+                    "mic_left_band_sub_bass_dbfs":  payload.mic_left_band_sub_bass_dbfs,
+                    "mic_left_band_hum_dbfs":       payload.mic_left_band_hum_dbfs,
+                    "mic_left_band_piping_dbfs":    payload.mic_left_band_piping_dbfs,
+                    "mic_left_band_stress_dbfs":    payload.mic_left_band_stress_dbfs,
+                    "mic_left_band_high_dbfs":      payload.mic_left_band_high_dbfs,
+                    "mic_right_band_sub_bass_dbfs": payload.mic_right_band_sub_bass_dbfs,
+                    "mic_right_band_hum_dbfs":      payload.mic_right_band_hum_dbfs,
+                    "mic_right_band_piping_dbfs":   payload.mic_right_band_piping_dbfs,
+                    "mic_right_band_stress_dbfs":   payload.mic_right_band_stress_dbfs,
+                    "mic_right_band_high_dbfs":     payload.mic_right_band_high_dbfs,
                     "raw_json": psycopg.types.json.Jsonb(payload.model_dump(mode="json", exclude={"claim_code"})),
                 },
             )
@@ -533,6 +560,49 @@ def create_measurement(payload: MeasurementIn):
             conn.commit()
     return {"status": "ok", "id": new_id, "measured_at": measured_at.isoformat()}
 
+
+# ---------------------------------------------------------------------------
+# Indices for measurement_row_to_dict (keep in sync with SELECT below):
+#
+#  0  id                        17  scale_1_raw
+#  1  device_id                 18  scale_2_raw
+#  2  measured_at               19  battery_soc_percent
+#  3  received_at               20  battery_alert
+#  4  scale_1_weight_kg         21  battery_monitor_ok
+#  5  scale_2_weight_kg         22  solar_monitor_ok
+#  6  hive_1_temp_c             23  solar_bus_voltage_v
+#  7  hive_2_temp_c             24  solar_shunt_voltage_mv
+#  8  ambient_temp_c            25  solar_load_voltage_v
+#  9  ambient_humidity_percent  26  solar_current_ma
+# 10  battery_voltage           27  solar_power_mw
+# 11  rssi_dbm                  28  network_transport
+# 12  firmware_version          29  cellular_ok
+# 13  config_version            30  cellular_csq
+# 14  sd_ok                     31  calibration_mode
+# 15  rtc_ok                    32  boot_count
+# 16  sht_ok                    33  time_source
+#                               34  mic_ok
+#                               35  mic_sample_rate_hz
+#                               36  mic_sample_frames
+#                               37  mic_left_ok
+#                               38  mic_left_rms_dbfs
+#                               39  mic_left_peak_dbfs
+#                               40  mic_left_rms_normalized
+#                               41  mic_right_ok
+#                               42  mic_right_rms_dbfs
+#                               43  mic_right_peak_dbfs
+#                               44  mic_right_rms_normalized
+#                               45  mic_left_band_sub_bass_dbfs
+#                               46  mic_left_band_hum_dbfs
+#                               47  mic_left_band_piping_dbfs
+#                               48  mic_left_band_stress_dbfs
+#                               49  mic_left_band_high_dbfs
+#                               50  mic_right_band_sub_bass_dbfs
+#                               51  mic_right_band_hum_dbfs
+#                               52  mic_right_band_piping_dbfs
+#                               53  mic_right_band_stress_dbfs
+#                               54  mic_right_band_high_dbfs
+# ---------------------------------------------------------------------------
 
 MEASUREMENT_SELECT_COLUMNS = """
     id, device_id, measured_at, received_at, scale_1_weight_kg,
@@ -555,7 +625,28 @@ MEASUREMENT_SELECT_COLUMNS = """
     COALESCE(cellular_csq, NULLIF(raw_json->>'cellular_csq', '')::integer) AS cellular_csq,
     COALESCE(calibration_mode, NULLIF(raw_json->>'calibration_mode', '')::boolean) AS calibration_mode,
     COALESCE(boot_count, NULLIF(raw_json->>'boot_count', '')::bigint) AS boot_count,
-    COALESCE(time_source, raw_json->>'time_source') AS time_source
+    COALESCE(time_source, raw_json->>'time_source') AS time_source,
+    COALESCE(mic_ok,                   NULLIF(raw_json->>'mic_ok',                   '')::boolean)          AS mic_ok,
+    COALESCE(mic_sample_rate_hz,       NULLIF(raw_json->>'mic_sample_rate_hz',       '')::integer)          AS mic_sample_rate_hz,
+    COALESCE(mic_sample_frames,        NULLIF(raw_json->>'mic_sample_frames',        '')::integer)          AS mic_sample_frames,
+    COALESCE(mic_left_ok,              NULLIF(raw_json->>'mic_left_ok',              '')::boolean)          AS mic_left_ok,
+    COALESCE(mic_left_rms_dbfs,        NULLIF(raw_json->>'mic_left_rms_dbfs',        '')::double precision) AS mic_left_rms_dbfs,
+    COALESCE(mic_left_peak_dbfs,       NULLIF(raw_json->>'mic_left_peak_dbfs',       '')::double precision) AS mic_left_peak_dbfs,
+    COALESCE(mic_left_rms_normalized,  NULLIF(raw_json->>'mic_left_rms_normalized',  '')::double precision) AS mic_left_rms_normalized,
+    COALESCE(mic_right_ok,             NULLIF(raw_json->>'mic_right_ok',             '')::boolean)          AS mic_right_ok,
+    COALESCE(mic_right_rms_dbfs,       NULLIF(raw_json->>'mic_right_rms_dbfs',       '')::double precision) AS mic_right_rms_dbfs,
+    COALESCE(mic_right_peak_dbfs,      NULLIF(raw_json->>'mic_right_peak_dbfs',      '')::double precision) AS mic_right_peak_dbfs,
+    COALESCE(mic_right_rms_normalized, NULLIF(raw_json->>'mic_right_rms_normalized', '')::double precision) AS mic_right_rms_normalized,
+    COALESCE(mic_left_band_sub_bass_dbfs,  NULLIF(raw_json->>'mic_left_band_sub_bass_dbfs',  '')::double precision) AS mic_left_band_sub_bass_dbfs,
+    COALESCE(mic_left_band_hum_dbfs,       NULLIF(raw_json->>'mic_left_band_hum_dbfs',       '')::double precision) AS mic_left_band_hum_dbfs,
+    COALESCE(mic_left_band_piping_dbfs,    NULLIF(raw_json->>'mic_left_band_piping_dbfs',    '')::double precision) AS mic_left_band_piping_dbfs,
+    COALESCE(mic_left_band_stress_dbfs,    NULLIF(raw_json->>'mic_left_band_stress_dbfs',    '')::double precision) AS mic_left_band_stress_dbfs,
+    COALESCE(mic_left_band_high_dbfs,      NULLIF(raw_json->>'mic_left_band_high_dbfs',      '')::double precision) AS mic_left_band_high_dbfs,
+    COALESCE(mic_right_band_sub_bass_dbfs, NULLIF(raw_json->>'mic_right_band_sub_bass_dbfs', '')::double precision) AS mic_right_band_sub_bass_dbfs,
+    COALESCE(mic_right_band_hum_dbfs,      NULLIF(raw_json->>'mic_right_band_hum_dbfs',      '')::double precision) AS mic_right_band_hum_dbfs,
+    COALESCE(mic_right_band_piping_dbfs,   NULLIF(raw_json->>'mic_right_band_piping_dbfs',   '')::double precision) AS mic_right_band_piping_dbfs,
+    COALESCE(mic_right_band_stress_dbfs,   NULLIF(raw_json->>'mic_right_band_stress_dbfs',   '')::double precision) AS mic_right_band_stress_dbfs,
+    COALESCE(mic_right_band_high_dbfs,     NULLIF(raw_json->>'mic_right_band_high_dbfs',     '')::double precision) AS mic_right_band_high_dbfs
 """
 
 
@@ -596,6 +687,29 @@ def measurement_row_to_dict(r):
         "calibration_mode": r[31],
         "boot_count": r[32],
         "time_source": r[33],
+        # mic telemetry
+        "mic_ok": r[34],
+        "mic_sample_rate_hz": r[35],
+        "mic_sample_frames": r[36],
+        "mic_left_ok": r[37],
+        "mic_left_rms_dbfs": r[38],
+        "mic_left_peak_dbfs": r[39],
+        "mic_left_rms_normalized": r[40],
+        "mic_right_ok": r[41],
+        "mic_right_rms_dbfs": r[42],
+        "mic_right_peak_dbfs": r[43],
+        "mic_right_rms_normalized": r[44],
+        # fft frequency band energy
+        "mic_left_band_sub_bass_dbfs":  r[45],
+        "mic_left_band_hum_dbfs":       r[46],
+        "mic_left_band_piping_dbfs":    r[47],
+        "mic_left_band_stress_dbfs":    r[48],
+        "mic_left_band_high_dbfs":      r[49],
+        "mic_right_band_sub_bass_dbfs": r[50],
+        "mic_right_band_hum_dbfs":      r[51],
+        "mic_right_band_piping_dbfs":   r[52],
+        "mic_right_band_stress_dbfs":   r[53],
+        "mic_right_band_high_dbfs":     r[54],
     }
 
 
@@ -668,49 +782,46 @@ def check_firmware(device_id: str, version: str = Query("0.0.0")):
                 WHERE active = true
                 ORDER BY created_at DESC, id DESC
                 LIMIT 1;
-                """
+                """,
             )
             r = cur.fetchone()
-    if not r or version_tuple(r[0]) <= version_tuple(version):
-        return {"update": False}
-    url = f"{PUBLIC_BASE_URL}/firmware/{r[1]}" if PUBLIC_BASE_URL else f"/firmware/{r[1]}"
-    return {"update": True, "version": r[0], "url": url}
+    if not r:
+        return {"update_available": False}
+    latest_version, filename = r
+    if parse_version(latest_version) > parse_version(version):
+        url = f"{PUBLIC_BASE_URL}/firmware/{filename}" if PUBLIC_BASE_URL else f"/firmware/{filename}"
+        return {"update_available": True, "version": latest_version, "url": url}
+    return {"update_available": False}
 
 
 @app.post("/api/v1/firmware/releases", dependencies=[Depends(require_api_key)])
 def create_firmware_release(payload: FirmwareReleaseIn):
     path = FIRMWARE_DIR / payload.filename
     if not path.exists():
-        raise HTTPException(status_code=400, detail=f"Firmware file not found: {path}")
+        raise HTTPException(status_code=400, detail=f"Firmware file '{payload.filename}' not found in firmware directory")
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO firmware_releases (version, filename, active)
                 VALUES (%s, %s, %s)
-                ON CONFLICT (version) DO UPDATE
-                SET filename = EXCLUDED.filename, active = EXCLUDED.active
-                RETURNING id;
+                ON CONFLICT (version) DO UPDATE SET filename = EXCLUDED.filename, active = EXCLUDED.active;
                 """,
                 (payload.version, payload.filename, payload.active),
             )
-            release_id = cur.fetchone()[0]
             conn.commit()
-    return {"status": "ok", "id": release_id}
+    return {"status": "ok", "version": payload.version}
 
 
 @app.get("/firmware/{filename}")
 def download_firmware(filename: str):
-    if "/" in filename or ".." in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
     path = FIRMWARE_DIR / filename
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Firmware not found")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Firmware file not found")
     return FileResponse(path, media_type="application/octet-stream", filename=filename)
 
 
-@app.post("/api/v1/devices/{device_id}/commands", dependencies=[Depends(require_api_key)])
-def create_command(device_id: str, payload: DeviceCommandIn):
+def create_command(device_id: str, payload: DeviceCommandIn) -> dict:
     ensure_device_config(device_id)
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -718,24 +829,28 @@ def create_command(device_id: str, payload: DeviceCommandIn):
                 """
                 INSERT INTO device_commands (device_id, command_type, payload)
                 VALUES (%s, %s, %s)
-                RETURNING id;
+                RETURNING id, status;
                 """,
                 (device_id, payload.command_type, psycopg.types.json.Jsonb(payload.payload)),
             )
-            command_id = cur.fetchone()[0]
+            r = cur.fetchone()
             conn.commit()
-    return {"status": "queued", "id": command_id}
+    return {"id": r[0], "status": r[1]}
+
+
+@app.post("/api/v1/devices/{device_id}/commands", dependencies=[Depends(require_api_key)])
+def queue_command(device_id: str, payload: DeviceCommandIn):
+    result = create_command(device_id, payload)
+    return {"status": result["status"], "id": result["id"]}
 
 
 @app.get("/api/v1/devices/{device_id}/commands/next", dependencies=[Depends(require_api_key)])
-def get_next_command(device_id: str):
-    ensure_device_config(device_id)
+def next_command(device_id: str):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, command_type, payload
-                FROM device_commands
+                SELECT id, command_type, payload FROM device_commands
                 WHERE device_id = %s AND status = 'pending'
                 ORDER BY created_at ASC
                 LIMIT 1
@@ -810,22 +925,16 @@ def claim_device(payload: ClaimDeviceIn, user_id: str = Depends(require_user_id)
                 """
                 SELECT device_id FROM devices
                 WHERE claim_code_hash = %s AND claimed_at IS NULL
-                ORDER BY created_at ASC
-                LIMIT 1
-                FOR UPDATE;
+                LIMIT 1;
                 """,
                 (claim_hash,),
             )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="No unclaimed device found for this claim code")
-            device_id = row[0]
+            r = cur.fetchone()
+            if not r:
+                raise HTTPException(status_code=404, detail="No unclaimed device found with that claim code")
+            device_id = r[0]
             cur.execute(
-                """
-                UPDATE devices
-                SET claimed_at = now(), display_name = COALESCE(%s, display_name)
-                WHERE device_id = %s;
-                """,
+                "UPDATE devices SET claimed_at = now(), display_name = %s WHERE device_id = %s;",
                 (payload.display_name, device_id),
             )
             cur.execute(
@@ -836,121 +945,118 @@ def claim_device(payload: ClaimDeviceIn, user_id: str = Depends(require_user_id)
                 """,
                 (device_id, user_id),
             )
-            upsert_device_channel_names(
-                cur,
-                device_id,
-                payload.scale_1_display_name,
-                payload.scale_2_display_name,
-            )
+            for ch_num, ch_name in [
+                (1, payload.scale_1_display_name),
+                (2, payload.scale_2_display_name),
+            ]:
+                if ch_name:
+                    cur.execute(
+                        """
+                        INSERT INTO device_channels (device_id, channel_number, name)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (device_id, channel_number) DO UPDATE SET name = EXCLUDED.name;
+                        """,
+                        (device_id, ch_num, ch_name),
+                    )
             conn.commit()
-    return {
-        "status": "claimed",
-        "device_id": device_id,
-        "role": "owner",
-        "channels": get_device_channels(device_id),
-    }
+    return {"status": "claimed", "device_id": device_id}
 
 
 @app.get("/api/v1/app/devices", dependencies=[Depends(require_hivepal_service_key)])
-def list_user_devices(user_id: str = Depends(require_user_id)):
+def list_devices(user_id: str = Depends(require_user_id)):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT d.device_id, d.display_name, d.claimed_at, d.last_seen_at,
-                       d.last_firmware_version, m.role
-                FROM device_members m
-                JOIN devices d ON d.device_id = m.device_id
-                WHERE m.user_id = %s
-                ORDER BY COALESCE(d.display_name, d.device_id);
+                       d.last_firmware_version, dm.role
+                FROM devices d
+                JOIN device_members dm ON dm.device_id = d.device_id
+                WHERE dm.user_id = %s
+                ORDER BY d.last_seen_at DESC NULLS LAST;
                 """,
                 (user_id,),
             )
             rows = cur.fetchall()
-
             device_ids = [r[0] for r in rows]
-            channels_by_device: dict[str, list[dict[str, Any]]] = {device_id: [] for device_id in device_ids}
+            channels: dict[str, dict] = {}
             if device_ids:
                 cur.execute(
-                    """
-                    SELECT device_id, channel_number, name
-                    FROM device_channels
-                    WHERE device_id = ANY(%s)
-                    ORDER BY device_id, channel_number;
-                    """,
+                    "SELECT device_id, channel_number, name FROM device_channels WHERE device_id = ANY(%s);",
                     (device_ids,),
                 )
-                for c in cur.fetchall():
-                    channels_by_device.setdefault(c[0], []).append(
-                        {"channel_number": c[1], "name": c[2]}
-                    )
-
-            devices = []
-            for r in rows:
-                devices.append(
-                    {
-                        "device_id": r[0],
-                        "display_name": r[1],
-                        "claimed_at": r[2],
-                        "last_seen_at": r[3],
-                        "last_firmware_version": r[4],
-                        "role": r[5],
-                        "channels": channels_by_device.get(r[0], []),
-                    }
-                )
-    return devices
+                for ch in cur.fetchall():
+                    channels.setdefault(ch[0], {})[ch[1]] = ch[2]
+    return [
+        {
+            "device_id": r[0],
+            "display_name": r[1],
+            "claimed_at": r[2],
+            "last_seen_at": r[3],
+            "last_firmware_version": r[4],
+            "role": r[5],
+            "channels": {
+                "scale_1": channels.get(r[0], {}).get(1),
+                "scale_2": channels.get(r[0], {}).get(2),
+            },
+        }
+        for r in rows
+    ]
 
 
 @app.delete("/api/v1/app/devices/{device_id}", dependencies=[Depends(require_hivepal_service_key)])
-def remove_current_user_device(device_id: str, user_id: str = Depends(require_user_id)):
-    require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
+def remove_device_membership(device_id: str, user_id: str = Depends(require_user_id)):
     with get_conn() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                "SELECT role FROM device_members WHERE device_id = %s AND user_id = %s;",
+                (device_id, user_id),
+            )
+            r = cur.fetchone()
+            if not r:
+                raise HTTPException(status_code=404, detail="Device membership not found")
             cur.execute(
                 "DELETE FROM device_members WHERE device_id = %s AND user_id = %s;",
                 (device_id, user_id),
             )
-            cur.execute(
-                "SELECT COUNT(*) FROM device_members WHERE device_id = %s;",
-                (device_id,),
-            )
-            remaining_members = cur.fetchone()[0]
-            if remaining_members == 0:
-                cur.execute(
-                    "UPDATE devices SET claimed_at = NULL WHERE device_id = %s;",
-                    (device_id,),
-                )
             conn.commit()
-    return {
-        "status": "removed",
-        "device_id": device_id,
-        "claimable": remaining_members == 0,
-    }
+    return {"status": "removed", "device_id": device_id}
 
 
 @app.get("/api/v1/app/devices/{device_id}/channels", dependencies=[Depends(require_hivepal_service_key)])
-def list_device_channels(device_id: str, user_id: str = Depends(require_user_id)):
+def get_device_channels(device_id: str, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
-    return {"device_id": device_id, "channels": get_device_channels(device_id)}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT channel_number, name FROM device_channels WHERE device_id = %s ORDER BY channel_number;",
+                (device_id,),
+            )
+            rows = cur.fetchall()
+    ch = {r[0]: r[1] for r in rows}
+    return {"scale_1_display_name": ch.get(1), "scale_2_display_name": ch.get(2)}
 
 
 @app.patch("/api/v1/app/devices/{device_id}/channels", dependencies=[Depends(require_hivepal_service_key)])
-def update_device_channels(
-    device_id: str,
-    payload: DeviceChannelsUpdateIn,
-    user_id: str = Depends(require_user_id),
-):
+def update_device_channels(device_id: str, payload: DeviceChannelsUpdateIn, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin"])
     with get_conn() as conn:
         with conn.cursor() as cur:
-            upsert_device_channel_names(
-                cur,
-                device_id,
-                payload.scale_1_display_name,
-                payload.scale_2_display_name,
-            )
+            for ch_num, ch_name in [
+                (1, payload.scale_1_display_name),
+                (2, payload.scale_2_display_name),
+            ]:
+                if ch_name is not None:
+                    cur.execute(
+                        """
+                        INSERT INTO device_channels (device_id, channel_number, name)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (device_id, channel_number) DO UPDATE SET name = EXCLUDED.name;
+                        """,
+                        (device_id, ch_num, ch_name),
+                    )
             conn.commit()
-    return {"device_id": device_id, "channels": get_device_channels(device_id)}
+    return get_device_channels(device_id, user_id)
 
 
 @app.get("/api/v1/app/devices/{device_id}/members", dependencies=[Depends(require_hivepal_service_key)])
@@ -959,67 +1065,44 @@ def list_device_members(device_id: str, user_id: str = Depends(require_user_id))
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT user_id, role, invited_by, created_at
-                FROM device_members
-                WHERE device_id = %s
-                ORDER BY created_at ASC;
-                """,
+                "SELECT user_id, role, created_at FROM device_members WHERE device_id = %s ORDER BY created_at;",
                 (device_id,),
             )
             rows = cur.fetchall()
-    return [
-        {
-            "user_id": r[0],
-            "role": r[1],
-            "invited_by": r[2],
-            "created_at": r[3],
-        }
-        for r in rows
-    ]
+    return [{"user_id": r[0], "role": r[1], "joined_at": r[2]} for r in rows]
 
 
 @app.post("/api/v1/app/devices/{device_id}/members", dependencies=[Depends(require_hivepal_service_key)])
-def share_device(device_id: str, payload: ShareDeviceIn, user_id: str = Depends(require_user_id)):
+def add_device_member(device_id: str, payload: ShareDeviceIn, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner"])
-    if payload.user_id == user_id:
-        raise HTTPException(status_code=400, detail="Use your existing owner access instead of sharing with yourself")
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO device_members (device_id, user_id, role, invited_by)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (device_id, user_id) DO UPDATE
-                SET role = EXCLUDED.role, invited_by = EXCLUDED.invited_by;
+                INSERT INTO device_members (device_id, user_id, role)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (device_id, user_id) DO UPDATE SET role = EXCLUDED.role;
                 """,
-                (device_id, payload.user_id, payload.role, user_id),
+                (device_id, payload.user_id, payload.role),
             )
             conn.commit()
-    return {"status": "shared", "device_id": device_id, "user_id": payload.user_id, "role": payload.role}
+    return {"status": "ok", "device_id": device_id, "user_id": payload.user_id, "role": payload.role}
 
 
 @app.delete("/api/v1/app/devices/{device_id}/members/{member_user_id}", dependencies=[Depends(require_hivepal_service_key)])
-def revoke_device_member(device_id: str, member_user_id: str, user_id: str = Depends(require_user_id)):
+def remove_device_member(device_id: str, member_user_id: str, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner"])
-    if member_user_id == user_id:
-        raise HTTPException(status_code=400, detail="Use remove device to remove your own access")
-
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT role FROM device_members
-                WHERE device_id = %s AND user_id = %s;
-                """,
+                "SELECT role FROM device_members WHERE device_id = %s AND user_id = %s;",
                 (device_id, member_user_id),
             )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Device member not found")
-            if row[0] == "owner":
+            r = cur.fetchone()
+            if not r:
+                raise HTTPException(status_code=404, detail="Member not found")
+            if r[0] == "owner":
                 raise HTTPException(status_code=400, detail="Owner access cannot be revoked here")
-
             cur.execute(
                 "DELETE FROM device_members WHERE device_id = %s AND user_id = %s;",
                 (device_id, member_user_id),
@@ -1159,6 +1242,7 @@ def stop_calibration_mode_from_app(device_id: str, user_id: str = Depends(requir
         "payload": {},
     }
 
+
 @app.get(
     "/api/v1/app/devices/{device_id}/insights",
     dependencies=[Depends(require_hivepal_service_key)],
@@ -1245,6 +1329,7 @@ def get_device_insights_summary(
         ),
         "categories": summary.categories,
     }
+
 
 @app.get("/api/v1/time", dependencies=[Depends(require_api_key)])
 def get_server_time():

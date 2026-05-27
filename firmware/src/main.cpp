@@ -100,7 +100,7 @@
 #include <driver/i2s.h>
 #endif
 
-static const char* FIRMWARE_VERSION = "0.7.0-mics-no-modem";
+static const char* FIRMWARE_VERSION = "0.7.1-mic-fft";
 
 #define HX1_DOUT 16
 #define HX1_SCK  17
@@ -177,22 +177,39 @@ bool batteryMonitorOk = false;
 #endif
 
 #if ENABLE_INMP441_MICS
-bool micsI2sInstalled = false;
-
+#include <arduinoFFT.h>
+ 
+// Number of samples fed into the FFT.  Must be a power of two and fit in RAM.
+// 4096 * sizeof(double) * 4 arrays (vReal/vImag x2 channels) = 128 kB, which
+// is comfortably within the ESP32's 320 kB heap.  At 16 kHz this gives a
+// frequency resolution of 16000 / 4096 ≈ 3.9 Hz — more than enough to resolve
+// the narrow piping band (300–550 Hz).
+#define FFT_SAMPLE_COUNT 4096
+ 
+struct MicBands {
+  float sub_bass_dbfs = NAN;  //   50 – 150 Hz  structural / low rumble
+  float hum_dbfs      = NAN;  //  150 – 300 Hz  normal colony hum
+  float piping_dbfs   = NAN;  //  300 – 550 Hz  queen piping / tooting (pre-swarm)
+  float stress_dbfs   = NAN;  //  550 – 1500 Hz agitated / robbing colony
+  float high_dbfs     = NAN;  // 1500 – 3000 Hz  harmonic overtones
+};
+ 
 struct MicChannelStats {
   bool ok = false;
-  float rmsDbfs = NAN;      // RMS level in dB relative to full scale (negative; 0 = full scale)
-  float peakDbfs = NAN;     // Peak level in dB relative to full scale
-  float rmsNormalized = NAN; // Linear RMS as fraction of full scale (0..1)
+  float rmsDbfs        = NAN;  // Broadband RMS in dBFS
+  float peakDbfs       = NAN;  // Peak in dBFS
+  float rmsNormalized  = NAN;  // Linear RMS fraction of full scale (0..1)
   uint32_t sampleCount = 0;
+  MicBands bands;              // Per-band energy in dBFS
 };
-
+ 
 struct MicMeasurement {
   bool ok = false;
   MicChannelStats left;
   MicChannelStats right;
 };
-#endif
+#endif // struct definitions guard
+
 
 bool sdOk = false;
 bool sdBusInitialized = false;
@@ -418,166 +435,204 @@ void startCalibrationMode(unsigned long intervalSeconds, unsigned long timeoutSe
 // INMP441 stereo microphone support
 // ==============================
 #if ENABLE_INMP441_MICS
-
-bool initMicsI2s() {
-  if (micsI2sInstalled) return true;
-
-  i2s_config_t i2sConfig = {};
-  i2sConfig.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX);
-  i2sConfig.sample_rate = INMP441_SAMPLE_RATE;
-  // INMP441 outputs 24 bits, MSB-aligned in a 32-bit slot. Read as 32-bit samples
-  // and shift right by 8 to get the 24-bit signed value.
-  i2sConfig.bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT;
-  // Stereo so we capture both mics (one wired L, the other wired R).
-  i2sConfig.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
-  i2sConfig.communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_STAND_I2S);
-  i2sConfig.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
-  i2sConfig.dma_buf_count = 4;
-  i2sConfig.dma_buf_len = 512; // frames per DMA buffer
-  i2sConfig.use_apll = false;
-  i2sConfig.tx_desc_auto_clear = false;
-  i2sConfig.fixed_mclk = 0;
-
-  esp_err_t err = i2s_driver_install(INMP441_I2S_PORT, &i2sConfig, 0, nullptr);
-  if (err != ESP_OK) {
-    Serial.printf("[INMP441] i2s_driver_install failed: %d\n", (int)err);
-    return false;
+ 
+bool micsI2sInstalled = false;  // keep this global as before
+ 
+// ---------------------------------------------------------------------------
+// Helper: compute band energy from a magnitude spectrum.
+// binFreq(n) = n * sampleRate / fftSize
+// Returns the RMS energy of all bins whose centre frequency falls in [loHz, hiHz],
+// expressed in dBFS relative to the same full-scale reference used for broadband RMS.
+// Returns NAN if no bins fall in the range.
+// ---------------------------------------------------------------------------
+static float bandEnergyDbfs(const double* magnitudes, size_t fftSize,
+                             uint32_t sampleRate,
+                             uint32_t loHz, uint32_t hiHz,
+                             double fullScale) {
+  double sumSq = 0.0;
+  size_t count = 0;
+  double freqPerBin = (double)sampleRate / (double)fftSize;
+  size_t binLo = (size_t)ceil((double)loHz  / freqPerBin);
+  size_t binHi = (size_t)floor((double)hiHz / freqPerBin);
+  // Only use the first half of the spectrum (Nyquist)
+  size_t nyquist = fftSize / 2;
+  if (binLo >= nyquist) return NAN;
+  if (binHi >= nyquist) binHi = nyquist - 1;
+  for (size_t b = binLo; b <= binHi; b++) {
+    double m = magnitudes[b] / fullScale;
+    sumSq += m * m;
+    count++;
   }
-
-  i2s_pin_config_t pinConfig = {};
-  pinConfig.bck_io_num = INMP441_BCLK_PIN;
-  pinConfig.ws_io_num = INMP441_WS_PIN;
-  pinConfig.data_out_num = I2S_PIN_NO_CHANGE;
-  pinConfig.data_in_num = INMP441_SD_PIN;
-
-  err = i2s_set_pin(INMP441_I2S_PORT, &pinConfig);
-  if (err != ESP_OK) {
-    Serial.printf("[INMP441] i2s_set_pin failed: %d\n", (int)err);
-    i2s_driver_uninstall(INMP441_I2S_PORT);
-    return false;
+  if (count == 0 || sumSq <= 0.0) return NAN;
+  float rms = (float)sqrt(sumSq / (double)count);
+  return (float)(20.0 * log10((double)rms));
+}
+ 
+// ---------------------------------------------------------------------------
+// Helper: run arduinoFFT on a block of time-domain samples, fill bands.
+// samples: array of FFT_SAMPLE_COUNT int32_t values (24-bit in MSB-shifted int32)
+// ---------------------------------------------------------------------------
+static void computeBands(const int32_t* samples, size_t count,
+                          uint32_t sampleRate, double fullScale,
+                          MicBands& out) {
+  // arduinoFFT needs two double arrays; allocate on heap to avoid stack overflow.
+  double* vReal = (double*)malloc(FFT_SAMPLE_COUNT * sizeof(double));
+  double* vImag = (double*)malloc(FFT_SAMPLE_COUNT * sizeof(double));
+  if (!vReal || !vImag) {
+    free(vReal); free(vImag);
+    Serial.println("[FFT] heap alloc failed");
+    return;
   }
-
-  i2s_zero_dma_buffer(INMP441_I2S_PORT);
-  micsI2sInstalled = true;
-  Serial.printf("[INMP441] I2S installed: BCLK=%d WS=%d SD=%d rate=%d\n",
-                INMP441_BCLK_PIN, INMP441_WS_PIN, INMP441_SD_PIN, INMP441_SAMPLE_RATE);
-  return true;
+ 
+  size_t n = min(count, (size_t)FFT_SAMPLE_COUNT);
+  for (size_t i = 0; i < n; i++) {
+    vReal[i] = (double)samples[i] / fullScale;
+    vImag[i] = 0.0;
+  }
+  // Zero-pad if we captured fewer than FFT_SAMPLE_COUNT samples
+  for (size_t i = n; i < FFT_SAMPLE_COUNT; i++) {
+    vReal[i] = 0.0;
+    vImag[i] = 0.0;
+  }
+ 
+  ArduinoFFT<double> fft(vReal, vImag, FFT_SAMPLE_COUNT, (double)sampleRate);
+  fft.windowing(FFTWindow::Hann, FFTDirection::Forward);
+  fft.compute(FFTDirection::Forward);
+  fft.complexToMagnitude();  // magnitudes now in vReal[0..FFT_SAMPLE_COUNT/2-1]
+ 
+  out.sub_bass_dbfs = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,   50,  150, fullScale);
+  out.hum_dbfs      = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,  150,  300, fullScale);
+  out.piping_dbfs   = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,  300,  550, fullScale);
+  out.stress_dbfs   = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,  550, 1500, fullScale);
+  out.high_dbfs     = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate, 1500, 3000, fullScale);
+ 
+  free(vReal);
+  free(vImag);
 }
-
-void shutdownMicsI2s() {
-  if (!micsI2sInstalled) return;
-  i2s_driver_uninstall(INMP441_I2S_PORT);
-  micsI2sInstalled = false;
-  Serial.println("[INMP441] I2S uninstalled");
-}
-
+ 
+// ---------------------------------------------------------------------------
+// initMicsI2s / shutdownMicsI2s — unchanged from before, keep as-is.
+// Only readMicSamples() changes; it now also runs FFT after the RMS pass.
+// ---------------------------------------------------------------------------
+ 
 MicMeasurement readMicSamples() {
   MicMeasurement result;
-
+ 
   if (!initMicsI2s()) {
     Serial.println("[INMP441] I2S init failed; skipping mic measurement");
     return result;
   }
-
-  // INMP441 needs a brief settling time after the BCLK starts. Read and discard
-  // a small amount of data first so the AGC/DC blocking inside the mic settles.
+ 
+  // Settling: discard the first 256 frames so the mic's DC blocker stabilises.
   const size_t WARMUP_FRAMES = 256;
   int32_t warmup[WARMUP_FRAMES * 2];
   size_t bytesRead = 0;
-  i2s_read(INMP441_I2S_PORT, (void*)warmup, sizeof(warmup), &bytesRead, pdMS_TO_TICKS(500));
-
-  // Capture INMP441_SAMPLE_FRAMES stereo frames in chunks so we don't allocate
-  // a huge buffer. Process each chunk into running sums for RMS and peak.
+  i2s_read(INMP441_I2S_PORT, warmup, sizeof(warmup), &bytesRead, pdMS_TO_TICKS(500));
+ 
+  // ── RMS / Peak pass ──────────────────────────────────────────────────────
+  // We store every sample so we can reuse the same data for the FFT pass,
+  // avoiding a second I2S capture.  The buffer holds FFT_SAMPLE_COUNT frames
+  // per channel; anything beyond that still updates RMS/peak but is not fed
+  // into the FFT (we have plenty of resolution with 4096 samples at 16 kHz).
+  //
+  // Memory: 4096 * 2 channels * 4 bytes = 32 kB — fits in heap.
+  int32_t* leftBuf  = (int32_t*)malloc(FFT_SAMPLE_COUNT * sizeof(int32_t));
+  int32_t* rightBuf = (int32_t*)malloc(FFT_SAMPLE_COUNT * sizeof(int32_t));
+  if (!leftBuf || !rightBuf) {
+    free(leftBuf); free(rightBuf);
+    Serial.println("[INMP441] FFT buffer alloc failed; falling back to RMS-only");
+    // Fall back: run the original RMS-only loop (no FFT data will be set)
+    leftBuf = rightBuf = nullptr;
+  }
+ 
   const size_t CHUNK_FRAMES = 512;
   int32_t chunk[CHUNK_FRAMES * 2];
-
-  double leftSumSquares = 0.0;
-  double rightSumSquares = 0.0;
-  int32_t leftPeak = 0;
-  int32_t rightPeak = 0;
-  uint32_t leftCount = 0;
-  uint32_t rightCount = 0;
-
+ 
+  double leftSumSq = 0.0, rightSumSq = 0.0;
+  int32_t leftPeak = 0, rightPeak = 0;
+  uint32_t leftCount = 0, rightCount = 0;
+  size_t leftFftCount = 0, rightFftCount = 0;
+ 
   uint32_t framesRemaining = INMP441_SAMPLE_FRAMES;
-
+ 
   while (framesRemaining > 0) {
     size_t framesThisRound = framesRemaining > CHUNK_FRAMES ? CHUNK_FRAMES : framesRemaining;
     size_t bytesWanted = framesThisRound * 2 * sizeof(int32_t);
     bytesRead = 0;
-    esp_err_t err = i2s_read(INMP441_I2S_PORT, (void*)chunk, bytesWanted, &bytesRead, pdMS_TO_TICKS(1000));
-
-    if (err != ESP_OK) {
-      Serial.printf("[INMP441] i2s_read failed: %d\n", (int)err);
-      break;
-    }
-
-    if (bytesRead == 0) {
-      Serial.println("[INMP441] i2s_read timed out with no data");
-      break;
-    }
-
+    esp_err_t err = i2s_read(INMP441_I2S_PORT, chunk, bytesWanted, &bytesRead, pdMS_TO_TICKS(1000));
+    if (err != ESP_OK || bytesRead == 0) break;
+ 
     size_t framesRead = bytesRead / (2 * sizeof(int32_t));
     for (size_t i = 0; i < framesRead; i++) {
-      // Channel order with I2S_CHANNEL_FMT_RIGHT_LEFT: index 0 = right, 1 = left
-      // (this is the ESP-IDF convention for the legacy I2S driver).
-      // INMP441 samples are 24-bit signed in the MSBs of a 32-bit word; shift
-      // right by 8 to recover the 24-bit signed value as int32.
-      int32_t rightSample = chunk[i * 2 + 0] >> 8;
-      int32_t leftSample  = chunk[i * 2 + 1] >> 8;
-
-      double rf = (double)rightSample;
-      double lf = (double)leftSample;
-      rightSumSquares += rf * rf;
-      leftSumSquares  += lf * lf;
-
-      int32_t absR = rightSample < 0 ? -rightSample : rightSample;
-      int32_t absL = leftSample  < 0 ? -leftSample  : leftSample;
+      // ESP-IDF legacy driver: index 0 = right, 1 = left
+      int32_t rs = chunk[i * 2 + 0] >> 8;  // 24-bit signed
+      int32_t ls = chunk[i * 2 + 1] >> 8;
+ 
+      double rf = (double)rs, lf = (double)ls;
+      rightSumSq += rf * rf;
+      leftSumSq  += lf * lf;
+ 
+      int32_t absR = rs < 0 ? -rs : rs;
+      int32_t absL = ls < 0 ? -ls : ls;
       if (absR > rightPeak) rightPeak = absR;
       if (absL > leftPeak)  leftPeak  = absL;
-
+ 
       rightCount++;
       leftCount++;
+ 
+      // Store into FFT buffers while there is space
+      if (leftBuf  && leftFftCount  < FFT_SAMPLE_COUNT) leftBuf[leftFftCount++]   = ls;
+      if (rightBuf && rightFftCount < FFT_SAMPLE_COUNT) rightBuf[rightFftCount++] = rs;
     }
-
     framesRemaining -= framesRead;
     if (framesRead == 0) break;
   }
-
-  // 24-bit signed full scale.
+ 
+  // ── Fill RMS / Peak stats ─────────────────────────────────────────────────
   const double FULL_SCALE = 8388608.0; // 2^23
-
-  auto fillStats = [&](MicChannelStats& s, double sumSquares, int32_t peak, uint32_t count) {
+ 
+  auto fillStats = [&](MicChannelStats& s, double sumSq, int32_t peak, uint32_t count) {
     if (count == 0) return;
     s.ok = true;
     s.sampleCount = count;
-    double meanSquare = sumSquares / (double)count;
-    double rms = sqrt(meanSquare);
+    double rms = sqrt(sumSq / (double)count);
     s.rmsNormalized = (float)(rms / FULL_SCALE);
-    if (s.rmsNormalized > 0.0f) {
-      s.rmsDbfs = (float)(20.0 * log10((double)s.rmsNormalized));
-    } else {
-      s.rmsDbfs = -200.0f;
-    }
-    if (peak > 0) {
-      double peakNorm = (double)peak / FULL_SCALE;
-      s.peakDbfs = (float)(20.0 * log10(peakNorm));
-    } else {
-      s.peakDbfs = -200.0f;
-    }
+    s.rmsDbfs  = s.rmsNormalized > 0.0f
+                 ? (float)(20.0 * log10((double)s.rmsNormalized))
+                 : -200.0f;
+    s.peakDbfs = peak > 0
+                 ? (float)(20.0 * log10((double)peak / FULL_SCALE))
+                 : -200.0f;
   };
-
-  fillStats(result.left, leftSumSquares, leftPeak, leftCount);
-  fillStats(result.right, rightSumSquares, rightPeak, rightCount);
+ 
+  fillStats(result.left,  leftSumSq,  leftPeak,  leftCount);
+  fillStats(result.right, rightSumSq, rightPeak, rightCount);
   result.ok = result.left.ok || result.right.ok;
-
-  Serial.printf("[INMP441] L: rms=%.2f dBFS peak=%.2f dBFS samples=%u\n",
-                result.left.rmsDbfs, result.left.peakDbfs, result.left.sampleCount);
-  Serial.printf("[INMP441] R: rms=%.2f dBFS peak=%.2f dBFS samples=%u\n",
-                result.right.rmsDbfs, result.right.peakDbfs, result.right.sampleCount);
-
+ 
+  // ── FFT band analysis ──────────────────────────────────────────────────────
+  if (leftBuf && leftFftCount >= 64) {
+    computeBands(leftBuf,  leftFftCount,  INMP441_SAMPLE_RATE, FULL_SCALE, result.left.bands);
+  }
+  if (rightBuf && rightFftCount >= 64) {
+    computeBands(rightBuf, rightFftCount, INMP441_SAMPLE_RATE, FULL_SCALE, result.right.bands);
+  }
+  free(leftBuf);
+  free(rightBuf);
+ 
+  Serial.printf("[INMP441] L: rms=%.1f dBFS peak=%.1f dBFS | sub=%.1f hum=%.1f pipe=%.1f stress=%.1f hi=%.1f\n",
+    result.left.rmsDbfs, result.left.peakDbfs,
+    result.left.bands.sub_bass_dbfs, result.left.bands.hum_dbfs,
+    result.left.bands.piping_dbfs,   result.left.bands.stress_dbfs,
+    result.left.bands.high_dbfs);
+  Serial.printf("[INMP441] R: rms=%.1f dBFS peak=%.1f dBFS | sub=%.1f hum=%.1f pipe=%.1f stress=%.1f hi=%.1f\n",
+    result.right.rmsDbfs, result.right.peakDbfs,
+    result.right.bands.sub_bass_dbfs, result.right.bands.hum_dbfs,
+    result.right.bands.piping_dbfs,   result.right.bands.stress_dbfs,
+    result.right.bands.high_dbfs);
+ 
   return result;
 }
-
+ 
 #endif // ENABLE_INMP441_MICS
 
 void enterDeepSleep(unsigned long sleepMs) {
@@ -1741,8 +1796,30 @@ String createMeasurementJson() {
 #endif
 
 #if ENABLE_INMP441_MICS
-  MicMeasurement micResult = readMicSamples();
+  doc["mic_ok"]                  = micResult.ok;
+  doc["mic_sample_rate_hz"]      = (uint32_t)INMP441_SAMPLE_RATE;
+  doc["mic_sample_frames"]       = (uint32_t)INMP441_SAMPLE_FRAMES;
+  doc["mic_left_ok"]             = micResult.left.ok;
+  doc["mic_left_rms_dbfs"]       = micResult.left.rmsDbfs;
+  doc["mic_left_peak_dbfs"]      = micResult.left.peakDbfs;
+  doc["mic_left_rms_normalized"] = micResult.left.rmsNormalized;
+  doc["mic_right_ok"]            = micResult.right.ok;
+  doc["mic_right_rms_dbfs"]      = micResult.right.rmsDbfs;
+  doc["mic_right_peak_dbfs"]     = micResult.right.peakDbfs;
+  doc["mic_right_rms_normalized"]= micResult.right.rmsNormalized;
+  // Frequency band energy (dBFS) — NAN is serialised as null by ArduinoJson
+  doc["mic_left_band_sub_bass_dbfs"]  = micResult.left.bands.sub_bass_dbfs;
+  doc["mic_left_band_hum_dbfs"]       = micResult.left.bands.hum_dbfs;
+  doc["mic_left_band_piping_dbfs"]    = micResult.left.bands.piping_dbfs;
+  doc["mic_left_band_stress_dbfs"]    = micResult.left.bands.stress_dbfs;
+  doc["mic_left_band_high_dbfs"]      = micResult.left.bands.high_dbfs;
+  doc["mic_right_band_sub_bass_dbfs"] = micResult.right.bands.sub_bass_dbfs;
+  doc["mic_right_band_hum_dbfs"]      = micResult.right.bands.hum_dbfs;
+  doc["mic_right_band_piping_dbfs"]   = micResult.right.bands.piping_dbfs;
+  doc["mic_right_band_stress_dbfs"]   = micResult.right.bands.stress_dbfs;
+  doc["mic_right_band_high_dbfs"]     = micResult.right.bands.high_dbfs;
 #endif
+
 
   Serial.printf("[MEASURE] raw1=%ld weight1=%.3f kg\n", raw1, weight1);
   Serial.printf("[MEASURE] raw2=%ld weight2=%.3f kg\n", raw2, weight2);
