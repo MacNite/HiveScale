@@ -252,6 +252,10 @@ String timestampNow();
 void syncTime();
 bool connectNetwork();
 void preparePowerMonitorsForSleep();
+#if ENABLE_INMP441_MICS
+bool initMicsI2s();
+void shutdownMicsI2s();
+#endif
 
 void debugLine() {
   Serial.println("----------------------------------------");
@@ -1794,30 +1798,8 @@ String createMeasurementJson() {
     batteryAlert = batteryGauge.getAlert();
   }
 #endif
-
 #if ENABLE_INMP441_MICS
-  doc["mic_ok"]                  = micResult.ok;
-  doc["mic_sample_rate_hz"]      = (uint32_t)INMP441_SAMPLE_RATE;
-  doc["mic_sample_frames"]       = (uint32_t)INMP441_SAMPLE_FRAMES;
-  doc["mic_left_ok"]             = micResult.left.ok;
-  doc["mic_left_rms_dbfs"]       = micResult.left.rmsDbfs;
-  doc["mic_left_peak_dbfs"]      = micResult.left.peakDbfs;
-  doc["mic_left_rms_normalized"] = micResult.left.rmsNormalized;
-  doc["mic_right_ok"]            = micResult.right.ok;
-  doc["mic_right_rms_dbfs"]      = micResult.right.rmsDbfs;
-  doc["mic_right_peak_dbfs"]     = micResult.right.peakDbfs;
-  doc["mic_right_rms_normalized"]= micResult.right.rmsNormalized;
-  // Frequency band energy (dBFS) — NAN is serialised as null by ArduinoJson
-  doc["mic_left_band_sub_bass_dbfs"]  = micResult.left.bands.sub_bass_dbfs;
-  doc["mic_left_band_hum_dbfs"]       = micResult.left.bands.hum_dbfs;
-  doc["mic_left_band_piping_dbfs"]    = micResult.left.bands.piping_dbfs;
-  doc["mic_left_band_stress_dbfs"]    = micResult.left.bands.stress_dbfs;
-  doc["mic_left_band_high_dbfs"]      = micResult.left.bands.high_dbfs;
-  doc["mic_right_band_sub_bass_dbfs"] = micResult.right.bands.sub_bass_dbfs;
-  doc["mic_right_band_hum_dbfs"]      = micResult.right.bands.hum_dbfs;
-  doc["mic_right_band_piping_dbfs"]   = micResult.right.bands.piping_dbfs;
-  doc["mic_right_band_stress_dbfs"]   = micResult.right.bands.stress_dbfs;
-  doc["mic_right_band_high_dbfs"]     = micResult.right.bands.high_dbfs;
+  MicMeasurement micResult = readMicSamples();
 #endif
 
 
@@ -1868,17 +1850,27 @@ String createMeasurementJson() {
   doc["battery_alert"] = batteryAlert;
 #endif
 #if ENABLE_INMP441_MICS
-  doc["mic_ok"] = micResult.ok;
-  doc["mic_sample_rate_hz"] = (uint32_t)INMP441_SAMPLE_RATE;
-  doc["mic_sample_frames"] = (uint32_t)INMP441_SAMPLE_FRAMES;
-  doc["mic_left_ok"] = micResult.left.ok;
-  doc["mic_left_rms_dbfs"] = micResult.left.rmsDbfs;
-  doc["mic_left_peak_dbfs"] = micResult.left.peakDbfs;
-  doc["mic_left_rms_normalized"] = micResult.left.rmsNormalized;
-  doc["mic_right_ok"] = micResult.right.ok;
-  doc["mic_right_rms_dbfs"] = micResult.right.rmsDbfs;
-  doc["mic_right_peak_dbfs"] = micResult.right.peakDbfs;
-  doc["mic_right_rms_normalized"] = micResult.right.rmsNormalized;
+  doc["mic_ok"]                       = micResult.ok;
+  doc["mic_sample_rate_hz"]           = (uint32_t)INMP441_SAMPLE_RATE;
+  doc["mic_sample_frames"]            = (uint32_t)INMP441_SAMPLE_FRAMES;
+  doc["mic_left_ok"]                  = micResult.left.ok;
+  doc["mic_left_rms_dbfs"]            = micResult.left.rmsDbfs;
+  doc["mic_left_peak_dbfs"]           = micResult.left.peakDbfs;
+  doc["mic_left_rms_normalized"]      = micResult.left.rmsNormalized;
+  doc["mic_right_ok"]                 = micResult.right.ok;
+  doc["mic_right_rms_dbfs"]           = micResult.right.rmsDbfs;
+  doc["mic_right_peak_dbfs"]          = micResult.right.peakDbfs;
+  doc["mic_right_rms_normalized"]     = micResult.right.rmsNormalized;
+  doc["mic_left_band_sub_bass_dbfs"]  = micResult.left.bands.sub_bass_dbfs;
+  doc["mic_left_band_hum_dbfs"]       = micResult.left.bands.hum_dbfs;
+  doc["mic_left_band_piping_dbfs"]    = micResult.left.bands.piping_dbfs;
+  doc["mic_left_band_stress_dbfs"]    = micResult.left.bands.stress_dbfs;
+  doc["mic_left_band_high_dbfs"]      = micResult.left.bands.high_dbfs;
+  doc["mic_right_band_sub_bass_dbfs"] = micResult.right.bands.sub_bass_dbfs;
+  doc["mic_right_band_hum_dbfs"]      = micResult.right.bands.hum_dbfs;
+  doc["mic_right_band_piping_dbfs"]   = micResult.right.bands.piping_dbfs;
+  doc["mic_right_band_stress_dbfs"]   = micResult.right.bands.stress_dbfs;
+  doc["mic_right_band_high_dbfs"]     = micResult.right.bands.high_dbfs;
 #endif
 
   String output;
