@@ -514,11 +514,62 @@ static void computeBands(const int32_t* samples, size_t count,
   free(vImag);
 }
  
+
 // ---------------------------------------------------------------------------
-// initMicsI2s / shutdownMicsI2s — unchanged from before, keep as-is.
-// Only readMicSamples() changes; it now also runs FFT after the RMS pass.
+// initMicsI2s: configure I2S port for the two INMP441 microphones.
+// Returns true on success. Safe to call multiple times (no-op if already up).
 // ---------------------------------------------------------------------------
- 
+bool initMicsI2s() {
+  if (micsI2sInstalled) return true;
+
+  i2s_config_t i2sConfig = {};
+  i2sConfig.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX);
+  i2sConfig.sample_rate = INMP441_SAMPLE_RATE;
+  // Read as 32-bit samples and shift right by 8 to get the 24-bit signed value.
+  i2sConfig.bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT;
+  // Stereo so we capture both mics (one wired L, the other wired R).
+  i2sConfig.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
+  i2sConfig.communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_STAND_I2S);
+  i2sConfig.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
+  i2sConfig.dma_buf_count = 4;
+  i2sConfig.dma_buf_len = 512;
+  i2sConfig.use_apll = false;
+  i2sConfig.tx_desc_auto_clear = false;
+  i2sConfig.fixed_mclk = 0;
+
+  esp_err_t err = i2s_driver_install(INMP441_I2S_PORT, &i2sConfig, 0, nullptr);
+  if (err != ESP_OK) {
+    Serial.printf("[INMP441] i2s_driver_install failed: %d\n", (int)err);
+    return false;
+  }
+
+  i2s_pin_config_t pinConfig = {};
+  pinConfig.bck_io_num   = INMP441_BCLK_PIN;
+  pinConfig.ws_io_num    = INMP441_WS_PIN;
+  pinConfig.data_out_num = I2S_PIN_NO_CHANGE;
+  pinConfig.data_in_num  = INMP441_SD_PIN;
+
+  err = i2s_set_pin(INMP441_I2S_PORT, &pinConfig);
+  if (err != ESP_OK) {
+    Serial.printf("[INMP441] i2s_set_pin failed: %d\n", (int)err);
+    i2s_driver_uninstall(INMP441_I2S_PORT);
+    return false;
+  }
+
+  i2s_zero_dma_buffer(INMP441_I2S_PORT);
+  micsI2sInstalled = true;
+  Serial.printf("[INMP441] I2S installed: BCLK=%d WS=%d SD=%d rate=%d\n",
+                INMP441_BCLK_PIN, INMP441_WS_PIN, INMP441_SD_PIN, INMP441_SAMPLE_RATE);
+  return true;
+}
+
+void shutdownMicsI2s() {
+  if (!micsI2sInstalled) return;
+  i2s_driver_uninstall(INMP441_I2S_PORT);
+  micsI2sInstalled = false;
+  Serial.println("[INMP441] I2S uninstalled");
+}
+
 MicMeasurement readMicSamples() {
   MicMeasurement result;
  
