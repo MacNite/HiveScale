@@ -6,8 +6,9 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
+#include "config.h"   // for WIFI_CONNECT_TIMEOUT_MS (default arg below)
+
 // ---- URL helpers ----------------------------------------------------------
-String trimTrailingSlash(String value);
 String apiUrl(const String& path);
 String absoluteUrl(String maybeRelativeUrl);
 

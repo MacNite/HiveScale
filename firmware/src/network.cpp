@@ -11,12 +11,6 @@
 #include <HTTPClient.h>
 #include <Update.h>
 
-String trimTrailingSlash(String value) {
-  value.trim();
-  while (value.endsWith("/")) value.remove(value.length() - 1);
-  return value;
-}
-
 String apiUrl(const String& path) {
   String base = trimTrailingSlash(apiBaseUrl);
   return base + path;

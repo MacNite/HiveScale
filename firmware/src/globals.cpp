@@ -66,3 +66,9 @@ void debugLine() {
 bool isBlank(const String& s) {
   return s.length() == 0;
 }
+
+String trimTrailingSlash(String value) {
+  value.trim();
+  while (value.endsWith("/")) value.remove(value.length() - 1);
+  return value;
+}

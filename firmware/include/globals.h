@@ -95,3 +95,4 @@ extern RTC_DATA_ATTR uint32_t rtcBootCount;
 // ---- Small shared utilities ----------------------------------------------
 void debugLine();
 bool isBlank(const String& s);
+String trimTrailingSlash(String value);
