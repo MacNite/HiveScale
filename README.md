@@ -1,11 +1,8 @@
 # HiveScale
 
-**ESP32-based dual beehive scale system** for monitoring the weight, temperature, humidity, power state, and network state of two beehives. Measurements are sent to a self-hosted FastAPI backend backed by PostgreSQL and can be displayed in HivePal.
+**this is very much a WIP - please do not order the PCBs as published now, they are not completely tested and for develpment only.**
 
-**Notice: The V0 PCB and system design will soon be split into:
- - Power Module (with battery and / or solar power and MODEM, connected to other componentens via i2c or ESPnow)
- - Scale Module including the most sensors (connected to other componentens via i2c or ESPnow)
- - beecounter (connected to other componentens via i2c or ESPnow)
+**ESP32-based dual beehive scale system** for monitoring the weight, temperature, humidity, power state, and network state of two beehives. Measurements are sent to a self-hosted FastAPI backend backed by PostgreSQL and can be displayed in [HivePal](<https://github.com/martinhrvn/hive-pal>).
 
 ---
 
@@ -13,6 +10,7 @@
 
 - **Dual load cells** using two HX711 amplifiers for two independent hive scales.
 - **Per-hive temperature** using DS18B20 probes on a shared 1-Wire bus.
+- **Per-hive sound level** using INMP441 microfones with I2S.
 - **Ambient temperature and humidity** using an SHT4x sensor on I2C.
 - **RTC timekeeping** using a DS3231 so the device can timestamp measurements without depending on NTP.
 - **SD card cache and backup** for local buffering when uploads fail and for persistent measurement backup.
@@ -22,10 +20,11 @@
 - **OTA firmware updates** with server-side release registration.
 - **Wi-Fi provisioning portal** opened by the setup button for field configuration.
 - **Multi-network Wi-Fi** with up to three saved networks.
-- **Optional off-grid mode** with SIM7080G LTE/NB-IoT transport, INA219 solar telemetry, and MAX17048 LiPo telemetry.
-- **LTE modem power control** through configurable PWRKEY and power-enable pins, including hardware reset and sleep shutdown handling.
-- **HivePal integration** through dedicated `/api/v1/app/...` endpoints using a HivePal service key and per-user access roles.
-- **Breakout PCB design** in KiCad, including fabrication outputs and PCB-specific TODOs.
+- **Insights** auto-evaluation of data (weight, temperature, sound) per hive based on [these publications](docs/insights-sources-tldr.md).
+- **Optional off-grid mode** with solar lipo charging, INA219 solar telemetry, and MAX17048 LiPo telemetry.
+- **Optional [BeeCounter](https://github.com/MacNite/2026-easy-bee-counter)** counting in- and outgoing bees.
+- **[HivePal](<https://github.com/martinhrvn/hive-pal>) integration** through dedicated `/api/v1/app/...` endpoints using a HivePal service key and per-user access roles.
+- **Breakout PCB design** in KiCad, including fabrication outputs.
 - **Docker Compose deployment** for the API and PostgreSQL database.
 
 ---
@@ -36,30 +35,10 @@
 HiveScale/
 ├── firmware/                   # ESP32 PlatformIO project
 │   ├── src/main.cpp            # Main firmware source
-│   ├── include/secrets.example.h
-│   ├── partitions_4mb_ota_no_fs.csv
-│   └── platformio.ini
-├── server/                     # Python FastAPI backend
-│   ├── main.py
-│   ├── migrations/001_offgrid_telemetry.sql
-│   ├── requirements.txt
-│   └── Dockerfile
+├── server/                     # Python FastAPI backend and insights
 ├── docker/                     # Docker Compose deployment
-│   ├── docker-compose.yml
-│   └── .env.example
 ├── docs/                       # Hardware, API, deployment, and test docs
-│   ├── api.md
-│   ├── offgrid-firmware-notes.md
-│   ├── test-commands.md
-│   ├── truenas-install.md
-│   ├── docker-install.md
-│   └── wiring.md
 ├── pcb-design/                 # KiCad breakout PCB design and fabrication files
-│   ├── README.md
-│   ├── todo-list.md
-│   ├── HiveScale_V0.kicad_sch
-│   ├── HiveScale_V0.kicad_pcb
-│   └── fabrication/
 └── .github/workflows/          # CI: builds and pushes the backend image
 ```
 
@@ -120,9 +99,11 @@ The current firmware pin mapping is defined in `firmware/src/main.cpp`.
 | SD MISO | 23 | Updated mapping |
 | SD MOSI | 19 | Updated mapping |
 | Setup button | 27 | `INPUT_PULLUP`; short press opens provisioning AP, long press factory resets Preferences |
-| SIM7080G RX | 26 | ESP32 RX connected to modem TX; configurable with `SIM7080G_RX_PIN` |
-| SIM7080G TX | 25 | ESP32 TX connected to modem RX; configurable with `SIM7080G_TX_PIN` |
-| SIM7080G PWRKEY / control | Optional, PCB exposes GPIO14 | Set `SIM7080G_PWRKEY_PIN` or `SIM7080G_POWER_EN_PIN` in `secrets.h` if wired |
+| INMP441 BCLK | 14 | SD card SPI clock |
+| INMP441 WS | 13 | Updated mapping |
+| INMP441 SD | 34 | Updated mapping |
+
+
 
 > See [docs/wiring.md](docs/wiring.md) for detailed wiring and [pcb-design/README.md](pcb-design/README.md) for the KiCad breakout PCB pinout.
 
@@ -169,24 +150,9 @@ Off-grid modules are disabled by default and enabled per build:
 #define ENABLE_INA219_SOLAR      1
 #define ENABLE_MAX17048_BATTERY  1
 #define ENABLE_SIM7080G          1
-#define CELLULAR_OTA_ENABLED     0
+#define ENABLE_INMP441_MICS      1
 
-#define SIM7080G_APN             "your-apn"
-#define SIM7080G_USER            ""
-#define SIM7080G_PASS            ""
-#define SIM7080G_PIN             ""
-#define SIM7080G_RX_PIN          26
-#define SIM7080G_TX_PIN          25
-
-// Use one of these when your modem board exposes a usable control pin.
-#define SIM7080G_PWRKEY_PIN      14
-#define SIM7080G_POWER_EN_PIN    -1
-#define SIM7080G_POWER_EN_ACTIVE_HIGH 1
 ```
-
-When `ENABLE_SIM7080G` is enabled, normal measurement upload, config polling, command polling, and time sync use cellular transport. Wi-Fi station mode is skipped during normal operation to save power, but the Wi-Fi provisioning AP remains available through the setup button.
-
-OTA over cellular is disabled by default because firmware binaries are large compared with normal measurement payloads. Enable it only for SIM plans and antennas that can handle the traffic reliably.
 
 ### Flash
 
