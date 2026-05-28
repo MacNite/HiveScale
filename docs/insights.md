@@ -21,7 +21,7 @@ This document is the authoritative reference for **what is detected**,
 |---|---|
 | Computation source | `server/insights.py` (pure Python, no DB access) |
 | Trigger | Every call to the insights endpoint; cached on the frontend for 5 minutes |
-| Inputs | Weight, hive temperature, ambient temperature/humidity time-series |
+| Inputs | Weight, hive temperature, ambient temperature/humidity, FFT mic bands, and BeeCounter entrance counts — all per channel, all optional except weight/temperature |
 | Lookback | Up to 14 days, configurable via the `lookback_days` query parameter |
 | Per-channel | Each detector runs independently for scale 1 and scale 2 |
 | Output | A flat list of `Alert` objects, sorted by severity then time |
@@ -125,10 +125,17 @@ shows up as a near-step drop in weight.
 **What it tells you.** A swarm has very likely just departed. Check the
 hive, look for the cluster nearby if recovery is desired.
 
-**Not implemented.** With a bee counter the spec calls for AND-ing the
-weight signature with massive asymmetric outflow (`out_count > 3× baseline`
-AND `out / (in + 1) > 5`). When such a sensor is added, severity and
-confidence should both be raised when the signals agree.
+**Not implemented.** ~~With a bee counter the spec calls for AND-ing the
+weight signature with massive asymmetric outflow.~~ **Now implemented** —
+see below.
+
+**Entrance-counter corroboration.** When BeeCounter data is present, the
+weight drop is cross-checked against outbound traffic in the drop window.
+If the peak outbound interval exceeds **3×** the recent baseline *and*
+`out / (in + 1) > 5`, the swarm signature is confirmed: confidence is
+raised (+0.25) and a night-time `warning` is promoted to `critical`
+(the asymmetric outflow rules out a measurement artefact). Field:
+`bee_counter_{ch}_interval_in/out`.
 
 ---
 
@@ -153,9 +160,13 @@ curve stalls during what would otherwise be a productive season.
 both are missing, plan a queen introduction.
 
 **Not implemented.** The gold-standard signal is the acoustic queenless
-signature (broad-band, lower fundamental). Forager-count decline (~5 % per
-day for 7+ days) is also part of the original spec — both would require
-extra sensors.
+signature (broad-band, lower fundamental), which requires a microphone.
+
+**Entrance-counter corroboration.** When BeeCounter data is present, a
+sustained decline in outbound forager traffic of **≥ 5%/day** across the
+7-day window raises confidence by +0.15 (capped at 0.90). This is
+corroborative only — it never raises the alert on its own, because a
+forager decline alone is also consistent with a spell of poor weather.
 
 ---
 
@@ -180,9 +191,15 @@ double-firing.
 **What it tells you.** Reduce entrance size, consider closing the hive
 temporarily, or move the colony if robbing is sustained.
 
-**Not implemented.** The canonical signals are an incoming-count spike with
-low outgoing AND an agitated acoustic spectrum — both require sensors
-HiveScale does not yet ship.
+**Not implemented.** The agitated acoustic spectrum signal requires a
+microphone.
+
+**Entrance-counter corroboration.** When BeeCounter data is present, the
+canonical robbing traffic signature — an incoming spike with low outgoing
+— is checked over the last 2 h. With asymmetry defined as
+`(in − out) / max(in + out, 1)`, an inbound rate **≥ 200 bees/h** *and*
+asymmetry **≥ 0.4** raises confidence by +0.20 and upgrades severity
+`watch → warning`.
 
 ---
 
@@ -205,6 +222,14 @@ flagging because it indicates the colony is consuming more than it gathers.
 **What it tells you.** Strong flow → consider adding a super. Negative
 delta → check for dearth, disease, robbing, or queen problems depending on
 context.
+
+**Entrance-counter corroboration.** When BeeCounter data is present,
+outbound traffic cross-checks the weight signal. Strong/moderate flow with
+active outbound traffic (**≥ 100 bees/h**) raises confidence (+0.10); a
+weight gain with little/no traffic *lowers* it (−0.30), because gain
+without foragers leaving is suspect (calibration drift, rain on the lid,
+or someone leaning on the hive). A net loss with low traffic reinforces the
+negative signal (+0.10).
 
 ---
 
@@ -251,10 +276,16 @@ weeks before the colony collapses or absconds.
 **What it tells you.** Inspect within the next routine cycle. Look for
 disease, queen status, and stressors.
 
-**Not implemented.** The third leg of the original rule is a declining
-linear trend on the daily peak entrance traffic, which requires a counter.
-When a counter is added, severity should auto-promote to `warning` on a
-3-of-3 match.
+**Not implemented.** ~~The third leg of the original rule is a declining
+linear trend on the daily entrance traffic, which requires a counter.~~
+**Now implemented.**
+
+**Entrance-counter corroboration.** When BeeCounter data is present, a
+third rule is evaluated: outbound forager traffic declining by **≥ 3%/day**
+over the 14-day lookback. On a 3-of-3 match the alert auto-promotes from
+`watch` to `warning` and confidence rises 0.5 → 0.75. The `source` field
+reports `(3 of 3 rules)` vs `(2 of 3 rule)` so you can tell which path
+fired.
 
 ---
 
@@ -279,8 +310,16 @@ that consumes substantially more than expected, is at risk.
 emergency feeding (fondant). A persistently cold cluster may have already
 died and stopped generating heat.
 
-**Not implemented.** Cleansing-flight detection on warm winter days
-(out_count > 50) would corroborate cluster health, but requires a counter.
+**Not implemented.** ~~Cleansing-flight detection on warm winter days would
+corroborate cluster health, but requires a counter.~~ **Now implemented.**
+
+**Entrance-counter corroboration.** When BeeCounter data is present, a
+cleansing flight — any interval in the last 7 days with outbound
+**≥ 50 bees** — is positive evidence the cluster is alive and active. When
+seen, it *lowers* confidence in the risk alert by 0.15 (floor 0.3) and is
+noted in the description. Absence of flights is **not** treated as negative
+evidence, since bees rightly stay clustered in the cold — so this rule can
+only soften, never strengthen, the alert.
 
 ---
 
@@ -341,6 +380,18 @@ WINTER_WEIGHT_LOSS_G_PER_WEEK = 300
 HARVEST_FLOW_KG_PER_WEEK      = 2.0
 HARVEST_PLATEAU_KG_PER_WEEK   = 0.3
 HARVEST_PLATEAU_DAYS          = 4
+
+# ── Entrance-counter (BeeCounter) thresholds ──
+SWARM_OUT_BASELINE_MULT                 = 3.0    # peak outbound vs baseline
+SWARM_OUT_IN_RATIO                      = 5.0    # out / (in + 1) in drop window
+SWARM_OUT_MIN_BASELINE                  = 1.0    # min baseline out/interval
+QUEENLESS_FORAGER_DECLINE_FRAC_PER_DAY  = 0.05   # 5%/day outbound decline
+QUEENLESS_FORAGER_MIN_DAILY_BASELINE    = 200.0  # min daily out to trust slope
+ROBBING_IN_OUT_ASYMMETRY                = 0.4    # (in-out)/(in+out)
+ROBBING_MIN_INBOUND_PER_HOUR            = 200.0
+ABSCONDING_FORAGER_DECLINE_FRAC_PER_DAY = 0.03   # 3%/day outbound decline
+WINTER_CLEANSING_FLIGHT_OUT             = 50.0   # bees out in one interval
+FORAGING_ACTIVE_OUT_PER_HOUR            = 100.0  # "active foraging" traffic
 ```
 
 These are starting values calibrated against the project spec and the
@@ -359,18 +410,22 @@ tune them per device without redeploying the backend.
 
 ## Hardware roadmap
 
-Several detectors are listed in the spec but require sensors HiveScale does
-not currently ship. The orchestrator already has hooks marked
-`# NOT IMPLEMENTED:` so they can be wired up later:
+Several detectors in the spec call for sensors beyond the base
+weight/temperature stack. Both the microphone (FFT bands) and the
+entrance counter (BeeCounter) are now integrated; the table below records
+which detectors each one feeds:
 
-| Sensor | Detectors that would benefit |
-|---|---|
-| Microphone | Pre-swarm (piping/tooting), queenlessness (acoustic signature), robbing (agitated spectrum) |
-| Entrance counter | Swarm event (asymmetric outflow), robbing (incoming-spike pattern), queenlessness (forager decline), absconding (daily-peak decline), winter (cleansing flights) |
+| Sensor | Detectors that would benefit | Status |
+|---|---|---|
+| Microphone | Pre-swarm (piping/tooting), queenlessness (acoustic signature), robbing (agitated spectrum) | **Integrated** (FFT bands) |
+| Entrance counter (BeeCounter) | Swarm event (asymmetric outflow), robbing (incoming-spike pattern), queenlessness (forager decline), absconding (daily decline → 3-of-3), foraging (traffic cross-check), winter (cleansing flights) | **Integrated** |
 
-Adding either sensor would let several detectors graduate from a 2-of-3 or
-weight-only rule to the full multi-modal rule, raising both confidence and
-the maximum severity they can emit.
+With the BeeCounter integrated, the swarm-event, robbing, queenlessness,
+absconding, foraging and winter detectors all consume
+`bee_counter_{ch}_interval_in` / `_interval_out` (gated by
+`bee_counter_{ch}_ok`) when present, and fall back to their
+weight/temperature/acoustic rules when the counter is absent or a hive has
+no counter fitted. No detector *requires* the counter.
 
 ---
 

@@ -170,6 +170,50 @@ QUEENLESS_PIPING_QUIET_DBFS = -52.0
 # Robbing: stress band energy above this is consistent with agitated flight.
 ROBBING_STRESS_DBFS = -38.0
 
+# ── Entrance-counter (BeeCounter) thresholds ────────────────────────────────
+# The BeeCounter reports per-interval inbound/outbound crossing counts
+# (bee_counter_{ch}_interval_in / _interval_out), gated by bee_counter_{ch}_ok.
+# All thresholds below are starting points — recalibrate against your own data.
+
+# Swarm event (Phase 3): a swarm departure shows a massive, asymmetric OUTflow.
+# The spec rule is out_count > SWARM_OUT_BASELINE_MULT x baseline AND
+# out / (in + 1) > SWARM_OUT_IN_RATIO within the drop window. When this
+# corroborates the weight drop, severity/confidence are raised.
+SWARM_OUT_BASELINE_MULT = 3.0
+SWARM_OUT_IN_RATIO = 5.0
+# Minimum baseline outbound-per-interval before the multiplier test is
+# meaningful (avoids a divide-by-near-zero when the hive was nearly idle).
+SWARM_OUT_MIN_BASELINE = 1.0
+
+# Queenlessness: forager (outbound) decline of >= this fraction per day,
+# sustained over the queenless window (~5%/day for 7+ days per the spec).
+QUEENLESS_FORAGER_DECLINE_FRAC_PER_DAY = 0.05
+# Minimum mean daily outbound traffic at the start of the window; below this
+# the slope fit is too noisy to trust.
+QUEENLESS_FORAGER_MIN_DAILY_BASELINE = 200.0
+
+# Robbing: an incoming spike with comparatively low outgoing. Asymmetry is
+# (in - out) / max(in + out, 1), range -1..+1. >= this means inbound clearly
+# dominates. Also require a minimum absolute inbound rate so a couple of
+# returning foragers at dusk don't trip it.
+ROBBING_IN_OUT_ASYMMETRY = 0.4
+ROBBING_MIN_INBOUND_PER_HOUR = 200.0
+
+# Absconding: declining linear trend on daily outbound traffic over the
+# 14-day lookback. Same fractional slope idea as the queenless rule. When this
+# third rule confirms, the alert promotes from "watch" to "warning".
+ABSCONDING_FORAGER_DECLINE_FRAC_PER_DAY = 0.03
+
+# Winter: a warm-day cleansing flight is a positive sign of cluster health.
+# If any interval in the window shows outbound >= this, we note it as
+# corroboration (it lowers, not raises, the concern).
+WINTER_CLEANSING_FLIGHT_OUT = 50.0
+
+# Foraging: mean outbound rate (bees/hour) over the day that counts as
+# genuinely "active" foraging traffic, used to cross-check the weight-based
+# foraging classifier.
+FORAGING_ACTIVE_OUT_PER_HOUR = 100.0
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -313,6 +357,147 @@ def _mic_band_snapshot(
 
 
 # ---------------------------------------------------------------------------
+# Entrance-counter (BeeCounter) helpers
+# ---------------------------------------------------------------------------
+
+def _extract_counter_series(
+    measurements: Iterable[dict[str, Any]],
+    channel: ChannelRef,
+    direction: Literal["in", "out"],
+) -> Series:
+    """
+    Pull a (timestamp, count) series of per-interval crossing counts for one
+    direction from a BeeCounter channel.
+
+    channel 1 -> bee_counter_1_*, channel 2 -> bee_counter_2_*.
+
+    Rows where the counter was unreachable for that hive
+    (``bee_counter_{ch}_ok`` is falsy or absent) are skipped, so a missing or
+    broken counter never injects implicit zeros that would look like "no
+    traffic". The values are interval counts (bees since the previous poll),
+    not cumulative totals.
+    """
+    ok_field = f"bee_counter_{channel}_ok"
+    count_field = f"bee_counter_{channel}_interval_{direction}"
+    out: Series = []
+    for m in measurements:
+        if not m.get(ok_field):
+            continue
+        ts = _as_datetime(m.get("measured_at"))
+        val = m.get(count_field)
+        if ts is None or val is None:
+            continue
+        try:
+            out.append((ts, float(val)))
+        except (TypeError, ValueError):
+            continue
+    out.sort(key=lambda p: p[0])
+    return out
+
+
+def _bucket_by_day(series: Series, end: datetime, days: int) -> Series:
+    """
+    Sum per-interval counts into per-day totals over the last ``days`` days
+    ending at ``end``. Returns one point per day (UTC midnight key) with the
+    summed count.
+
+    Partial days at the window edges are dropped: the first and last
+    calendar day usually only contain a fraction of a day's samples, and
+    including them badly biases a decline-slope fit. A day is considered
+    partial if it holds fewer than 60% of the median day's sample count.
+    Days with no rows at all are omitted entirely (with ~10-min cadence a
+    fully empty day means data loss, not zero traffic).
+    """
+    if not series or days <= 0:
+        return []
+    start = end - timedelta(days=days)
+    sums: dict[datetime, float] = {}
+    counts: dict[datetime, int] = {}
+    for t, v in series:
+        if t <= start or t > end:
+            continue
+        day = t.replace(hour=0, minute=0, second=0, microsecond=0)
+        sums[day] = sums.get(day, 0.0) + v
+        counts[day] = counts.get(day, 0) + 1
+    if not sums:
+        return []
+    ordered = sorted(sums.keys())
+    median_count = statistics.median(counts.values())
+    threshold = 0.6 * median_count
+    # Trim a leading and/or trailing day if it is clearly partial.
+    if len(ordered) >= 3:
+        if counts[ordered[0]] < threshold:
+            ordered = ordered[1:]
+        if ordered and counts[ordered[-1]] < threshold:
+            ordered = ordered[:-1]
+    return [(day, sums[day]) for day in ordered]
+
+
+def _median_interval_seconds(series: Series) -> Optional[float]:
+    """
+    Median spacing between samples, in seconds, used to convert per-interval
+    counts into a per-hour rate. Gaps are sanity-clipped to [60s, 3600s] to
+    ignore deep-sleep skips and duplicate timestamps. Returns None when the
+    cadence cannot be estimated.
+    """
+    if len(series) < 3:
+        return None
+    gaps = [
+        (series[i][0] - series[i - 1][0]).total_seconds()
+        for i in range(1, len(series))
+    ]
+    gaps = [g for g in gaps if 60.0 <= g <= 3600.0]
+    if not gaps:
+        return None
+    return statistics.median(gaps)
+
+
+def _per_hour_rate(series: Series) -> Optional[float]:
+    """
+    Mean crossings-per-hour over ``series``, derived from the mean per-interval
+    count and the median inter-sample gap. Returns None when the cadence can't
+    be inferred (series too short).
+    """
+    if not series:
+        return None
+    seconds = _median_interval_seconds(series)
+    if seconds is None:
+        return None
+    mean_per_interval = _safe_mean(_values(series))
+    if mean_per_interval is None:
+        return None
+    return mean_per_interval * (3600.0 / seconds)
+
+
+def _forager_decline_frac_per_day(
+    bee_out_series: Series,
+    end: datetime,
+    days: int,
+    min_daily_baseline: float,
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Fit a linear slope to daily-summed outbound traffic and express the
+    decline as a fraction of the early-window baseline per day.
+
+    Returns (decline_frac_per_day, baseline_per_day, slope_per_day):
+      * decline_frac_per_day > 0 means traffic is FALLING (a decline).
+      * All three are None when there isn't enough data or the baseline is
+        below ``min_daily_baseline`` (too noisy to trust).
+    """
+    daily = _bucket_by_day(bee_out_series, end, days)
+    if len(daily) < 4:
+        return (None, None, None)
+    # Baseline = mean of the earlier half of the window.
+    half = max(2, len(daily) // 2)
+    baseline = _safe_mean(_values(daily[:half]))
+    slope = _linear_slope_per_day(daily)
+    if baseline is None or baseline < min_daily_baseline or slope is None:
+        return (None, baseline, slope)
+    decline_frac = -slope / baseline  # positive when slope is negative
+    return (decline_frac, baseline, slope)
+
+
+# ---------------------------------------------------------------------------
 # Detectors
 # ---------------------------------------------------------------------------
 
@@ -372,11 +557,24 @@ def detect_swarm_event(
     weight_series: Series,
     channel: ChannelRef,
     now: datetime,
+    bee_in_series: Optional[Series] = None,
+    bee_out_series: Optional[Series] = None,
 ) -> Optional[Alert]:
     """
     Phase 3 - swarm in progress / just happened from weight signature.
 
-    Source: project spec "Phase 3" (weight half only).
+    Source: project spec "Phase 3" (weight half).
+
+    Entrance-counter corroboration (when BeeCounter data is available):
+      A swarm departure produces a massive, asymmetric OUTflow. Over the
+      detected weight-drop window, if the peak outbound interval exceeds
+      SWARM_OUT_BASELINE_MULT x the recent baseline AND
+      out / (in + 1) > SWARM_OUT_IN_RATIO, the two signals agree:
+        * confidence is raised toward 1.0
+        * a daytime event that was already "critical" stays critical; a
+          night-time "warning" is promoted to "critical" because the
+          asymmetric outflow rules out a measurement artefact.
+      Source: project spec Phase 3 (counter half); Seeley 2010.
     """
     last_2h = _window(weight_series, now, hours=2)
     if len(last_2h) < 4:
@@ -387,21 +585,65 @@ def detect_swarm_event(
     hour = now.hour
     in_daytime = SWARM_DAYTIME_HOURS[0] <= hour < SWARM_DAYTIME_HOURS[1]
     severity: AlertSeverity = "critical" if in_daytime else "warning"
+    confidence = min(1.0, 0.6 + (drop - SWARM_WEIGHT_DROP_KG) * 0.1)
+
+    evidence: dict[str, Any] = {"drop_kg": drop, "in_daytime": in_daytime}
+    desc_parts = [
+        f"Weight dropped {drop:.2f} kg within {SWARM_WEIGHT_WINDOW_MIN} min. "
+        f"{'Daytime timing strongly suggests a swarm departure.' if in_daytime else 'Unusual time; could be a measurement artefact — investigate.'}"
+    ]
+
+    # ── Entrance-counter corroboration (asymmetric outflow) ──────────────────
+    if bee_out_series and t_start is not None and t_end is not None:
+        # Outbound during the drop window vs a 2h baseline ending at the drop.
+        out_window = [(t, v) for t, v in bee_out_series if t_start <= t <= t_end]
+        baseline_window = _window(bee_out_series, t_start, hours=2)
+        peak_out = max(_values(out_window), default=None)
+        baseline_out = _safe_mean(_values(baseline_window))
+
+        in_window = []
+        if bee_in_series:
+            in_window = [(t, v) for t, v in bee_in_series if t_start <= t <= t_end]
+        sum_out = sum(_values(out_window))
+        sum_in = sum(_values(in_window))
+
+        if peak_out is not None and baseline_out is not None:
+            evidence["counter_peak_out"] = peak_out
+            evidence["counter_baseline_out"] = baseline_out
+            evidence["counter_sum_out"] = sum_out
+            evidence["counter_sum_in"] = sum_in
+            out_ratio = sum_out / (sum_in + 1.0)
+            evidence["counter_out_in_ratio"] = out_ratio
+            massive_outflow = (
+                baseline_out >= SWARM_OUT_MIN_BASELINE
+                and peak_out > SWARM_OUT_BASELINE_MULT * baseline_out
+            )
+            if massive_outflow and out_ratio > SWARM_OUT_IN_RATIO:
+                confidence = min(1.0, confidence + 0.25)
+                if severity == "warning":
+                    severity = "critical"
+                evidence["counter_swarm_signature"] = True
+                desc_parts.append(
+                    f"Entrance counter confirms a mass exodus: peak "
+                    f"{peak_out:.0f} bees/interval out (baseline "
+                    f"{baseline_out:.1f}), outbound/inbound ratio "
+                    f"{out_ratio:.1f} — asymmetric outflow consistent with a swarm."
+                )
+            else:
+                evidence["counter_swarm_signature"] = False
+
     return Alert(
         id=f"swarm-event-ch{channel}",
         category="swarm",
         severity=severity,
         channel=channel,
         title=f"Swarm event detected (hive {channel})",
-        description=(
-            f"Weight dropped {drop:.2f} kg within {SWARM_WEIGHT_WINDOW_MIN} min. "
-            f"{'Daytime timing strongly suggests a swarm departure.' if in_daytime else 'Unusual time; could be a measurement artefact — investigate.'}"
-        ),
+        description=" ".join(desc_parts),
         window_start=t_start,
         window_end=t_end,
-        confidence=min(1.0, 0.6 + (drop - SWARM_WEIGHT_DROP_KG) * 0.1),
-        evidence={"drop_kg": drop, "in_daytime": in_daytime},
-        source="project spec Phase 3 (weight); Seeley 2010",
+        confidence=confidence,
+        evidence=evidence,
+        source="project spec Phase 3 (weight + counter); Seeley 2010",
     )
 
 
@@ -496,9 +738,10 @@ def detect_queenlessness(
     channel: ChannelRef,
     now: datetime,
     measurements: Optional[list[dict[str, Any]]] = None,
+    bee_out_series: Optional[Series] = None,
 ) -> Optional[Alert]:
     """
-    Queenlessness - rule-based with optional acoustic corroboration.
+    Queenlessness - rule-based with optional acoustic + counter corroboration.
 
     Source: project spec "Queenlessness detection"; MSPB / BeeTogether.
 
@@ -514,8 +757,13 @@ def detect_queenlessness(
         * description is updated
       Source: MSPB arXiv 2311.10876; BeeTogether queenless classifiers.
 
-    NOTE: forager-count decline (~5% per day for 7+ days) is NOT IMPLEMENTED:
-    requires entrance counter.
+    Forager-decline enhancement (when BeeCounter data is available):
+      A queenless colony loses foragers without replacement. When outbound
+      traffic declines by >= QUEENLESS_FORAGER_DECLINE_FRAC_PER_DAY (~5%/day)
+      sustained across the window, confidence rises by +0.15 (capped at 0.90).
+      This is corroborative only — it never fires the alert on its own, since
+      a forager decline alone is also consistent with a spell of poor weather.
+      Source: project spec queenless (forager-decline rule); MSPB.
     """
     if not _is_active_season(now):
         return None
@@ -576,6 +824,27 @@ def detect_queenlessness(
         else:
             evidence["acoustic_queenless_signature"] = False
 
+    # ── Forager-decline corroboration (entrance counter) ─────────────────────
+    if bee_out_series:
+        decline_frac, baseline, slope = _forager_decline_frac_per_day(
+            bee_out_series, now, days, QUEENLESS_FORAGER_MIN_DAILY_BASELINE
+        )
+        if decline_frac is not None:
+            evidence["forager_baseline_per_day"] = baseline
+            evidence["forager_slope_per_day"] = slope
+            evidence["forager_decline_frac_per_day"] = decline_frac
+            if decline_frac >= QUEENLESS_FORAGER_DECLINE_FRAC_PER_DAY:
+                confidence = min(0.90, confidence + 0.15)
+                evidence["forager_decline_active"] = True
+                desc_parts.append(
+                    f"Outbound forager traffic is declining at "
+                    f"{decline_frac * 100:.1f}%/day over the last {days}d "
+                    f"(baseline {baseline:.0f} bees/day) — consistent with "
+                    f"queen loss."
+                )
+            else:
+                evidence["forager_decline_active"] = False
+
     return Alert(
         id=f"queenless-ch{channel}",
         category="queenless",
@@ -596,9 +865,12 @@ def detect_robbing(
     channel: ChannelRef,
     now: datetime,
     measurements: Optional[list[dict[str, Any]]] = None,
+    bee_in_series: Optional[Series] = None,
+    bee_out_series: Optional[Series] = None,
 ) -> Optional[Alert]:
     """
-    Robbing detection - rapid weight loss with optional acoustic corroboration.
+    Robbing detection - rapid weight loss with optional acoustic + counter
+    corroboration.
 
     Source: project spec "Robbing detection".
     Rule: weight loss rate >= ROBBING_WEIGHT_LOSS_KG_PER_HOUR sustained for
@@ -612,8 +884,15 @@ def detect_robbing(
           late-afternoon window
       Source: Nolasco et al. (2019) BUZZ dataset; project spec.
 
-    NOTE: incoming-count spikes with low outgoing are the other canonical
-    robbing signal — NOT IMPLEMENTED: requires entrance counter.
+    Entrance-counter enhancement (when BeeCounter data is available):
+      The canonical robbing traffic signature is an incoming spike with
+      comparatively low outgoing — robber bees pour in while the home colony
+      does not forage out. Over the last 2h, with asymmetry defined as
+      (in - out) / max(in + out, 1):
+        * when inbound rate >= ROBBING_MIN_INBOUND_PER_HOUR and asymmetry >=
+          ROBBING_IN_OUT_ASYMMETRY, confidence rises by +0.20 and severity is
+          upgraded watch → warning.
+      Source: project spec robbing (asymmetric-traffic signature).
     """
     last_2h = _window(weight_series, now, hours=2)
     if len(last_2h) < 4:
@@ -667,6 +946,34 @@ def detect_robbing(
             else:
                 evidence["acoustic_stress_active"] = False
 
+    # ── Entrance-counter asymmetry (incoming spike, low outgoing) ────────────
+    if bee_in_series and bee_out_series:
+        recent_in = _window(bee_in_series, now, hours=2)
+        recent_out = _window(bee_out_series, now, hours=2)
+        in_rate = _per_hour_rate(recent_in)
+        out_rate = _per_hour_rate(recent_out)
+        if in_rate is not None and out_rate is not None:
+            denom = max(in_rate + out_rate, 1.0)
+            asymmetry = (in_rate - out_rate) / denom
+            evidence["counter_in_per_hour"] = in_rate
+            evidence["counter_out_per_hour"] = out_rate
+            evidence["counter_asymmetry"] = asymmetry
+            if (
+                in_rate >= ROBBING_MIN_INBOUND_PER_HOUR
+                and asymmetry >= ROBBING_IN_OUT_ASYMMETRY
+            ):
+                confidence = min(1.0, confidence + 0.20)
+                if severity == "watch":
+                    severity = "warning"
+                evidence["counter_robbing_signature"] = True
+                desc_parts.append(
+                    f"Entrance counter shows asymmetric traffic: "
+                    f"{in_rate:.0f} bees/h in vs {out_rate:.0f} bees/h out "
+                    f"(asymmetry {asymmetry:+.2f}) — classic robbing signature."
+                )
+            else:
+                evidence["counter_robbing_signature"] = False
+
     return Alert(
         id=f"robbing-ch{channel}",
         category="robbing",
@@ -686,11 +993,22 @@ def detect_foraging_intensity(
     weight_series: Series,
     channel: ChannelRef,
     now: datetime,
+    bee_out_series: Optional[Series] = None,
 ) -> Optional[Alert]:
     """
     Foraging intensity / nectar flow from daily weight delta.
 
     Source: project spec "Foraging intensity"; Meikle et al. 2008.
+
+    Entrance-counter corroboration (when BeeCounter data is available):
+      Outbound traffic is a direct proxy for forager activity and a useful
+      cross-check on the weight signal:
+        * strong/moderate flow + active outbound traffic -> confidence +0.10
+        * strong/moderate flow + little/no traffic -> confidence -0.30
+          (weight gain with no foragers leaving is suspect: calibration
+          drift, rain on the lid, or someone leaning on the hive)
+        * net loss + little/no traffic -> confidence +0.10
+          (a stronger negative signal: not just a bad foraging day)
     """
     last_24h = _window(weight_series, now, hours=24)
     if len(last_24h) < 4:
@@ -706,20 +1024,58 @@ def detect_foraging_intensity(
     else:
         return None
 
+    confidence = 0.8
+    evidence: dict[str, Any] = {"delta_24h_kg": delta, "level": level}
+    desc = (
+        f"Net weight change over the last 24h: {delta:+.2f} kg. "
+        f"Classified as {level} nectar flow."
+    )
+
+    # ── Entrance-counter corroboration ───────────────────────────────────────
+    if bee_out_series:
+        recent_out = _window(bee_out_series, now, hours=24)
+        out_per_hour = _per_hour_rate(recent_out)
+        if out_per_hour is not None:
+            evidence["forager_out_per_hour"] = out_per_hour
+            active_traffic = out_per_hour >= FORAGING_ACTIVE_OUT_PER_HOUR
+            if level in ("strong", "moderate"):
+                if active_traffic:
+                    confidence = min(1.0, confidence + 0.10)
+                    evidence["counter_corroborates"] = True
+                    desc += (
+                        f" Entrance counter agrees: {out_per_hour:.0f} bees/h "
+                        f"outbound."
+                    )
+                else:
+                    confidence = max(0.3, confidence - 0.30)
+                    evidence["counter_corroborates"] = False
+                    desc += (
+                        f" But the entrance counter shows little outbound "
+                        f"traffic ({out_per_hour:.0f} bees/h) — the weight gain "
+                        f"may be a sensor artefact rather than a nectar flow."
+                    )
+            elif level == "negative":
+                if not active_traffic:
+                    confidence = min(1.0, confidence + 0.10)
+                    evidence["counter_corroborates"] = True
+                    desc += (
+                        f" Outbound traffic is also low ({out_per_hour:.0f} "
+                        f"bees/h), reinforcing the negative signal."
+                    )
+                else:
+                    evidence["counter_corroborates"] = False
+
     return Alert(
         id=f"foraging-ch{channel}",
         category="foraging",
         severity=severity,  # type: ignore[arg-type]
         channel=channel,
         title=f"Foraging: {level} flow (hive {channel})",
-        description=(
-            f"Net weight change over the last 24h: {delta:+.2f} kg. "
-            f"Classified as {level} nectar flow."
-        ),
+        description=desc,
         window_start=last_24h[0][0],
         window_end=now,
-        confidence=0.8,
-        evidence={"delta_24h_kg": delta, "level": level},
+        confidence=confidence,
+        evidence=evidence,
         source="project spec foraging; Meikle et al. 2008",
     )
 
@@ -780,12 +1136,24 @@ def detect_absconding_trend(
     weight_series: Series,
     channel: ChannelRef,
     now: datetime,
+    bee_out_series: Optional[Series] = None,
 ) -> Optional[Alert]:
     """
     Absconding / collapse early warning — compound declining trend.
 
     Source: project spec "Absconding / collapse early warning".
-    2 of 3 rules (entrance counter NOT IMPLEMENTED).
+
+    Two-rule base (always applied):
+      1. Weight loss >= ABSCONDING_WEIGHT_LOSS_G_PER_DAY (100 g/day) sustained
+         over ABSCONDING_LOOKBACK_DAYS (14 days).
+      2. Rolling 24h temperature std-dev has a positive slope (widening
+         variability => failing thermoregulation).
+
+    Third rule (when BeeCounter data is available):
+      3. Outbound forager traffic declining by >=
+         ABSCONDING_FORAGER_DECLINE_FRAC_PER_DAY (3%/day) over the lookback.
+      When the third rule confirms, the alert is promoted from "watch" to
+      "warning" and confidence rises 0.5 -> 0.75.
     """
     lookback_h = 24 * ABSCONDING_LOOKBACK_DAYS
     weight_window = _window(weight_series, now, hours=lookback_h)
@@ -817,27 +1185,65 @@ def detect_absconding_trend(
     if stddev_slope is None or stddev_slope <= 0:
         return None
 
+    # ── Third rule: forager (outbound) decline (entrance counter) ────────────
+    severity: AlertSeverity = "watch"
+    confidence = 0.5
+    forager_evidence: dict[str, Any] = {}
+    forager_decline_active = False
+
+    if bee_out_series:
+        decline_frac, baseline, slope = _forager_decline_frac_per_day(
+            bee_out_series,
+            now,
+            ABSCONDING_LOOKBACK_DAYS,
+            QUEENLESS_FORAGER_MIN_DAILY_BASELINE,
+        )
+        if decline_frac is not None:
+            forager_evidence = {
+                "forager_baseline_per_day": baseline,
+                "forager_slope_per_day": slope,
+                "forager_decline_frac_per_day": decline_frac,
+            }
+            if decline_frac >= ABSCONDING_FORAGER_DECLINE_FRAC_PER_DAY:
+                severity = "warning"
+                confidence = 0.75
+                forager_decline_active = True
+
+    forager_evidence["forager_decline_active"] = forager_decline_active
+
+    desc = (
+        f"Weight loss of {weight_loss_g_per_day:.0f} g/day sustained "
+        f"over {ABSCONDING_LOOKBACK_DAYS}d, combined with widening "
+        f"temperature variability (slope +{stddev_slope:.3f} degC/day)."
+    )
+    if forager_decline_active:
+        desc += (
+            f" Outbound forager traffic is also declining at "
+            f"{forager_evidence['forager_decline_frac_per_day'] * 100:.1f}%/day "
+            f"— three concurrent decline signals."
+        )
+    desc += " Inspect for queen problems, disease, or pre-absconding stress."
+
     return Alert(
         id=f"absconding-ch{channel}",
         category="decline",
-        severity="watch",
+        severity=severity,
         channel=channel,
         title=f"Absconding / collapse risk (hive {channel})",
-        description=(
-            f"Weight loss of {weight_loss_g_per_day:.0f} g/day sustained "
-            f"over {ABSCONDING_LOOKBACK_DAYS}d, combined with widening "
-            f"temperature variability (slope +{stddev_slope:.3f} degC/day). "
-            f"Inspect for queen problems, disease, or pre-absconding stress."
-        ),
+        description=desc,
         window_start=weight_window[0][0],
         window_end=now,
-        confidence=0.5,
+        confidence=confidence,
         evidence={
             "weight_loss_g_per_day": weight_loss_g_per_day,
             "stddev_slope_c_per_day": stddev_slope,
             "current_daily_stddev_c": daily_stddev[-1][1],
+            **forager_evidence,
         },
-        source="project spec absconding/collapse (2 of 3 rule, no counter)",
+        source=(
+            "project spec absconding/collapse"
+            + (" (3 of 3 rules)" if forager_decline_active else " (2 of 3 rule)")
+        ),
     )
 
 
@@ -847,11 +1253,20 @@ def detect_winter_risk(
     weight_series: Series,
     channel: ChannelRef,
     now: datetime,
+    bee_out_series: Optional[Series] = None,
 ) -> Optional[Alert]:
     """
     Winter survival risk (Oct-Feb) from cluster temperature and weight loss.
 
     Source: project spec "Winter survival risk".
+
+    Entrance-counter corroboration (when BeeCounter data is available):
+      A cleansing flight on a warm winter day — any interval with outbound
+      >= WINTER_CLEANSING_FLIGHT_OUT — is positive evidence that the cluster
+      is alive and active. When seen, it lowers confidence in the risk alert
+      by 0.15 (floor 0.3) and is noted in the description. Absence of flights
+      is NOT treated as negative evidence (bees rightly stay clustered in the
+      cold), so this can only soften, never strengthen, the alert.
     """
     if not _is_winter(now):
         return None
@@ -875,28 +1290,51 @@ def detect_winter_risk(
     if not (cluster_weak or consumption_high):
         return None
     severity: AlertSeverity = "warning" if cluster_weak and consumption_high else "watch"
+    confidence = 0.6
+
+    description = (
+        f"Min hive temp last 7d: {min_hive:.1f} degC vs. mean ambient "
+        f"{ambient_mean:.1f} degC. Weight change: {weight_delta_kg:+.2f} kg/week."
+        + (" Cluster appears weak/small." if cluster_weak else "")
+        + (" Consumption is abnormally high." if consumption_high else "")
+    )
+
+    evidence: dict[str, Any] = {
+        "min_hive_temp_c": min_hive,
+        "mean_ambient_c": ambient_mean,
+        "weight_loss_g_per_week": weight_loss_g_per_week,
+        "cluster_weak": cluster_weak,
+        "consumption_high": consumption_high,
+    }
+
+    # ── Cleansing-flight corroboration (entrance counter) ────────────────────
+    if bee_out_series:
+        last_7d_out = _window(bee_out_series, now, hours=24 * 7)
+        peak_out = max(_values(last_7d_out), default=None)
+        if peak_out is not None:
+            evidence["counter_peak_out_7d"] = peak_out
+            if peak_out >= WINTER_CLEANSING_FLIGHT_OUT:
+                confidence = max(0.3, confidence - 0.15)
+                evidence["cleansing_flight_seen"] = True
+                description += (
+                    f" However, a cleansing flight was recorded "
+                    f"({peak_out:.0f} bees out in one interval) — the cluster "
+                    f"is alive and active, which lowers the risk."
+                )
+            else:
+                evidence["cleansing_flight_seen"] = False
+
     return Alert(
         id=f"winter-ch{channel}",
         category="winter",
         severity=severity,
         channel=channel,
         title=f"Winter survival risk (hive {channel})",
-        description=(
-            f"Min hive temp last 7d: {min_hive:.1f} degC vs. mean ambient "
-            f"{ambient_mean:.1f} degC. Weight change: {weight_delta_kg:+.2f} kg/week."
-            + (" Cluster appears weak/small." if cluster_weak else "")
-            + (" Consumption is abnormally high." if consumption_high else "")
-        ),
+        description=description,
         window_start=last_7d_temp[0][0],
         window_end=now,
-        confidence=0.6,
-        evidence={
-            "min_hive_temp_c": min_hive,
-            "mean_ambient_c": ambient_mean,
-            "weight_loss_g_per_week": weight_loss_g_per_week,
-            "cluster_weak": cluster_weak,
-            "consumption_high": consumption_high,
-        },
+        confidence=confidence,
+        evidence=evidence,
         source="project spec winter survival",
     )
 
@@ -966,7 +1404,11 @@ def compute_insights(
     in main.py: a list of dicts with at least ``measured_at``,
     ``scale_1_weight_kg``, ``scale_2_weight_kg``, ``hive_1_temp_c``,
     ``hive_2_temp_c``, ``ambient_temp_c``.
-    Mic and FFT band fields are optional and consumed transparently.
+    Mic / FFT band fields and BeeCounter entrance-counter fields
+    (``bee_counter_{ch}_interval_in`` / ``_interval_out``, gated by
+    ``bee_counter_{ch}_ok``) are optional and consumed transparently —
+    every detector degrades to its weight/temperature-only rule when they
+    are absent.
     """
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -981,21 +1423,32 @@ def compute_insights(
     ):
         weight = _extract_series(measurements, weight_field)
         hive_temp = _extract_series(measurements, temp_field)
+        bee_in = _extract_counter_series(measurements, channel, "in")
+        bee_out = _extract_counter_series(measurements, channel, "out")
 
-        if not weight and not hive_temp:
+        if not weight and not hive_temp and not bee_in and not bee_out:
             continue
 
         # Detectors that accept acoustic data get ``measurements`` passed in.
+        # Detectors that accept entrance-counter data get bee_in / bee_out.
         for detector in (
             lambda: detect_imminent_swarm(hive_temp, channel, now),
-            lambda: detect_swarm_event(weight, channel, now),
+            lambda: detect_swarm_event(weight, channel, now, bee_in, bee_out),
             lambda: detect_pre_swarm_temp_instability(hive_temp, channel, now, measurements),
-            lambda: detect_queenlessness(hive_temp, weight, channel, now, measurements),
-            lambda: detect_robbing(weight, channel, now, measurements),
-            lambda: detect_foraging_intensity(weight, channel, now),
+            lambda: detect_queenlessness(
+                hive_temp, weight, channel, now, measurements, bee_out
+            ),
+            lambda: detect_robbing(
+                weight, channel, now, measurements, bee_in, bee_out
+            ),
+            lambda: detect_foraging_intensity(weight, channel, now, bee_out),
             lambda: detect_brood_cycle_state(hive_temp, channel, now),
-            lambda: detect_absconding_trend(hive_temp, weight, channel, now),
-            lambda: detect_winter_risk(hive_temp, ambient, weight, channel, now),
+            lambda: detect_absconding_trend(
+                hive_temp, weight, channel, now, bee_out
+            ),
+            lambda: detect_winter_risk(
+                hive_temp, ambient, weight, channel, now, bee_out
+            ),
             lambda: detect_harvest_window(weight, channel, now),
         ):
             try:
