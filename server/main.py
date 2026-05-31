@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -7,7 +8,17 @@ from typing import Optional, Literal, Any
 
 import psycopg
 from psycopg_pool import ConnectionPool
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ConfigDict
 from insights import compute_insights, summarize
@@ -1038,19 +1049,33 @@ def check_firmware(device_id: str, version: str = Query("0.0.0"),
     return {"update_available": False}
 
 
-@app.post("/api/v1/firmware/releases", dependencies=[Depends(require_api_key)])
-def create_firmware_release(payload: FirmwareReleaseIn):
-    path = FIRMWARE_DIR / payload.filename
-    if not path.exists():
-        raise HTTPException(status_code=400, detail=f"Firmware file '{payload.filename}' not found in firmware directory")
-    # Compute CRC-32 (IEEE 802.3) of the image so the HiveScale can verify the
-    # download before relaying it to a BeeCounter over I2C. zlib.crc32 returns
-    # an unsigned 32-bit value; stored in a BIGINT to stay positive.
+# Allowed firmware targets, shared by the JSON registration endpoint and the
+# multipart upload endpoint below.
+FIRMWARE_TARGETS = ("hivescale", "beecounter")
+
+# A conservative filename pattern. Firmware filenames are referenced verbatim in
+# download URLs and joined onto FIRMWARE_DIR, so we reject anything that is not a
+# plain basename with a safe character set. This prevents path traversal
+# (e.g. "../../etc/passwd") and surprising URL encodings.
+_SAFE_FIRMWARE_FILENAME = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def crc32_of_file(path: Path) -> int:
+    """Compute CRC-32 (IEEE 802.3) of a file as an unsigned 32-bit value.
+
+    The HiveScale uses this to verify a firmware download before flashing it or
+    relaying it to a BeeCounter over I2C. Stored in a BIGINT to stay positive.
+    """
     crc = 0
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
             crc = zlib.crc32(chunk, crc)
-    crc &= 0xFFFFFFFF
+    return crc & 0xFFFFFFFF
+
+
+def upsert_firmware_release(version: str, filename: str, active: bool,
+                            target: str, crc: int) -> None:
+    """Insert or update a firmware_releases row keyed on the unique version."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1063,9 +1088,20 @@ def create_firmware_release(payload: FirmwareReleaseIn):
                     target   = EXCLUDED.target,
                     crc32    = EXCLUDED.crc32;
                 """,
-                (payload.version, payload.filename, payload.active, payload.target, crc),
+                (version, filename, active, target, crc),
             )
             conn.commit()
+
+
+@app.post("/api/v1/firmware/releases", dependencies=[Depends(require_api_key)])
+def create_firmware_release(payload: FirmwareReleaseIn):
+    path = FIRMWARE_DIR / payload.filename
+    if not path.exists():
+        raise HTTPException(status_code=400, detail=f"Firmware file '{payload.filename}' not found in firmware directory")
+    crc = crc32_of_file(path)
+    upsert_firmware_release(
+        payload.version, payload.filename, payload.active, payload.target, crc
+    )
     return {"status": "ok", "version": payload.version, "target": payload.target, "crc32": crc}
 
 
@@ -1480,6 +1516,98 @@ def latest_device_measurements(device_id: str, limit: int = 50, user_id: str = D
 def update_device_config_from_app(device_id: str, patch: AppDeviceConfigUpdate, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin"])
     return update_device_config(device_id, patch)
+
+
+@app.post(
+    "/api/v1/app/devices/{device_id}/firmware",
+    dependencies=[Depends(require_hivepal_service_key)],
+)
+async def upload_firmware_from_app(
+    device_id: str,
+    file: UploadFile = File(...),
+    version: str = Form(...),
+    target: str = Form("hivescale"),
+    active: bool = Form(True),
+    user_id: str = Depends(require_user_id),
+):
+    """Upload a firmware binary from HivePal and register it as a release.
+
+    Unlike POST /api/v1/firmware/releases (which only registers a file that is
+    already present in FIRMWARE_DIR and is authenticated with the device
+    X-API-Key), this endpoint accepts the binary itself as multipart/form-data,
+    writes it into FIRMWARE_DIR, computes its CRC-32 and upserts the
+    firmware_releases row.
+
+    Authorization is per-device: the caller must be owner or admin on the given
+    device. The device_id scopes who may publish firmware; the resulting release
+    is global (any device of the matching target can pick it up via the normal
+    firmware-check endpoint), which mirrors how releases already work.
+    """
+    require_device_role(user_id, device_id, ["owner", "admin"])
+
+    normalized_version = version.strip()
+    if not normalized_version:
+        raise HTTPException(status_code=400, detail="version must not be empty")
+
+    if target not in FIRMWARE_TARGETS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"target must be one of {', '.join(FIRMWARE_TARGETS)}",
+        )
+
+    # Derive a safe basename. We prefer the uploaded filename but fall back to a
+    # deterministic name built from target + version when it is missing or
+    # unsafe, so a release always has a usable, predictable filename.
+    raw_name = os.path.basename((file.filename or "").strip())
+    if raw_name and _SAFE_FIRMWARE_FILENAME.match(raw_name):
+        filename = raw_name
+    else:
+        safe_version = re.sub(r"[^A-Za-z0-9._-]+", "-", normalized_version).strip("-") or "unversioned"
+        filename = f"{target}-{safe_version}.bin"
+
+    dest = FIRMWARE_DIR / filename
+    # Resolve and confirm the destination stays inside FIRMWARE_DIR. This is a
+    # second line of defence on top of the basename + regex checks above.
+    firmware_root = FIRMWARE_DIR.resolve()
+    if dest.resolve().parent != firmware_root:
+        raise HTTPException(status_code=400, detail="Invalid firmware filename")
+
+    FIRMWARE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Stream the upload to disk in bounded chunks so large images do not have to
+    # be held fully in memory.
+    bytes_written = 0
+    try:
+        with open(dest, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+                bytes_written += len(chunk)
+    finally:
+        await file.close()
+
+    if bytes_written == 0:
+        # Don't leave an empty file behind or register a zero-byte release.
+        try:
+            dest.unlink()
+        except FileNotFoundError:
+            pass
+        raise HTTPException(status_code=400, detail="Uploaded firmware file is empty")
+
+    crc = crc32_of_file(dest)
+    upsert_firmware_release(normalized_version, filename, active, target, crc)
+
+    return {
+        "status": "ok",
+        "version": normalized_version,
+        "filename": filename,
+        "target": target,
+        "active": active,
+        "size_bytes": bytes_written,
+        "crc32": crc,
+    }
 
 
 @app.post("/api/v1/app/devices/{device_id}/calibration/start", dependencies=[Depends(require_hivepal_service_key)])
