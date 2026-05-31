@@ -1040,13 +1040,22 @@ def check_firmware(device_id: str, version: str = Query("0.0.0"),
                 (target,),
             )
             r = cur.fetchone()
+    # NOTE: the "update" and "update_available" keys carry the same value. The
+    # ESP32 firmware reads doc["update"] while older clients/docs use
+    # "update_available"; we emit both so a field-name mismatch can never
+    # silently disable OTA again. Keep both keys if you change this.
     if not r:
-        return {"update_available": False}
+        return {"update": False, "update_available": False}
     latest_version, filename = r
     if parse_version(latest_version) > parse_version(version):
         url = f"{PUBLIC_BASE_URL}/firmware/{filename}" if PUBLIC_BASE_URL else f"/firmware/{filename}"
-        return {"update_available": True, "version": latest_version, "url": url}
-    return {"update_available": False}
+        return {
+            "update": True,
+            "update_available": True,
+            "version": latest_version,
+            "url": url,
+        }
+    return {"update": False, "update_available": False}
 
 
 # Allowed firmware targets, shared by the JSON registration endpoint and the
