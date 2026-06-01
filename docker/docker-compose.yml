@@ -5,8 +5,8 @@ services:
       hivescale-db:
         condition: service_healthy
     environment:
-      API_KEY: Super-Secret-Key
-      DATABASE_URL: postgresql://hivescale:Strong-Password@hivescale-db:5432/hivescale
+      API_KEY: '${API_KEY:-Super-Secret-Key}'
+      DATABASE_URL: '${DATABASE_URL:-postgresql://hivescale:Strong-Password@hivescale-db:5432/hivescale}'
       TZ: Europe/Berlin
     ports:
       - "31115:8000"
@@ -17,7 +17,7 @@ services:
     environment:
       POSTGRES_DB: hivescale
       POSTGRES_USER: hivescale
-      POSTGRES_PASSWORD: Strong-Password
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:-Strong-Password}'
       TZ: Europe/Berlin
     healthcheck:
       test:
