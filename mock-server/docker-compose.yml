@@ -1,0 +1,19 @@
+# Single, lightweight container: the HiveScale mock API with baked-in dummy
+# data. No PostgreSQL required. Brings the interface up on http://localhost:31115
+# (31115 mirrors the real HiveScale server's external port).
+services:
+  hivescale-mock:
+    build: .
+    image: hivescale-mock:latest
+    ports:
+      - "31115:8000"
+    environment:
+      # Demo credentials - change them if you like, then use the same values
+      # in your HivePal config and in the curl/Swagger examples.
+      API_KEY: demo-device-key
+      HIVEPAL_SERVICE_API_KEY: demo-hivepal-service-key
+      DEMO_USER_ID: demo-user
+      # Dummy-data density in minutes between samples (lower = denser graphs,
+      # more memory). 30 -> ~24,800 points across 2025-01-01..2026-05-31.
+      INTERVAL_MINUTES: "30"
+    restart: unless-stopped
