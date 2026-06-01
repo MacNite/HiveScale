@@ -64,7 +64,7 @@ STORE: dict[str, Any] = {
     "devices": {},               # device_id -> device metadata dict
     "commands": [],              # queued device commands
     "firmware_releases": [],     # registered releases
-    "claim_codes": {},           # device_id -> claim_code (unclaimed pool)
+    "restamp_cache": {},         # device_id -> dataset re-stamped for that device
     "data_end": None,            # newest measured_at (anchor for insights "now")
     "next_command_id": 1,
     "next_measurement_id": 1,
@@ -97,10 +97,9 @@ def _startup() -> None:
          "target": "hivescale", "crc32": 305419896}
     )
 
-    # A second, still-unclaimed device so the claim endpoint can be exercised
-    # without disturbing the pre-claimed demo device above. It has no
-    # measurements - it represents a freshly powered-on scale waiting to be
-    # paired from HivePal with its claim code.
+    # A second device so the claim endpoint can be exercised. Like every demo
+    # device it serves the same dummy dataset (see _measurements_for), so the
+    # data shows up no matter which device you claim from HivePal.
     unclaimed_id = "hive_scale_dual_02"
     STORE["devices"][unclaimed_id] = {
         "device_id": unclaimed_id,
@@ -139,11 +138,50 @@ def require_user_id(x_user_id: str = Header(default="")) -> str:
     return x_user_id
 
 
+def _ensure_app_device(device_id: str) -> None:
+    """Register a device on first access so any device a HivePal instance has
+    claimed (with its own user/device ids) resolves to the demo data."""
+    if device_id not in STORE["devices"]:
+        STORE["devices"][device_id] = {
+            "device_id": device_id,
+            "display_name": None,
+            "claim_code": None,
+            "claimed_at": datetime.now(timezone.utc),
+            "created_at": hive_data.CREATED_AT,
+            "last_seen_at": STORE["data_end"],
+            "last_firmware_version": hive_data.FIRMWARE_VERSION,
+        }
+    STORE["configs"].setdefault(
+        device_id, {**hive_data.device_config(INTERVAL_MINUTES * 60), "device_id": device_id}
+    )
+    STORE["channels"].setdefault(
+        device_id, {"scale_1_display_name": None, "scale_2_display_name": None}
+    )
+    STORE["members"].setdefault(device_id, [])
+
+
+def _measurements_for(device_id: str) -> list[dict]:
+    """Return the demo dataset for a device.
+
+    The mock holds a single generated dataset (for ``hive_data.DEVICE_ID``) and
+    serves it for whichever device the caller looks at - re-stamped with that
+    device_id and cached - so the data is visible regardless of which device a
+    HivePal instance claimed.
+    """
+    if device_id == hive_data.DEVICE_ID:
+        return STORE["measurements"]
+    cache = STORE["restamp_cache"]
+    if device_id not in cache:
+        cache[device_id] = [{**m, "device_id": device_id} for m in STORE["measurements"]]
+    return cache[device_id]
+
+
 def require_device_role(user_id: str, device_id: str, allowed_roles: list[str]):
-    members = STORE["members"].get(device_id, [])
-    role = next((m["role"] for m in members if m["user_id"] == user_id), None)
-    if role is None or role not in allowed_roles:
-        raise HTTPException(status_code=403, detail="Insufficient permissions for this device")
+    # Intentionally lenient for a review mock: any caller with a valid service
+    # key + user id may access any demo device, so the data and interface are
+    # visible without wiring up HivePal user IDs or per-device roles. The real
+    # HiveScale backend enforces owner/admin/viewer roles here.
+    _ensure_app_device(device_id)
 
 
 def _ensure_config(device_id: str) -> dict:
@@ -293,6 +331,7 @@ def create_measurement(payload: MeasurementIn):
         record["firmware_version"] = payload.firmware_version
     STORE["measurements"].append(record)
     STORE["measurements"].sort(key=lambda m: m["measured_at"])
+    STORE["restamp_cache"].clear()  # re-stamped views must pick up the new point
     _ensure_config(payload.device_id)
     return {"status": "ok", "id": new_id, "measured_at": measured_at.isoformat()}
 
@@ -418,12 +457,15 @@ def claim_device(payload: ClaimDeviceIn, user_id: str = Depends(require_user_id)
     code = payload.claim_code.strip().upper()
     match = None
     for did, dev in STORE["devices"].items():
-        if dev["claim_code"].strip().upper() == code and dev.get("claimed_at") is None:
+        if (dev.get("claim_code") or "").strip().upper() == code:
             match = did
             break
     if match is None:
         raise HTTPException(status_code=404, detail="No unclaimed device found with that claim code")
-    STORE["devices"][match]["claimed_at"] = datetime.now(timezone.utc)
+    # Lenient mock: claiming a known code always succeeds and adds the caller as
+    # owner, even if the device was already claimed (the real server only claims
+    # an unclaimed device). The claimed device serves the full demo dataset.
+    STORE["devices"][match]["claimed_at"] = STORE["devices"][match].get("claimed_at") or datetime.now(timezone.utc)
     if payload.display_name:
         STORE["devices"][match]["display_name"] = payload.display_name
     STORE["members"].setdefault(match, [])
@@ -442,9 +484,9 @@ def claim_device(payload: ClaimDeviceIn, user_id: str = Depends(require_user_id)
 def list_devices(user_id: str = Depends(require_user_id)):
     out = []
     for did, dev in STORE["devices"].items():
-        role = next((m["role"] for m in STORE["members"].get(did, []) if m["user_id"] == user_id), None)
-        if role is None:
-            continue
+        # Lenient mock: show every demo device to any caller (as owner unless
+        # they already hold a different membership role).
+        role = next((m["role"] for m in STORE["members"].get(did, []) if m["user_id"] == user_id), None) or "owner"
         ch = STORE["channels"].get(did, {})
         out.append({
             "device_id": did,
@@ -542,15 +584,17 @@ def list_device_measurements(
     user_id: str = Depends(require_user_id),
 ):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
-    limit = min(max(limit, 1), 10000)
+    # The real server caps this at 10000; the mock allows the full demo dataset
+    # so wide ranges ("All"/"365d") render completely for review.
+    limit = min(max(limit, 1), 100000)
     start_at = _normalize_dt(start_at)
     end_at = _normalize_dt(end_at)
-    rows = [m for m in STORE["measurements"] if m["device_id"] == device_id]
+    rows = _measurements_for(device_id)
     if start_at is not None:
         rows = [m for m in rows if m["measured_at"] >= start_at]
     if end_at is not None:
         rows = [m for m in rows if m["measured_at"] <= end_at]
-    rows.sort(key=lambda m: m["measured_at"], reverse=True)
+    rows = sorted(rows, key=lambda m: m["measured_at"], reverse=True)
     return rows[:limit]
 
 
@@ -558,8 +602,7 @@ def list_device_measurements(
 def latest_device_measurements(device_id: str, limit: int = 50, user_id: str = Depends(require_user_id)):
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
     limit = min(max(limit, 1), 500)
-    rows = [m for m in STORE["measurements"] if m["device_id"] == device_id]
-    rows.sort(key=lambda m: m["measured_at"], reverse=True)
+    rows = sorted(_measurements_for(device_id), key=lambda m: m["measured_at"], reverse=True)
     return rows[:limit]
 
 
@@ -619,9 +662,8 @@ def get_device_insights(device_id: str, lookback_days: int = Query(14, ge=1, le=
     # the container's wall clock.
     end_at = STORE["data_end"]
     start_at = end_at - timedelta(days=lookback_days)
-    rows = [m for m in STORE["measurements"]
-            if m["device_id"] == device_id and m["measured_at"] >= start_at]
-    rows.sort(key=lambda m: m["measured_at"])
+    rows = sorted((m for m in _measurements_for(device_id) if m["measured_at"] >= start_at),
+                  key=lambda m: m["measured_at"])
     alerts = compute_insights(rows, now=end_at)
     return {
         "device_id": device_id,
@@ -637,9 +679,8 @@ def get_device_insights_summary(device_id: str, user_id: str = Depends(require_u
     require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
     end_at = STORE["data_end"]
     start_at = end_at - timedelta(days=14)
-    rows = [m for m in STORE["measurements"]
-            if m["device_id"] == device_id and m["measured_at"] >= start_at]
-    rows.sort(key=lambda m: m["measured_at"])
+    rows = sorted((m for m in _measurements_for(device_id) if m["measured_at"] >= start_at),
+                  key=lambda m: m["measured_at"])
     alerts = compute_insights(rows, now=end_at)
     s = summarize(device_id, alerts, end_at)
     return {

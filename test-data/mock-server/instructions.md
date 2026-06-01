@@ -35,17 +35,24 @@ Everything you need:
 | Base URL | `http://localhost:31115` |
 | Device key — `X-API-Key` | `demo-device-key` |
 | HivePal service key — `X-HivePal-Service-Key` | `demo-hivepal-service-key` |
-| HivePal user — `X-User-Id` | `demo-user` |
-| Pre-claimed demo device | `hive_scale_dual_01` (claim code `ABCD-1234`) |
-| Unclaimed device (to test claiming) | claim code `WXYZ-5678` |
+| HivePal user — `X-User-Id` | any value works (e.g. `demo-user`) |
+| Demo devices (both serve the full dataset) | `hive_scale_dual_01` (claim code `ABCD-1234`), `hive_scale_dual_02` (`WXYZ-5678`) |
 | Dummy data span | `2025-01-01` → `2026-05-31`, 30-min samples (~24,800 points) |
+
+> **You'll see data no matter what.** The mock is deliberately lenient for review:
+> **every device serves the same demo dataset, and any `X-User-Id` may read any
+> device** — so whichever device you claim from HivePal (and whatever user IDs
+> HivePal uses) the charts and insights populate. No claim is even required; the
+> devices already appear in `GET /api/v1/app/devices`. (The real HiveScale
+> backend enforces per-user `owner/admin/viewer` roles — see the fidelity note
+> below.)
 
 ---
 
 ## What's inside
 
-One physical HiveScale unit (a "dual beehive scale", so each measurement carries
-both `scale_1_*` / Hive A and `scale_2_*` / Hive B), claimed by `demo-user`, with:
+A dual-channel HiveScale unit (a "dual beehive scale", so each measurement
+carries both `scale_1_*` / Hive A and `scale_2_*` / Hive B), with:
 
 * a full **seasonal weight curve** (winter decline → spring build-up → honey
   harvests → autumn feeding → next year), with the classic **diurnal foraging
@@ -112,9 +119,11 @@ HIVESCALE_SERVICE_API_KEY=demo-hivepal-service-key
 ```
 
 Set those, start HivePal, and its HiveScale features (device list, charts,
-insights, calibration, firmware, sharing) will be driven by this mock. The
-device `hive_scale_dual_01` is already claimed by `demo-user`; to mirror the
-pairing flow in HivePal, claim the second device with code `WXYZ-5678`.
+insights, calibration, firmware, sharing) will be driven by this mock. Both demo
+devices already appear in HivePal's device list and serve the full dataset, so
+the charts populate immediately. To exercise the pairing flow, claim a device
+with code `ABCD-1234` or `WXYZ-5678` — either way the claimed device shows the
+dummy data.
 
 **Networking note:** if your HivePal backend also runs in Docker, `localhost`
 won't reach the mock container. Either run both on the same Docker network and
@@ -226,14 +235,22 @@ restarting the container yields the identical dataset.
 
 ## Mock vs. production — fidelity notes
 
-* **Faithful:** endpoint paths, auth headers/roles, request/response shapes
-  (built from the same key set as `measurement_row_to_dict`), and the insights
-  engine (the real `insights.py`, copied verbatim).
-* **Simplified for the demo:** no persistence (in-memory; resets on restart);
-  `/firmware/{filename}` returns a tiny placeholder binary; firmware uploads are
-  accepted and acknowledged but not stored; the insights "now" is **anchored to
-  the dataset end (2026-05-31)** rather than the wall clock, so alerts stay
-  meaningful no matter when you run it.
+* **Faithful:** endpoint paths, the service-key/user-id auth model (401s),
+  request/response shapes (built from the same key set as
+  `measurement_row_to_dict`), and the insights engine (the real `insights.py`,
+  copied verbatim).
+* **Simplified for the demo:**
+  * **Lenient per-device access** — any `X-User-Id` may read any device, every
+    device serves the same dataset, and `claim` succeeds for a known code even
+    if already claimed. This is so a reviewer sees data without wiring up user
+    IDs. Production enforces `owner/admin/viewer` roles (403 otherwise).
+  * **Higher measurement limit** — the app measurement endpoint allows the full
+    dataset; production caps `limit` at 10000.
+  * No persistence (in-memory; resets on restart); `/firmware/{filename}`
+    returns a tiny placeholder binary; firmware uploads are accepted and
+    acknowledged but not stored; the insights "now" is **anchored to the dataset
+    end (2026-05-31)** rather than the wall clock, so alerts stay meaningful no
+    matter when you run it.
 
 ---
 
@@ -241,8 +258,8 @@ restarting the container yields the identical dataset.
 
 | Symptom | Fix |
 |---|---|
+| Claimed a device but **"No measurements for the selected range"** | Fixed — every device now serves the dataset. Rebuild the image (`docker compose up --build`) and refresh; your already-claimed device will show data without re-claiming. |
 | `401 Invalid API key` / `Invalid HivePal service key` | Send the right header (`X-API-Key` for device endpoints; `X-HivePal-Service-Key` + `X-User-Id` for app endpoints) with the values above. |
-| `403 Insufficient permissions for this device` | Use `X-User-Id: demo-user` (the owner of the demo device), or claim a device first. |
 | HivePal (in Docker) can't reach the mock | Use `http://host.docker.internal:31115` or a shared Docker network — not `localhost`. |
 | Graphs look too sparse/dense | Adjust `INTERVAL_MINUTES`. |
 | `seed.py` reports failures | Check `--base-url` is reachable and `--api-key` matches the real server's `API_KEY`. |
