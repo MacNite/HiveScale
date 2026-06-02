@@ -1,6 +1,6 @@
 # current state of PCB-Design (as of 2nd July 2026)
 
-Scale Module: V0.2 ESP32, Dual HX711, Ambient temp+humidity sensor, Hive temp sensor, SD-Module, RTC are tested, Sound-Sensor-Test is pending
+Scale Module: V0.2 is  tested and works (expansion header and beecounter header are untested)
 Scale Module: completely untested but only minor layout-changes and silk screen optimisation
 Power Module: V0.3 is only tested for use with the buck-boost converter. Solar charging, Lipo Connection, USB charging are currently untested.
 

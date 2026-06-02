@@ -5,14 +5,45 @@
 #include "device_prefs.h"
 #include "storage_power.h"
 #include "portal.h"
+#include "ca_cert.h"
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Update.h>
 #include <esp_heap_caps.h>
+#include <time.h>
 
 #include "bee_counter_client.h"
+
+// NTP sync — called once after WiFi connects each wake cycle.
+// Certificate validation requires the device clock to be accurate.
+static bool timeSynced = false;
+
+static void syncTimeIfNeeded() {
+  if (timeSynced) return;
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  Serial.print("[NTP] Syncing time");
+  struct tm t;
+  unsigned long start = millis();
+  while (millis() - start < 8000) {
+    if (getLocalTime(&t, 0)) {
+      timeSynced = true;
+      Serial.printf(" OK (%04d-%02d-%02d %02d:%02d:%02d UTC)\n",
+        t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
+        t.tm_hour, t.tm_min, t.tm_sec);
+      return;
+    }
+    Serial.print(".");
+    delay(200);
+  }
+  Serial.println();
+  Serial.println("[NTP] Time sync timed out — TLS cert validation may fail");
+}
+
+static void applyTlsConfig(WiFiClientSecure& client) {
+  client.setCACert(SERVER_CA_CERT);
+}
 
 String apiUrl(const String& path) {
   String base = trimTrailingSlash(apiBaseUrl);
@@ -20,7 +51,10 @@ String apiUrl(const String& path) {
 }
 
 bool connectWifi(unsigned long timeoutMs) {
-  if (WiFi.status() == WL_CONNECTED) return true;
+  if (WiFi.status() == WL_CONNECTED) {
+    syncTimeIfNeeded();
+    return true;
+  }
 
   int count = getWifiCount();
   if (count <= 0) {
@@ -64,6 +98,7 @@ bool connectWifi(unsigned long timeoutMs) {
       Serial.print("[WIFI] IP: ");
       Serial.println(WiFi.localIP());
       Serial.printf("[WIFI] RSSI: %d dBm\n", WiFi.RSSI());
+      syncTimeIfNeeded();
       return true;
     }
 
@@ -89,7 +124,7 @@ bool httpGetJson(const String& url, JsonDocument& doc) {
   Serial.println(url);
 
   WiFiClientSecure client;
-  client.setInsecure();
+  applyTlsConfig(client);
   HTTPClient http;
 
   if (!http.begin(client, url)) {
@@ -133,7 +168,7 @@ bool httpPostJson(const String& url, const String& json, String* response) {
   Serial.println(json);
 
   WiFiClientSecure client;
-  client.setInsecure();
+  applyTlsConfig(client);
   HTTPClient http;
 
   if (!http.begin(client, url)) {
@@ -323,7 +358,7 @@ bool performFirmwareUpdate(const String& firmwareUrl) {
   Serial.println(url);
 
   WiFiClientSecure client;
-  client.setInsecure();
+  applyTlsConfig(client);
   HTTPClient http;
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
@@ -391,7 +426,7 @@ bool updateBeeCounter(uint8_t address, const String& firmwareUrl, uint32_t expec
   Serial.println(url);
 
   WiFiClientSecure client;
-  client.setInsecure();
+  applyTlsConfig(client);
   HTTPClient http;
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   if (!http.begin(client, url)) {
