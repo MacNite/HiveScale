@@ -22,19 +22,7 @@ remote.
 ### What to do instead — at the end of a task
 
 1. Make your changes in the working tree as usual.
-2. Bundle the modified files into a zip by running:
-
-   ```bash
-   scripts/bundle-changes.sh
-   ```
-
-   This writes `claude-bundles/hivescale-changes-<timestamp>.zip` containing
-   every file that differs from `main` (committed or not) plus any new
-   untracked files — the same set a `git push` would have carried.
-
-   - Need only the edits from *this* session (uncommitted working-tree
-     changes)? Run `scripts/bundle-changes.sh HEAD`.
-   - Want to diff against some other point? `scripts/bundle-changes.sh <ref>`.
+2. Bundle the modified files into a zip.
 
 3. **Surface that zip to me as a downloadable file** so I can grab it. In
    Claude Code on the web, send the file to me directly so it shows up as a
