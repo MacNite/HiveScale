@@ -88,6 +88,7 @@ void seedPrefsFromSecretsIfNeeded() {
       Serial.println("[PREFS] Updating claim code from secrets.h revision");
       prefs.putString("claim_code", CLAIM_CODE);
       prefs.putUInt("claim_rev", firmwareClaimRevision);
+      prefs.putBool("claim_reg", false);  // force the new code to be sent once
     }
   #endif
 
@@ -101,6 +102,7 @@ void loadConfigFromPrefs() {
   apiKey = prefs.getString("api_key", API_KEY);
   deviceId = prefs.getString("device_id", DEVICE_ID);
   claimCode = prefs.getString("claim_code", CLAIM_CODE);
+  claimRegistered = prefs.getBool("claim_reg", false);
 
   sendIntervalMs = prefs.getUInt("interval", 600) * 1000UL;
   scale1Offset = prefs.getLong("s1_offset", 0);
@@ -117,6 +119,15 @@ void loadConfigFromPrefs() {
   Serial.printf("[PREFS] interval ms: %lu\n", sendIntervalMs);
   Serial.printf("[PREFS] scale1 offset: %ld factor: %.6f\n", scale1Offset, scale1Factor);
   Serial.printf("[PREFS] scale2 offset: %ld factor: %.6f\n", scale2Offset, scale2Factor);
+}
+
+void markClaimRegistered() {
+  if (claimRegistered) return;
+  claimRegistered = true;
+  prefs.begin("hivescale", false);
+  prefs.putBool("claim_reg", true);
+  prefs.end();
+  Serial.println("[PREFS] Claim registered; claim_code will no longer be sent");
 }
 
 void saveScaleConfig() {

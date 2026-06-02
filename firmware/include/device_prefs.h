@@ -12,6 +12,7 @@ String wifiPassKey(int index);
 void seedPrefsFromSecretsIfNeeded();
 void loadConfigFromPrefs();
 void saveScaleConfig();
+void markClaimRegistered();
 
 int getWifiCount();
 bool saveWifiNetwork(int index, const String& ssid, const String& pass);

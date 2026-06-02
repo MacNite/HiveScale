@@ -34,6 +34,8 @@ void runUploadCycle() {
   // stop all uploads if the cache file or FAT metadata became corrupted.
   bool currentUploaded = uploadLine(json);
 
+  if (currentUploaded) markClaimRegistered();
+
   if (!currentUploaded) {
     if (sdOk) {
       Serial.println("[CYCLE] Live upload failed; adding measurement to retry cache");

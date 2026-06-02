@@ -1,7 +1,7 @@
 // globals.cpp — single definition point for everything declared in globals.h.
 #include "globals.h"
 
-const char* const FIRMWARE_VERSION = "0.10.0";
+const char* const FIRMWARE_VERSION = "0.10.1";
 
 HX711 scale1;
 HX711 scale2;
@@ -51,6 +51,8 @@ long scale1Offset = 0;
 long scale2Offset = 0;
 float scale1Factor = -7050.0f;
 float scale2Factor = -7050.0f;
+
+bool claimRegistered = false;
 
 bool buttonWasDown = false;
 unsigned long buttonDownMs = 0;

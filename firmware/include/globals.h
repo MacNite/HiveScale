@@ -56,6 +56,7 @@ extern bool shtOk;
 extern bool rtcOk;
 extern bool provisioningActive;
 extern bool calibrationModeActive;
+extern bool claimRegistered;
 
 // ---- Timing / scheduling --------------------------------------------------
 extern unsigned long lastCycleMs;

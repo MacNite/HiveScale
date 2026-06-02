@@ -198,7 +198,7 @@ String createMeasurementJson() {
 
   JsonDocument doc;
   doc["device_id"] = deviceId;
-  if (claimCode.length() > 0) doc["claim_code"] = claimCode;
+  if (claimCode.length() > 0 && !claimRegistered) doc["claim_code"] = claimCode;
   doc["timestamp"] = timestampNow();
   doc["scale_1_weight_kg"] = weight1;
   doc["scale_2_weight_kg"] = weight2;
