@@ -16,11 +16,16 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ConfigDict
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 from insights import compute_insights, summarize
 
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -31,15 +36,135 @@ FIRMWARE_DIR = Path(os.environ.get("FIRMWARE_DIR", "/app/firmware"))
 DB_POOL_MIN_SIZE = int(os.environ.get("DB_POOL_MIN_SIZE", "1"))
 DB_POOL_MAX_SIZE = int(os.environ.get("DB_POOL_MAX_SIZE", "10"))
 
+# ── Abuse / DoS protection knobs (all overridable via environment) ───────────
+# Per-client-IP request rate limit. Generous by default: a device reports only
+# once every few minutes, so this never affects normal use but stops floods.
+# Set RATE_LIMIT_ENABLED=false to turn it off entirely.
+RATE_LIMIT_ENABLED = os.environ.get("RATE_LIMIT_ENABLED", "true").strip().lower() in (
+    "1", "true", "yes", "on",
+)
+RATE_LIMIT_DEFAULT = os.environ.get("RATE_LIMIT_DEFAULT", "120/minute")
+# Maximum size of a normal (JSON) request body. A measurement is only a few KB;
+# this leaves generous head-room while preventing memory/storage amplification.
+MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", str(256 * 1024)))
+# Firmware uploads are large by design and are capped separately, while being
+# streamed to disk, inside the upload endpoint itself.
+MAX_FIRMWARE_BYTES = int(os.environ.get("MAX_FIRMWARE_BYTES", str(16 * 1024 * 1024)))
+
+
+class MaxBodySizeMiddleware:
+    """Reject requests whose body exceeds ``max_body_bytes``.
+
+    A single valid API key would otherwise let a client POST arbitrarily large
+    JSON bodies, which are parsed into memory and (for measurements) persisted
+    verbatim into ``raw_json`` — a storage/memory amplification vector. Capping
+    the body closes it. The firmware-upload endpoint legitimately receives
+    multi-megabyte bodies, so it is exempt here and enforces its own,
+    larger ``MAX_FIRMWARE_BYTES`` while streaming to disk.
+    """
+
+    def __init__(self, app, max_body_bytes: int):
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    @staticmethod
+    def _is_exempt(scope) -> bool:
+        # Firmware binary uploads are large by design and capped by the endpoint.
+        return scope.get("method") == "POST" and scope.get("path", "").endswith("/firmware")
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or self.max_body_bytes <= 0 or self._is_exempt(scope):
+            await self.app(scope, receive, send)
+            return
+
+        # Fast path: trust a declared Content-Length when present.
+        for name, value in scope.get("headers", []):
+            if name == b"content-length":
+                try:
+                    if int(value) > self.max_body_bytes:
+                        await self._send_413(send)
+                        return
+                except ValueError:
+                    pass
+                break
+
+        # Defence in depth: enforce while streaming, covering chunked uploads or
+        # a client that omits/understates Content-Length.
+        total = 0
+
+        async def limited_receive():
+            nonlocal total
+            message = await receive()
+            if message.get("type") == "http.request":
+                total += len(message.get("body", b""))
+                if total > self.max_body_bytes:
+                    raise HTTPException(status_code=413, detail="Request body too large")
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+    @staticmethod
+    async def _send_413(send):
+        body = b'{"detail":"Request body too large"}'
+        await send({
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        })
+        await send({"type": "http.response.body", "body": body})
+
+
+def _client_ip_key(request: Request) -> str:
+    """Rate-limit key: the real client IP, even behind Cloudflare / a proxy.
+
+    Falls back to the socket peer when no proxy headers are present. These
+    headers are only trustworthy when the API sits behind a proxy you control
+    (the documented deployment); avoid exposing the API directly.
+    """
+    cf = request.headers.get("cf-connecting-ip")
+    if cf:
+        return cf.strip()
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return get_remote_address(request)
+
+
+limiter = Limiter(
+    key_func=_client_ip_key,
+    default_limits=[RATE_LIMIT_DEFAULT] if RATE_LIMIT_ENABLED else [],
+    enabled=RATE_LIMIT_ENABLED,
+    headers_enabled=True,
+)
+
 app = FastAPI(
     title="HiveScale API",
     description="HTTP endpoint for ESP32-based dual hive scales.",
     version="0.3.2",
 )
 
+# Rate limiting (slowapi): keyed on the real client IP, emits standard RateLimit
+# headers, and returns HTTP 429 when the limit is exceeded.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Middleware order: the last one added runs first. The body-size guard is added
+# before the rate limiter so the limiter (outermost) rejects floods before any
+# body is read.
+app.add_middleware(MaxBodySizeMiddleware, max_body_bytes=MAX_BODY_BYTES)
+if RATE_LIMIT_ENABLED:
+    app.add_middleware(SlowAPIMiddleware)
+
 
 class MeasurementIn(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    # extra="ignore": unknown/garbage fields are dropped rather than persisted
+    # into raw_json. Every telemetry field this project uses is declared below
+    # (including the per-gate forensic arrays), so nothing real is lost — but a
+    # client with the API key can no longer pad rows with arbitrary keys.
+    model_config = ConfigDict(extra="ignore")
 
     device_id: str = Field(..., examples=["hive_scale_dual_01"])
     claim_code: Optional[str] = Field(default=None, min_length=4, max_length=128)
@@ -137,6 +262,15 @@ class MeasurementIn(BaseModel):
     bee_counter_2_busy_retries:      Optional[int]  = None
     bee_counter_2_read_attempts:     Optional[int]  = None
     bee_counter_2_latch_succeeded:   Optional[bool] = None
+
+    # ── Per-gate forensic arrays (one value per entrance gate) ───────────────
+    # Sent only inside the measurement body and kept in raw_json (never promoted
+    # to columns). Declared explicitly so extra="ignore" does not drop them, and
+    # length-capped so they cannot be abused for storage amplification.
+    bee_counter_1_per_gate_in:  Optional[list[int]] = Field(default=None, max_length=64)
+    bee_counter_1_per_gate_out: Optional[list[int]] = Field(default=None, max_length=64)
+    bee_counter_2_per_gate_in:  Optional[list[int]] = Field(default=None, max_length=64)
+    bee_counter_2_per_gate_out: Optional[list[int]] = Field(default=None, max_length=64)
 
 
 class DeviceConfig(BaseModel):
@@ -560,6 +694,7 @@ def shutdown():
 
 
 @app.get("/health")
+@limiter.exempt
 def health():
     return {"status": "ok"}
 
@@ -1586,16 +1721,33 @@ async def upload_firmware_from_app(
     # Stream the upload to disk in bounded chunks so large images do not have to
     # be held fully in memory.
     bytes_written = 0
+    too_large = False
     try:
         with open(dest, "wb") as out:
             while True:
                 chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
-                out.write(chunk)
                 bytes_written += len(chunk)
+                # Enforce the size cap before writing so a flood of oversized
+                # uploads cannot fill the disk.
+                if bytes_written > MAX_FIRMWARE_BYTES:
+                    too_large = True
+                    break
+                out.write(chunk)
     finally:
         await file.close()
+
+    if too_large:
+        # Remove the partial file so a rejected upload leaves nothing behind.
+        try:
+            dest.unlink()
+        except FileNotFoundError:
+            pass
+        raise HTTPException(
+            status_code=413,
+            detail=f"Firmware exceeds the maximum allowed size of {MAX_FIRMWARE_BYTES} bytes",
+        )
 
     if bytes_written == 0:
         # Don't leave an empty file behind or register a zero-byte release.

@@ -43,10 +43,20 @@ HIVEPAL_SERVICE_API_KEY=change-this-to-another-long-random-string
 POSTGRES_PASSWORD=change-this-database-password
 
 # Public base URL used to build OTA firmware download links
-PUBLIC_BASE_URL=http://your-server-ip-or-domain:31115
+# Use HTTPS in production (behind your reverse proxy / Cloudflare)
+PUBLIC_BASE_URL=https://your-domain.example
 
 # Timezone for logs and timestamps
 TZ=Europe/Berlin
+
+# ── Abuse / DoS protection (optional — sensible defaults shown) ──
+# Per-client-IP request rate limit; set RATE_LIMIT_ENABLED=false to disable
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_DEFAULT=120/minute
+# Max JSON request body (bytes); 262144 = 256 KiB
+MAX_BODY_BYTES=262144
+# Max uploaded firmware binary (bytes); 16777216 = 16 MiB
+MAX_FIRMWARE_BYTES=16777216
 ```
 
 > Generate strong random keys with:
@@ -74,6 +84,11 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       FIRMWARE_DIR: /app/firmware
       TZ: ${TZ}
+      # Abuse/DoS protection (optional — defaults applied if omitted)
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-120/minute}
+      MAX_BODY_BYTES: ${MAX_BODY_BYTES:-262144}
+      MAX_FIRMWARE_BYTES: ${MAX_FIRMWARE_BYTES:-16777216}
     ports:
       - "31115:8000"
     volumes:
@@ -203,6 +218,15 @@ If you want the ESP32 to reach the server from outside your LAN (e.g. when the b
 - **Reverse proxy with HTTPS** — run Nginx or Caddy in front of the API and obtain a TLS certificate via Let's Encrypt. Caddy does this automatically with a single config line.
 - **Tailscale / WireGuard** — put both the server and the ESP32 (via a companion device or router) on a private VPN.
 - **Port forwarding** — forward port `31115` on your router to the server. This works but exposes the API directly; ensure your API keys are strong.
+
+> **Rate limiting & request size:** the API enforces a per-client-IP rate limit
+> and a request-body cap out of the box (see the environment variables above).
+> When running behind a reverse proxy or Cloudflare, the API reads the real
+> client IP from `CF-Connecting-IP` / `X-Forwarded-For`, so per-device limits
+> work correctly. For defence in depth, also enable limits at the proxy — e.g.
+> Nginx `limit_req` + `client_max_body_size 256k`, Caddy `rate_limit`, or a
+> Cloudflare WAF rate-limiting rule on `/api/v1/*`. Make sure the proxy sets the
+> forwarded-IP header and that Cloudflare SSL/TLS mode is **Full (strict)**.
 
 ---
 
