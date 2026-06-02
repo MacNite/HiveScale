@@ -56,6 +56,11 @@ String htmlEscape(String s) {
   s.replace("<", "&lt;");
   s.replace(">", "&gt;");
   s.replace("\"", "&quot;");
+  // Single quotes are escaped too because the portal renders these values
+  // inside single-quoted HTML attributes (value='...'). Without this an SSID
+  // such as "Bob's WiFi" would terminate the attribute early, corrupt the
+  // form, and get truncated when the page is submitted back.
+  s.replace("'", "&#39;");
   return s;
 }
 
@@ -245,7 +250,7 @@ void handleSetupRoot() {
     prefs.end();
     html += "<h3>Network " + String(i + 1) + "</h3>";
     html += "<label>SSID</label><input name='ssid" + String(i) + "' value='" + htmlEscape(ssid) + "'>";
-    html += "<label>Password</label><input type='password' name='pass" + String(i) + "' placeholder='Leave blank to keep current password'>";
+    html += "<label>Password</label><input type='password' name='pass" + String(i) + "' placeholder='Blank keeps the current password (only if you do not change the SSID above)'>";
   }
   html += "</fieldset>";
   html += "<button type='submit'>Save and reboot</button></form>";
@@ -281,9 +286,21 @@ void handleSetupSave() {
       continue;
     }
 
+    // A blank password field means "keep the current password". That is only
+    // safe when the SSID is unchanged: if the slot now points at a different
+    // network, the previously stored password belongs to the old network and
+    // must not be carried over (doing so silently pairs the new SSID with the
+    // wrong password and every connection attempt fails). When the SSID
+    // changes and no new password was supplied, clear the stored password so
+    // the network is treated as open rather than keeping a stale secret.
+    String existingSsid = prefs.getString(wifiSsidKey(i).c_str(), "");
+    bool ssidChanged = (ssid != existingSsid);
+
     prefs.putString(wifiSsidKey(i).c_str(), ssid);
     if (pass.length() > 0) {
       prefs.putString(wifiPassKey(i).c_str(), pass);
+    } else if (ssidChanged) {
+      prefs.remove(wifiPassKey(i).c_str());
     }
     savedCount = i + 1;
   }
