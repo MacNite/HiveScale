@@ -64,7 +64,7 @@
           "min_island_area": 10.0,
           "min_thickness": 0.25,
           "pad_connection": 1,
-          "remove_islands": 1,
+          "remove_islands": 0,
           "thermal_relief_gap": 0.5,
           "thermal_relief_spoke_width": 0.5
         }
@@ -502,7 +502,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "_V0_2-Power_Module.kicad_pro",
+    "filename": "_V0_3-Power_Module.kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -705,8 +705,8 @@
     "subpart_id_separator": 0,
     "top_level_sheets": [
       {
-        "filename": "_V0_2-Power_Module.kicad_sch",
-        "name": "_V0_2-Power_Module",
+        "filename": "_V0_3-Power_Module.kicad_sch",
+        "name": "_V0_3-Power_Module",
         "uuid": "0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
       }
     ],

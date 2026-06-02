@@ -1,3 +1,8 @@
+# current state of PCB-Design (as of 2nd July 2026)
+
+Scale Module: V0.2 ESP32, Dual HX711, Ambient temp+humidity sensor, Hive temp sensor, SD-Module, RTC are tested, Sound-Sensor-Test is pending
+Power Module: V0.3 is only tested for use with the buck-boost converter. Solar charging, Lipo Connection, USB charging are currently untested.
+
 # HiveScale PCB Design — Scale Module V0.2
 
 This directory contains the KiCad schematic and PCB layout for the HiveScale **Scale Module**. It is a breakout board that accepts off-the-shelf modules on pin headers — no SMD soldering required. All modules are simply plugged in.
