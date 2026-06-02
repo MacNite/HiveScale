@@ -6,7 +6,7 @@ This document describes how to enter HiveScale AP/setup mode, how the setup butt
 
 The firmware supports a setup/provisioning access point mode, also called AP mode. AP mode is used to configure WiFi/backend settings and, with the new SD download feature, download all files stored on the SD card.
 
-Relevant button behavior in `main.cpp`:
+Relevant button definitions in `firmware/include/config.h`:
 
 ```cpp
 // External button. Wire button between this pin and GND. Uses INPUT_PULLUP.
@@ -16,6 +16,11 @@ Relevant button behavior in `main.cpp`:
 static const unsigned long BUTTON_DEBOUNCE_MS = 50;
 static const unsigned long BUTTON_LONG_PRESS_MS = 10000;
 ```
+
+The button, AP/provisioning, and SD-download handlers live in
+`firmware/src/portal.cpp`; deep-sleep entry and the EXT0 button-wake
+configuration live in `firmware/src/storage_power.cpp`; the boot-time AP-entry
+check is in `firmware/src/main.cpp`.
 
 The setup button is connected to GPIO27 and should pull the pin to GND when pressed. The pin uses `INPUT_PULLUP`, so the button is considered pressed when the input reads `LOW`.
 
@@ -159,19 +164,18 @@ Modern Windows includes `tar` by default. If that is not available, 7-Zip can al
 
 ## Related code locations
 
-In the patched `main.cpp`:
-
-| Purpose | Code reference |
-|---|---|
-| Setup button pin | `SETUP_BUTTON_PIN`, line 53 |
-| Factory reset hold duration | `BUTTON_LONG_PRESS_MS`, line 55 |
-| Deep-sleep wake from button | `configureButtonWake()` |
-| Boot-time AP entry check | `digitalRead(SETUP_BUTTON_PIN) == LOW || wakeReason == ESP_SLEEP_WAKEUP_EXT0` |
-| Button short/long press handling | `handleButton()` |
-| SD TAR streaming helpers | `tarSafeName()`, `writeTarHeader()`, `streamTarDirectory()` |
-| SD download HTTP handler | `handleSdDownloadAll()` |
-| AP-mode download button | `handleSetupRoot()` |
-| SD download route | `setupServer.on("/sd/download-all", HTTP_GET, handleSdDownloadAll)` |
+| Purpose | File | Code reference |
+|---|---|---|
+| Setup button pin | `include/config.h` | `SETUP_BUTTON_PIN` (line 93) |
+| Factory reset hold duration | `include/config.h` | `BUTTON_LONG_PRESS_MS` (line 95) |
+| Deep-sleep wake from button | `src/storage_power.cpp` | `configureButtonWake()` |
+| Boot-time AP entry check | `src/main.cpp` | `digitalRead(SETUP_BUTTON_PIN) == LOW \|\| wakeReason == ESP_SLEEP_WAKEUP_EXT0` |
+| Button short/long press handling | `src/portal.cpp` | `handleButton()` |
+| SD TAR streaming helpers | `src/portal.cpp` | `tarSafeName()`, `writeTarHeader()`, `streamTarDirectory()` |
+| SD download HTTP handler | `src/portal.cpp` | `handleSdDownloadAll()` |
+| AP-mode download button | `src/portal.cpp` | `handleSetupRoot()` |
+| SD download route | `src/portal.cpp` | `setupServer.on("/sd/download-all", HTTP_GET, handleSdDownloadAll)` |
+| Factory reset of Preferences | `src/device_prefs.cpp` | `factoryResetPreferences()` |
 
 ## Recommended user instructions
 

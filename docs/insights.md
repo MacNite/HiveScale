@@ -31,7 +31,7 @@ This document is the authoritative reference for **what is detected**,
 
 ## Sources
 
-You can find a quick tldr on the sources [here](https://github.com/MacNite/HiveScale/blob/main/docs/insights.md)
+You can find a quick tldr on the sources [here](insights-sources-tldr.md).
 
 
 ---

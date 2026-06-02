@@ -58,7 +58,7 @@ carries both `scale_1_*` / Hive A and `scale_2_*` / Hive B), with:
   harvests → autumn feeding → next year), with the classic **diurnal foraging
   saw-tooth** (heaviest at dawn, lightest mid-afternoon);
 * brood-nest temperatures (~35 °C in season), ambient temp/humidity;
-* off-grid telemetry (solar harvest, LiPo state-of-charge, SIM7080G cellular);
+* off-grid telemetry (solar harvest, LiPo state-of-charge, cellular status);
 * INMP441 acoustic RMS + FFT bands; BeeCounter entrance traffic;
 * scripted events so the **insights** endpoint returns live alerts — a
   **pre-swarm watch on Hive A** (unstable broodnest + queen piping in late May

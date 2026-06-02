@@ -83,7 +83,7 @@ Information on the BeeCounter can be found here:
 
 ### Firmware pin mapping
 
-The current firmware pin mapping is defined in `firmware/src/main.cpp`.
+The current firmware pin mapping is defined in `firmware/include/config.h`. The firmware source itself is split into focused units under `firmware/src/` (`main.cpp`, `network.cpp`, `portal.cpp`, `sensors.cpp`, `mics.cpp`, `storage_power.cpp`, `device_prefs.cpp`, `bee_counter_client.cpp`, `globals.cpp`).
 
 | Signal | GPIO | Notes |
 |---|---:|---|
@@ -92,16 +92,17 @@ The current firmware pin mapping is defined in `firmware/src/main.cpp`.
 | HX711 #2 DOUT | 32 | Scale 2 data |
 | HX711 #2 SCK | 33 | Scale 2 clock; held high during deep sleep to power down HX711 |
 | DS18B20 1-Wire data | 4 | Shared bus for both hive temperature probes; use 4.7 kOhm pull-up to 3.3 V |
-| I2C SDA | 21 | RTC, SHT4x, optional INA219, optional MAX17048 |
-| I2C SCL | 22 | RTC, SHT4x, optional INA219, optional MAX17048 |
+| I2C SDA | 21 | RTC, SHT4x, BeeCounter, optional INA219, optional MAX17048 |
+| I2C SCL | 22 | RTC, SHT4x, BeeCounter, optional INA219, optional MAX17048 |
 | SD CS | 5 | SD card chip select |
 | SD SCK | 18 | SD card SPI clock |
-| SD MISO | 23 | Updated mapping |
-| SD MOSI | 19 | Updated mapping |
+| SD MISO | 23 | SD card SPI MISO |
+| SD MOSI | 19 | SD card SPI MOSI |
 | Setup button | 27 | `INPUT_PULLUP`; short press opens provisioning AP, long press factory resets Preferences |
-| INMP441 BCLK | 14 | SD card SPI clock |
-| INMP441 WS | 13 | Updated mapping |
-| INMP441 SD | 34 | Updated mapping |
+| INMP441 BCLK | 14 | I2S bit clock, shared by both mics (`ENABLE_INMP441_MICS`) |
+| INMP441 WS | 13 | I2S word select, shared by both mics |
+| INMP441 SD | 34 | I2S data in from both mics; ESP32 input-only pin |
+| BeeCounter | 21 / 22 | Polled over the shared I2C bus at addresses `0x30` / `0x31` |
 
 
 
@@ -142,17 +143,20 @@ Edit `firmware/include/secrets.h`:
 
 Values in `secrets.h` are used to seed the device's persistent `Preferences` storage on first boot. Later changes are usually made through the backend or provisioning portal. Set `FORCE_RESEED true` only when you intentionally want to overwrite stored preferences from the build file.
 
-### Optional off-grid configuration
+### Optional modules
 
-Off-grid modules are disabled by default and enabled per build:
+Optional sensors are enabled per build in `secrets.h`. The INMP441 microphones
+are enabled by default in the template; the power-telemetry modules are off:
 
 ```cpp
-#define ENABLE_INA219_SOLAR      1
-#define ENABLE_MAX17048_BATTERY  1
-#define ENABLE_SIM7080G          1
-#define ENABLE_INMP441_MICS      1
-
+#define ENABLE_INMP441_MICS      1   // stereo I2S mics + per-band FFT
+#define ENABLE_INA219_SOLAR      0   // solar/load telemetry
+#define ENABLE_MAX17048_BATTERY  0   // LiPo fuel-gauge telemetry
 ```
+
+> Cellular (SIM7080G) transport is no longer part of this firmware. LTE, solar,
+> and battery handling now live on a separate **Power Module** that connects to
+> the Scale Module over I2C/ESP-NOW. The ESP32 firmware itself is Wi-Fi only.
 
 ### Flash
 
@@ -172,10 +176,13 @@ pio device monitor   # 115200 baud
 - `adafruit/Adafruit SHT4x Library`
 - `adafruit/RTClib`
 - `bblanchon/ArduinoJson`
-- `adafruit/Adafruit INA219`
-- `sparkfun/SparkFun MAX1704x Fuel Gauge Arduino Library`
-- `vshymanskyy/TinyGSM`
-- `arduino-libraries/ArduinoHttpClient`
+- `kosme/arduinoFFT` — per-band acoustic FFT for the INMP441 mics
+
+Optional libraries are commented out in `platformio.ini`; uncomment them when the
+matching flag is set in `secrets.h`:
+
+- `adafruit/Adafruit INA219` — `ENABLE_INA219_SOLAR`
+- `sparkfun/SparkFun MAX1704x Fuel Gauge Arduino Library` — `ENABLE_MAX17048_BATTERY`
 
 ---
 
@@ -235,6 +242,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 | `HIVEPAL_SERVICE_API_KEY` | Yes, for HivePal | Service key used by HivePal in `X-HivePal-Service-Key` |
 | `PUBLIC_BASE_URL` | Recommended | Public base URL used for OTA firmware download links |
 | `FIRMWARE_DIR` | Optional | Firmware binary directory, default `/app/firmware` |
+| `DB_POOL_MIN_SIZE` | Optional | Minimum DB connection pool size, default `1` |
+| `DB_POOL_MAX_SIZE` | Optional | Maximum DB connection pool size, default `10` |
 | `TZ` | Optional | Server timezone, for example `Europe/Berlin` |
 
 The backend auto-creates tables and runs idempotent `ALTER TABLE` statements for off-grid telemetry columns on startup. The SQL migration in `server/migrations/001_offgrid_telemetry.sql` can also be used manually on older deployments.
@@ -257,10 +266,11 @@ Device endpoints require the `X-API-Key` header unless noted otherwise.
 | `GET` | `/api/v1/measurements/latest` | Latest measurements for dashboards |
 | `GET` | `/api/v1/devices/{id}/config` | Get device configuration |
 | `PATCH` | `/api/v1/devices/{id}/config` | Update device configuration |
-| `GET` | `/api/v1/devices/{id}/firmware` | Check for a firmware update |
-| `POST` | `/api/v1/firmware/releases` | Register a firmware release |
+| `GET` | `/api/v1/devices/{id}/firmware` | Check for a firmware update (`?version=` and `?target=hivescale\|beecounter`) |
+| `POST` | `/api/v1/firmware/releases` | Register a firmware release (per `target`) |
 | `GET` | `/firmware/{filename}` | Download a firmware binary |
 | `POST` | `/api/v1/devices/{id}/commands` | Queue a remote command |
+| `POST` | `/api/v1/devices/{id}/commands/update-beecounter` | Queue a BeeCounter OTA relay (`?slot=1\|2`) |
 | `GET` | `/api/v1/devices/{id}/commands/next` | Claim next pending command |
 | `POST` | `/api/v1/devices/{id}/commands/{cmd_id}/result` | Report command result |
 
@@ -282,6 +292,11 @@ App endpoints require both `X-HivePal-Service-Key` and `X-User-Id`.
 | `GET` | `/api/v1/app/devices/{id}/members` | List device members |
 | `POST` | `/api/v1/app/devices/{id}/members` | Share a device with another user |
 | `DELETE` | `/api/v1/app/devices/{id}/members/{user_id}` | Revoke a member's access |
+| `POST` | `/api/v1/app/devices/{id}/calibration/start` | Start calibration mode |
+| `POST` | `/api/v1/app/devices/{id}/calibration/stop` | Stop calibration mode |
+| `POST` | `/api/v1/app/devices/{id}/firmware` | Upload a firmware binary (multipart) and register it |
+| `GET` | `/api/v1/app/devices/{id}/insights` | Rule-based colony insights/alerts |
+| `GET` | `/api/v1/app/devices/{id}/insights/summary` | Highest-severity insight summary |
 
 ---
 
@@ -289,12 +304,14 @@ App endpoints require both `X-HivePal-Service-Key` and `X-User-Id`.
 
 Core payload fields include weights, hive temperatures, ambient readings, raw HX711 values, firmware version, config version, sensor status, boot count, and time source.
 
-Off-grid builds can also send:
+Builds with optional hardware can also send:
 
-- `network_transport`, `cellular_ok`, `cellular_csq`
-- `solar_monitor_ok`, `solar_bus_voltage_v`, `solar_shunt_voltage_mv`, `solar_load_voltage_v`, `solar_current_ma`, `solar_power_mw`
-- `battery_monitor_ok`, `battery_voltage_v`, `battery_soc_percent`, `battery_alert`
-- `calibration_mode`, `boot_count`, `time_source`
+- **Acoustic (INMP441):** `mic_ok`, `mic_sample_rate_hz`, `mic_sample_frames`, per-channel `mic_left_*` / `mic_right_*` RMS/peak/normalized levels, and per-band FFT energy (`*_band_sub_bass_dbfs`, `*_band_hum_dbfs`, `*_band_piping_dbfs`, `*_band_stress_dbfs`, `*_band_high_dbfs`).
+- **Entrance traffic (BeeCounter):** `bee_counter_1_*` / `bee_counter_2_*` totals, interval in/out counts, gate health, and protocol/status fields (per-gate arrays are kept in `raw_json` only).
+- **Power telemetry:** `solar_monitor_ok`, `solar_bus_voltage_v`, `solar_shunt_voltage_mv`, `solar_load_voltage_v`, `solar_current_ma`, `solar_power_mw`, `battery_monitor_ok`, `battery_voltage_v`, `battery_soc_percent`, `battery_alert`.
+- **Status:** `network_transport`, `calibration_mode`, `boot_count`, `time_source`.
+
+The backend also accepts `cellular_ok` / `cellular_csq` for the future Power Module; the on-device firmware reports `network_transport: "wifi"`.
 
 These fields are stored in dedicated PostgreSQL columns and returned through the latest-measurements and HivePal app APIs.
 
@@ -326,29 +343,33 @@ Commands are queued by the server and picked up by the device on its next cycle.
 | `stop_calibration_mode` | `{}` | Return to normal interval and deep sleep behavior |
 | `reboot` | `{}` | Restart the ESP32 |
 | `check_ota` / `ota_update` | `{}` | Trigger an immediate OTA check |
+| `update_beecounter` | `{"slot": 1, "url": "...", "version": "...", "crc32": 123}` | Relay a firmware image to a BeeCounter over I2C (usually queued via the `update-beecounter` helper) |
 | `start_provisioning` | `{}` | Start the Wi-Fi provisioning AP |
 | `reset_wifi` | `{}` | Clear saved Wi-Fi credentials and reboot |
-| `factory_reset` | `{}` | Clear all Preferences and reboot |
+| `reset_preferences` / `factory_reset` | `{}` | Clear all Preferences and reboot |
 
 ---
 
 ## PCB design
 
-The `pcb-design/` directory contains the first KiCad breakout PCB for the HiveScale hardware. It breaks out the ESP32, HX711 modules, load cell terminals, I2C sensors, SD module, off-grid solar/battery modules, and SIM7080G connector.
+The `pcb-design/` directory contains the KiCad design for the HiveScale hardware, split into two boards:
 
-Start with:
+- **Scale Module (V0.2)** — the central board. It accepts off-the-shelf modules on pin headers (no SMD soldering): ESP32, both HX711 amplifiers, load-cell terminals, I2C sensors (RTC, SHT40), SD module, two INMP441 microphones, and the BeeCounter.
+- **Power Module** — handles power and connectivity (solar, battery, LTE) and connects to the Scale Module over I2C/ESP-NOW.
 
-- [pcb-design/README.md](pcb-design/README.md) for connector pinout, design intent, fabrication files, and assembly notes.
-- [pcb-design/todo-list.md](pcb-design/todo-list.md) for prototype and layout tasks.
+Start with [pcb-design/README.md](pcb-design/README.md) for the connector pinout, design intent, fabrication files, and assembly notes.
 
-The current PCB is a first revision and should be prototyped before field deployment.
+The current PCB is an early revision and should be prototyped before field deployment.
 
 ---
 
 ## Useful docs
 
 - [docs/wiring.md](docs/wiring.md) — full wiring reference.
-- [docs/offgrid-firmware-notes.md](docs/offgrid-firmware-notes.md) — SIM7080G, solar, and LiPo firmware behavior.
+- [docs/offgrid-firmware-notes.md](docs/offgrid-firmware-notes.md) — solar (INA219) and LiPo (MAX17048) power-telemetry firmware behavior.
+- [docs/calibration-mode.md](docs/calibration-mode.md) — calibration-mode firmware and backend behavior.
+- [docs/ap-mode-sd-download.md](docs/ap-mode-sd-download.md) — AP/setup mode, button handling, and SD-card download.
+- [docs/insights.md](docs/insights.md) — rule-based colony insights and detector catalogue.
 - [docs/api.md](docs/api.md) — complete API reference.
 - [docs/test-commands.md](docs/test-commands.md) — curl commands for testing the backend.
 - [docs/docker-install.md](docs/docker-install.md) — generic Docker setup.

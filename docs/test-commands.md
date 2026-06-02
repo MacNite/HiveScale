@@ -48,7 +48,7 @@ curl -X POST http://HOST:31115/api/v1/measurements \
     "ambient_humidity_percent": 61.2,
     "network_transport": "wifi",
     "rssi_dbm": -65,
-    "firmware_version": "0.6.2-sim7080g-pwrkey-reset",
+    "firmware_version": "0.9.2",
     "config_version": 3,
     "sd_ok": true,
     "rtc_ok": true,
@@ -58,7 +58,10 @@ curl -X POST http://HOST:31115/api/v1/measurements \
   }'
 ```
 
-### Off-grid SIM7080G + solar + LiPo payload
+### Off-grid (cellular + solar + LiPo) payload
+
+> `network_transport`/`cellular_*` are accepted by the backend for the future
+> Power Module; the current ESP32 firmware is Wi-Fi only.
 
 ```bash
 curl -X POST http://HOST:31115/api/v1/measurements \
@@ -90,7 +93,7 @@ curl -X POST http://HOST:31115/api/v1/measurements \
     "calibration_mode": false,
     "boot_count": 128,
     "time_source": "cellular",
-    "firmware_version": "0.6.2-sim7080g-pwrkey-reset",
+    "firmware_version": "0.9.2",
     "config_version": 3,
     "sd_ok": true,
     "rtc_ok": true,
@@ -212,20 +215,42 @@ curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands/55/result \
 
 ## OTA firmware
 
-Register a release. The binary must already exist in `FIRMWARE_DIR`.
+Register a release. The binary must already exist in `FIRMWARE_DIR`. `target`
+defaults to `hivescale` and may also be `beecounter`.
 
 ```bash
 curl -X POST http://HOST:31115/api/v1/firmware/releases \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY" \
-  -d '{"version": "0.6.3", "filename": "hivescale-0.6.3.bin", "active": true}'
+  -d '{"version": "0.9.3", "filename": "hivescale-0.9.3.bin", "active": true, "target": "hivescale"}'
 ```
 
-Check for an update:
+Check for an update (per target):
 
 ```bash
-curl "http://HOST:31115/api/v1/devices/DEVICE_ID/firmware?version=0.6.2-sim7080g-pwrkey-reset" \
+curl "http://HOST:31115/api/v1/devices/DEVICE_ID/firmware?version=0.9.2&target=hivescale" \
   -H "X-API-Key: YOUR_API_KEY"
+```
+
+Queue a BeeCounter OTA relay (slot 1 → I2C `0x30`, slot 2 → `0x31`). Requires an
+active `beecounter` release:
+
+```bash
+curl -X POST "http://HOST:31115/api/v1/devices/DEVICE_ID/commands/update-beecounter?slot=1" \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Upload a firmware binary from an app client (multipart) and register it in one
+call. Requires `owner`/`admin` on the device:
+
+```bash
+curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/firmware \
+  -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
+  -H "X-User-Id: USER_ID" \
+  -F "file=@hivescale-0.9.3.bin" \
+  -F "version=0.9.3" \
+  -F "target=hivescale" \
+  -F "active=true"
 ```
 
 ---
@@ -300,4 +325,34 @@ curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/members \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
   -H "X-User-Id: USER_ID" \
   -d '{"user_id": "other-user-id", "role": "viewer"}'
+```
+
+### Start and stop calibration mode (app endpoints)
+
+```bash
+curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/calibration/start \
+  -H "Content-Type: application/json" \
+  -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
+  -H "X-User-Id: USER_ID" \
+  -d '{"interval_seconds": 5, "timeout_seconds": 600}'
+```
+
+```bash
+curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/calibration/stop \
+  -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
+  -H "X-User-Id: USER_ID"
+```
+
+### Insights
+
+```bash
+curl "http://HOST:31115/api/v1/app/devices/DEVICE_ID/insights?lookback_days=14" \
+  -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
+  -H "X-User-Id: USER_ID"
+```
+
+```bash
+curl http://HOST:31115/api/v1/app/devices/DEVICE_ID/insights/summary \
+  -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
+  -H "X-User-Id: USER_ID"
 ```

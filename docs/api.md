@@ -99,9 +99,9 @@ Submit a measurement from a device. On the first measurement from a new `device_
 | `solar_load_voltage_v` | number | No | Calculated load voltage |
 | `solar_current_ma` | number | No | Solar/load current |
 | `solar_power_mw` | number | No | Solar/load power |
-| `network_transport` | string | No | `wifi`, `sim7080g`, or another future transport label |
-| `cellular_ok` | boolean | No | SIM7080G data connection status |
-| `cellular_csq` | integer | No | SIM7080G signal quality value |
+| `network_transport` | string | No | `wifi` (current firmware), `sim7080g`, or another future transport label |
+| `cellular_ok` | boolean | No | Cellular data connection status (Power Module) |
+| `cellular_csq` | integer | No | Cellular signal quality (CSQ) value (Power Module) |
 | `calibration_mode` | boolean | No | Whether firmware was in calibration mode for this reading |
 | `boot_count` | integer | No | ESP32 RTC boot counter |
 | `time_source` | string | No | Time source such as `rtc`, `server`, `cellular`, or `compile` |
@@ -114,7 +114,50 @@ Submit a measurement from a device. On the first measurement from a new `device_
 | `scale_1_raw` | integer | No | Raw HX711 reading for scale 1 |
 | `scale_2_raw` | integer | No | Raw HX711 reading for scale 2 |
 
-The full payload is also stored as JSONB in `raw_json`.
+#### Acoustic fields (INMP441 stereo mics)
+
+| Field | Type | Required | Description |
+|---|---|---:|---|
+| `mic_ok` | boolean | No | At least one microphone was read successfully |
+| `mic_sample_rate_hz` | integer | No | I2S sample rate used for the capture |
+| `mic_sample_frames` | integer | No | Number of stereo frames captured |
+| `mic_left_ok` / `mic_right_ok` | boolean | No | Per-channel read status |
+| `mic_left_rms_dbfs` / `mic_right_rms_dbfs` | number | No | Broadband RMS level in dBFS |
+| `mic_left_peak_dbfs` / `mic_right_peak_dbfs` | number | No | Peak level in dBFS |
+| `mic_left_rms_normalized` / `mic_right_rms_normalized` | number | No | Linear RMS as a fraction of full scale (0–1) |
+| `mic_{left,right}_band_sub_bass_dbfs` | number | No | 50–150 Hz band energy (dBFS) |
+| `mic_{left,right}_band_hum_dbfs` | number | No | 150–300 Hz colony-hum band energy |
+| `mic_{left,right}_band_piping_dbfs` | number | No | 300–550 Hz piping/tooting band energy |
+| `mic_{left,right}_band_stress_dbfs` | number | No | 550–1500 Hz agitation band energy |
+| `mic_{left,right}_band_high_dbfs` | number | No | 1500–3000 Hz band energy |
+
+#### Entrance-counter fields (BeeCounter)
+
+One BeeCounter may be fitted per hive on the shared I2C bus (`0x30` / `0x31`).
+Each block is independent; a missing unit reports `bee_counter_N_ok=false` and
+the rest of its fields are null. For `N` in `1`, `2`:
+
+| Field | Type | Description |
+|---|---|---|
+| `bee_counter_N_ok` | boolean | Counter acked on this cycle |
+| `bee_counter_N_protocol_version` | integer | I2C protocol version reported by the slave |
+| `bee_counter_N_status_flags` | integer | Status bitfield |
+| `bee_counter_N_uptime_s` | integer | Counter uptime in seconds |
+| `bee_counter_N_num_gates` / `_gates_healthy` | integer | Gate count and healthy-gate count |
+| `bee_counter_N_total_in` / `_total_out` | integer | Cumulative in/out counts |
+| `bee_counter_N_interval_in` / `_interval_out` | integer | In/out counts since the last read (consumed by Insights) |
+| `bee_counter_N_glitch_count` / `_busy_retries` / `_read_attempts` | integer | Diagnostics |
+| `bee_counter_N_latch_succeeded` | boolean | Counter latched cleanly after the read |
+
+The per-gate 24-byte arrays are kept only in `raw_json` as
+`bee_counter_N_per_gate_in` / `bee_counter_N_per_gate_out`.
+
+The full payload is also stored as JSONB in `raw_json`. Unknown fields are
+accepted (the model allows extras) and preserved in `raw_json`.
+
+> `network_transport`, `cellular_ok`, and `cellular_csq` are accepted and stored
+> for the future Power Module. The current ESP32 firmware is Wi-Fi only and
+> reports `network_transport: "wifi"`.
 
 #### Example Wi-Fi payload
 
@@ -131,7 +174,7 @@ The full payload is also stored as JSONB in `raw_json`.
   "ambient_humidity_percent": 61.2,
   "network_transport": "wifi",
   "rssi_dbm": -65,
-  "firmware_version": "0.6.2-sim7080g-pwrkey-reset",
+  "firmware_version": "0.9.2",
   "config_version": 3,
   "sd_ok": true,
   "rtc_ok": true,
@@ -233,18 +276,19 @@ Updates one or more config fields and increments `config_version`.
 
 ### `GET /api/v1/devices/{device_id}/firmware`
 
-Checks whether a newer active firmware release is available.
+Checks whether a newer active firmware release is available for the given target.
 
 **Auth:** `X-API-Key`
 
-| Query parameter | Description |
-|---|---|
-| `version` | Current device firmware version |
+| Query parameter | Default | Description |
+|---|---|---|
+| `version` | `0.0.0` | Current device firmware version |
+| `target` | `hivescale` | `hivescale` (the ESP32 itself) or `beecounter` |
 
 No update:
 
 ```json
-{ "update": false }
+{ "update": false, "update_available": false }
 ```
 
 Update available:
@@ -252,28 +296,57 @@ Update available:
 ```json
 {
   "update": true,
-  "version": "0.6.3",
-  "url": "https://your-domain.example.com/firmware/hivescale-0.6.3.bin"
+  "update_available": true,
+  "version": "0.9.3",
+  "url": "https://your-domain.example.com/firmware/hivescale-0.9.3.bin"
 }
 ```
 
+> The response carries both `update` and `update_available` with the same value:
+> the ESP32 reads `update`, while older clients read `update_available`.
+
 ### `POST /api/v1/firmware/releases`
 
-Registers or updates a firmware release. The binary must already exist in `FIRMWARE_DIR`.
+Registers or updates a firmware release. The binary must already exist in `FIRMWARE_DIR`. The server computes and stores the image CRC-32.
 
 **Auth:** `X-API-Key`
 
 ```json
 {
-  "version": "0.6.3",
-  "filename": "hivescale-0.6.3.bin",
-  "active": true
+  "version": "0.9.3",
+  "filename": "hivescale-0.9.3.bin",
+  "active": true,
+  "target": "hivescale"
 }
+```
+
+`target` defaults to `hivescale` and may also be `beecounter`. Response:
+
+```json
+{ "status": "ok", "version": "0.9.3", "target": "hivescale", "crc32": 2882343476 }
 ```
 
 ### `GET /firmware/{filename}`
 
 Downloads a firmware binary. This endpoint has no API-key requirement; the URL is normally obtained from the firmware check endpoint.
+
+### `POST /api/v1/devices/{device_id}/commands/update-beecounter`
+
+Queues an `update_beecounter` command that tells the HiveScale to relay the active
+BeeCounter firmware image to the BeeCounter at the given slot over I2C. The image
+URL, version, and CRC-32 are looked up server-side and embedded in the command payload.
+
+**Auth:** `X-API-Key`
+
+| Query parameter | Default | Description |
+|---|---|---|
+| `slot` | `1` | BeeCounter slot: `1` → I2C `0x30`, `2` → I2C `0x31` |
+
+Returns `404` if there is no active `beecounter` release. Response on success:
+
+```json
+{ "id": 71, "status": "pending" }
+```
 
 ---
 
@@ -305,6 +378,7 @@ Commands are queued server-side and claimed by the device on a later cycle.
 | `factory_reset` | `{}` | Factory reset stored preferences and reboot |
 | `reset_wifi` | `{}` | Clear saved Wi-Fi credentials and reboot |
 | `check_ota` / `ota_update` | `{}` | Trigger immediate OTA check/update |
+| `update_beecounter` | `{"slot": 1, "url": "...", "version": "...", "crc32": 123}` | Relay a firmware image to a BeeCounter over I2C (normally queued via the `update-beecounter` helper above) |
 | `start_provisioning` | `{}` | Start provisioning AP |
 
 Response:
@@ -447,6 +521,91 @@ Shares a device with another HivePal user ID. Requires `owner`.
 
 Revokes another user's access. Requires `owner`.
 
+### `POST /api/v1/app/devices/{device_id}/calibration/start`
+
+Queues a `start_calibration_mode` command. Requires `owner` or `admin`. The body is optional.
+
+| Field | Type | Default | Constraints |
+|---|---|---|---|
+| `interval_seconds` | int | 5 | 1 ≤ value ≤ 3600 |
+| `timeout_seconds` | int | 600 | 1 ≤ value ≤ 86400 |
+
+```json
+{ "status": "pending", "id": 42, "command_type": "start_calibration_mode", "payload": { "interval_seconds": 5, "timeout_seconds": 600 } }
+```
+
+> The backend validates the ranges above; the firmware additionally clamps the
+> interval to 2–30 s and the timeout to at most 30 minutes. See
+> [calibration-mode.md](calibration-mode.md).
+
+### `POST /api/v1/app/devices/{device_id}/calibration/stop`
+
+Queues a `stop_calibration_mode` command. Requires `owner` or `admin`. No body.
+
+```json
+{ "status": "pending", "id": 43, "command_type": "stop_calibration_mode", "payload": {} }
+```
+
+### `POST /api/v1/app/devices/{device_id}/firmware`
+
+Uploads a firmware binary as `multipart/form-data` and registers it as a release.
+Requires `owner` or `admin`. Unlike `POST /api/v1/firmware/releases` (device key,
+file must already be in `FIRMWARE_DIR`), this endpoint accepts the binary itself,
+writes it into `FIRMWARE_DIR`, computes its CRC-32, and upserts the release.
+
+| Form field | Required | Description |
+|---|---:|---|
+| `file` | Yes | The firmware binary |
+| `version` | Yes | Release version string |
+| `target` | No | `hivescale` (default) or `beecounter` |
+| `active` | No | Whether the release is active (default `true`) |
+
+```json
+{
+  "status": "ok",
+  "version": "0.9.3",
+  "filename": "hivescale-0.9.3.bin",
+  "target": "hivescale",
+  "active": true,
+  "size_bytes": 1048576,
+  "crc32": 2882343476
+}
+```
+
+### `GET /api/v1/app/devices/{device_id}/insights`
+
+Computes rule-based colony alerts over recent measurements. Any role may read.
+See [insights.md](insights.md) for the detector catalogue and literature sources.
+
+| Query parameter | Default | Constraints | Description |
+|---|---|---|---|
+| `lookback_days` | 14 | 1 ≤ value ≤ 90 | Days of history evaluated |
+
+```json
+{
+  "device_id": "hive_scale_dual_01",
+  "computed_at": "2026-05-01T12:00:00+00:00",
+  "lookback_days": 14,
+  "measurement_count": 1280,
+  "alerts": [ { "severity": "watch", "category": "swarm", "title": "Pre-swarm watch", "...": "..." } ]
+}
+```
+
+### `GET /api/v1/app/devices/{device_id}/insights/summary`
+
+Highest-severity summary of current alerts (fixed 14-day lookback), suitable for dashboard cards.
+
+```json
+{
+  "device_id": "hive_scale_dual_01",
+  "computed_at": "2026-05-01T12:00:00+00:00",
+  "alert_count": 3,
+  "highest_severity": "warning",
+  "highest_alert": { "severity": "warning", "category": "swarm", "...": "..." },
+  "categories": { "swarm": 1, "foraging": 1, "brood": 1 }
+}
+```
+
 ---
 
 ## Database schema
@@ -459,11 +618,11 @@ The backend auto-creates and updates the schema on startup.
 | `device_members` | Users with `owner`, `admin`, or `viewer` role per device |
 | `device_channels` | Display names for scale channel 1 and 2 |
 | `device_configs` | Send interval, offsets, calibration factors, config version |
-| `measurements` | Measurement records, including off-grid columns and `raw_json` |
-| `firmware_releases` | Firmware versions available for OTA |
+| `measurements` | Measurement records, including power/acoustic/BeeCounter columns and `raw_json` |
+| `firmware_releases` | Firmware versions available for OTA, with `target` and `crc32` |
 | `device_commands` | Pending, claimed, done, and failed commands |
 
-The off-grid migration adds columns for battery telemetry, solar telemetry, cellular status, calibration mode, boot count, and time source. The same fields remain available in `raw_json` for forward compatibility.
+The backend creates the full schema on startup and runs idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` statements, so existing deployments upgrade automatically. Columns cover power telemetry (battery/solar), cellular status, calibration mode, boot count, time source, INMP441 acoustic levels + FFT bands, and per-hive BeeCounter counts; `firmware_releases` gains `target` and `crc32`. The SQL files in `server/migrations/` (`001_offgrid_telemetry.sql`, `002_mic_telemetry.sql`, `003_mic_fft_bands.sql`, `004_firmware_upload.sql`) can also be applied manually. All fields remain available in `raw_json` for forward compatibility.
 
 ---
 
@@ -472,7 +631,7 @@ The off-grid migration adds columns for battery telemetry, solar telemetry, cell
 FastAPI errors are returned as JSON:
 
 ```json
-{ "detail": "No unclaimed device found for this claim code" }
+{ "detail": "No unclaimed device found with that claim code" }
 ```
 
 | Status | Meaning |

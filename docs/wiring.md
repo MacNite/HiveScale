@@ -6,7 +6,7 @@ This document describes the current ESP32 firmware pin mapping and the wiring fo
 
 ## Current firmware pin mapping
 
-The firmware pin definitions live in `firmware/src/main.cpp`. Keep this table aligned with those definitions whenever pins change.
+The firmware pin definitions live in `firmware/include/config.h` (with optional per-device overrides in `secrets.h`). Keep this table aligned with those definitions whenever pins change.
 
 | Signal | ESP32 GPIO | Direction | Notes |
 |---|---:|---|---|
@@ -15,18 +15,18 @@ The firmware pin definitions live in `firmware/src/main.cpp`. Keep this table al
 | HX711 #2 DOUT | 32 | Input | Scale 2 data |
 | HX711 #2 SCK | 33 | Output | Scale 2 clock; used to power down HX711 during deep sleep |
 | DS18B20 data | 4 | Bidirectional | Shared 1-Wire bus for both hive probes |
-| I2C SDA | 21 | Bidirectional | RTC, SHT4x, optional INA219, optional MAX17048 |
-| I2C SCL | 22 | Output | RTC, SHT4x, optional INA219, optional MAX17048 |
+| I2C SDA | 21 | Bidirectional | RTC, SHT4x, BeeCounter, optional INA219, optional MAX17048 |
+| I2C SCL | 22 | Output | RTC, SHT4x, BeeCounter, optional INA219, optional MAX17048 |
 | SD CS | 5 | Output | SD card chip select |
 | SD SCK | 18 | Output | SPI clock |
-| SD MISO | 23 | Input | Updated firmware mapping |
-| SD MOSI | 19 | Output | Updated firmware mapping |
+| SD MISO | 23 | Input | SD card SPI MISO |
+| SD MOSI | 19 | Output | SD card SPI MOSI |
 | Setup button | 27 | Input | `INPUT_PULLUP`, button to GND |
-| SIM7080G RX | 26 | Input | ESP32 RX connected to modem TX; configurable |
-| SIM7080G TX | 25 | Output | ESP32 TX connected to modem RX; configurable |
-| SIM7080G power/PWRKEY | Optional, PCB exposes GPIO14 | Output/open drain depending wiring | Configure with `SIM7080G_PWRKEY_PIN` or `SIM7080G_POWER_EN_PIN` |
+| INMP441 BCLK | 14 | Output | I2S bit clock, shared by both mics (`ENABLE_INMP441_MICS`) |
+| INMP441 WS | 13 | Output | I2S word select (LRCLK), shared by both mics |
+| INMP441 SD | 34 | Input | I2S data from both mics; GPIO34 is input-only |
 
-> Important pin change: the current firmware uses **GPIO23 as SD MISO** and **GPIO19 as SD MOSI**. Older wiring notes and many generic ESP32 examples use the opposite mapping.
+> Important pin notes: the firmware uses **GPIO23 as SD MISO** and **GPIO19 as SD MOSI** (many generic ESP32 examples use the opposite mapping). The two INMP441 microphones share one I2S bus; channel (left/right) is set in hardware by tying each mic's L/R pin to GND or 3.3 V. BeeCounters are not on dedicated GPIOs — they are polled over the shared I2C bus at `0x30` / `0x31`.
 
 ---
 
@@ -41,7 +41,8 @@ The firmware pin definitions live in `firmware/src/main.cpp`. Keep this table al
 | DS3231 RTC | I2C | GPIO21 SDA, GPIO22 SCL |
 | MicroSD card module | SPI | CS 5, SCK 18, MISO 23, MOSI 19 |
 | Setup button | Digital input | GPIO27 to GND |
-| SIM7080G | UART + optional power pin | RX 26, TX 25, optional GPIO14 control |
+| INMP441 mics x2 | I2S | BCLK 14, WS 13, SD 34 (shared bus) |
+| BeeCounter x2 | I2C | GPIO21 SDA, GPIO22 SCL (`0x30` / `0x31`) |
 | INA219 | I2C | GPIO21 SDA, GPIO22 SCL |
 | MAX17048 | I2C | GPIO21 SDA, GPIO22 SCL |
 
@@ -61,7 +62,7 @@ Assembly notes:
 - Set adjustable converters to the correct output voltage before connecting the ESP32.
 - Keep the load-cell analog wiring away from switching regulators and LTE antenna/power wiring.
 - Use one common ground reference, but route high-current modem and solar paths with wider traces or wires.
-- For the breakout PCB, review `pcb-design/README.md` and `pcb-design/todo-list.md` before ordering prototypes.
+- For the breakout PCB, review `pcb-design/README.md` before ordering prototypes.
 
 ---
 
@@ -176,25 +177,33 @@ GPIO27 is RTC-capable and can wake the ESP32 from deep sleep when button wake is
 
 ---
 
-## Optional SIM7080G LTE/NB-IoT modem
+## INMP441 stereo microphones
 
-Default firmware UART pins:
+Two INMP441 I2S MEMS microphones share one I2S bus. Enable with `ENABLE_INMP441_MICS`.
 
-| SIM7080G signal | ESP32 GPIO | Firmware define |
+| INMP441 pin | ESP32 GPIO | Firmware define |
 |---|---:|---|
-| Modem TX -> ESP32 RX | 26 | `SIM7080G_RX_PIN` |
-| Modem RX <- ESP32 TX | 25 | `SIM7080G_TX_PIN` |
-| PWRKEY or regulator enable | Optional, PCB exposes GPIO14 | `SIM7080G_PWRKEY_PIN` or `SIM7080G_POWER_EN_PIN` |
-| VCC | Use modem-board requirement | Do not assume ESP32 3.3 V can supply peak current |
-| GND | GND | Common ground required |
+| SCK (BCLK) | 14 | `INMP441_BCLK_PIN` |
+| WS (LRCLK) | 13 | `INMP441_WS_PIN` |
+| SD (data) | 34 | `INMP441_SD_PIN` (ESP32 input-only) |
+| VDD | 3.3 V | — |
+| GND | GND | — |
+| L/R | GND or 3.3 V | Selects left vs. right channel in hardware |
 
-Power notes:
+Wire one mic's **L/R** pin to GND (left channel) and the other's to 3.3 V (right
+channel); BCLK, WS, and SD are shared. The firmware captures ~0.5 s of audio per
+cycle (16 kHz, 8000 frames) and reports broadband RMS/peak plus per-band FFT
+energy (sub-bass, hum, piping, stress, high) per channel.
 
-- LTE modems can draw high current pulses. Use a power source and regulator sized for the modem board.
-- Add local bulk and high-frequency decoupling close to the modem power pins.
-- If using a PWRKEY pin, the firmware drives it as open drain for the wake/reset/off pulses.
-- If using a regulator enable pin, set `SIM7080G_POWER_EN_PIN` and `SIM7080G_POWER_EN_ACTIVE_HIGH` to match the hardware.
-- Keep the antenna clear of the HX711/load-cell wiring.
+---
+
+## Power / connectivity (Power Module)
+
+Cellular (SIM7080G) transport has been removed from the ESP32 firmware — the
+Scale Module is **Wi-Fi only**. LTE/NB-IoT, solar charging, and battery
+management now live on a separate **Power Module** that connects to the Scale
+Module over I2C/ESP-NOW. The optional INA219 and MAX17048 telemetry below still
+runs on the ESP32 itself over the shared I2C bus.
 
 ---
 
@@ -249,6 +258,7 @@ The firmware reports battery voltage, state-of-charge, monitor status, and low-b
 |---|---|
 | DS3231 RTC | `0x68` |
 | SHT4x | `0x44` |
+| BeeCounter 1 / 2 | `0x30` / `0x31` |
 | INA219 | `0x40` by default |
 | MAX17048 | Fixed by device/library |
 

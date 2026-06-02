@@ -158,8 +158,13 @@ Place compiled firmware binaries in `/opt/hivescale/firmware/`, then register th
 curl -X POST http://localhost:31115/api/v1/firmware/releases \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"version": "0.5.0", "filename": "hivescale-0.5.0.bin", "active": true}'
+  -d '{"version": "0.5.0", "filename": "hivescale-0.5.0.bin", "active": true, "target": "hivescale"}'
 ```
+
+`target` defaults to `hivescale`; use `beecounter` to publish an image that the
+HiveScale relays to a BeeCounter over I2C. App clients (HivePal) can also upload
+the binary directly via `POST /api/v1/app/devices/{id}/firmware` instead of
+copying it into `FIRMWARE_DIR` first — see [api.md](api.md).
 
 The device checks for updates every 6 hours and on every measurement cycle.
 

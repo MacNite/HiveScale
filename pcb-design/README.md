@@ -89,6 +89,13 @@ The BeeCounter module connects via three pins:
 
 > Note: GPIO13 is shared with INMP441 WS. In firmware, the I2S peripheral takes ownership of GPIO13 during audio sampling. Confirm that the BeeCounter firmware logic does not conflict with the I2S peripheral when both are active. If conflicts arise during development, move BeeCounter to one of the GPIO pins exposed on the expansion header (J18).
 
+> **Firmware integration note:** the current HiveScale firmware
+> (`firmware/src/bee_counter_client.cpp`) communicates with the BeeCounter as an
+> **I2C slave** at addresses `0x30` (hive 1) / `0x31` (hive 2) on the shared bus
+> (SDA GPIO21 / SCL GPIO22) — including the OTA-over-I2C firmware relay. Reconcile
+> the J20 wiring above with the I2C bus before fabricating, and route the
+> BeeCounter to SDA/SCL rather than the discrete GPIOs.
+
 ---
 
 ## I2C bus
@@ -143,7 +150,6 @@ Fabrication outputs are in the `fabrication/` subdirectory. Before ordering:
 - Confirm all module header footprints match the physical modules you are using (pin pitch, row spacing).
 - Verify the INMP441 L/R pin routing as described above.
 - Verify pull-up resistor values on the I2C bus.
-- Review `todo-list.md` for any open layout tasks.
 - Order a small prototype run before field deployment.
 
 ---

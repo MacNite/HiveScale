@@ -6,9 +6,16 @@ Calibration mode is a temporary operating state that disables deep sleep on the 
 
 ---
 
-## Firmware (`main.cpp`)
+## Firmware
 
-### Constants
+The firmware is split across several units: the calibration constants live in
+`firmware/include/config.h`; `startCalibrationMode()` / `stopCalibrationMode()` /
+`calibrationModeExpired()` are in `firmware/src/portal.cpp`; `enterDeepSleep()` is
+in `firmware/src/storage_power.cpp`; the `loop()` interval/timeout handling is in
+`firmware/src/main.cpp`; and command parsing (`checkCommands()`) is in
+`firmware/src/network.cpp`.
+
+### Constants (`config.h`)
 
 | Constant | Default | Description |
 |---|---|---|
@@ -135,23 +142,25 @@ Both endpoints require the `X-HivePal-Service-Key` header and the `X-User-Id` he
 
 Queues a `start_calibration_mode` command for the device. The optional request body controls interval and timeout.
 
-Request body (`CalibrationModeStartIn`):
+Request body (`AppCalibrationModeStartIn`, optional — defaults are used if omitted):
 
-| Field | Type | Default | Constraints |
+| Field | Type | Default | Backend constraint |
 |---|---|---|---|
-| `interval_seconds` | int | 5 | 2 ≤ value ≤ 30 |
-| `timeout_seconds` | int | 600 | 30 ≤ value ≤ 1800 |
+| `interval_seconds` | int | 5 | 1 ≤ value ≤ 3600 |
+| `timeout_seconds` | int | 600 | 1 ≤ value ≤ 86400 |
+
+> The backend only enforces the wide bounds above. The **firmware** applies the
+> real safety limits: it clamps the interval to **2–30 s** and the timeout to at
+> most **30 minutes** (`CALIBRATION_MODE_*` constants in `config.h`).
 
 Response:
 
 ```json
 {
-  "status": "queued",
-  "device_id": "hive_scale_dual_01",
-  "command_id": 42,
-  "calibration_mode": true,
-  "interval_seconds": 5,
-  "timeout_seconds": 600
+  "status": "pending",
+  "id": 42,
+  "command_type": "start_calibration_mode",
+  "payload": { "interval_seconds": 5, "timeout_seconds": 600 }
 }
 ```
 
@@ -163,16 +172,16 @@ Response:
 
 ```json
 {
-  "status": "queued",
-  "device_id": "hive_scale_dual_01",
-  "command_id": 43,
-  "calibration_mode": false
+  "status": "pending",
+  "id": 43,
+  "command_type": "stop_calibration_mode",
+  "payload": {}
 }
 ```
 
 ### General command infrastructure
 
-Both calibration commands use the shared `queue_device_command()` helper, which inserts a row into `device_commands` with `status = 'pending'`. The firmware claims commands one at a time via `GET /api/v1/devices/{device_id}/commands/next` (uses `FOR UPDATE SKIP LOCKED` to be safe against concurrent callers) and posts the result back via `POST /api/v1/devices/{device_id}/commands/{command_id}/result`.
+Both calibration commands use the shared `create_command()` helper, which inserts a row into `device_commands` with `status = 'pending'`. The firmware claims commands one at a time via `GET /api/v1/devices/{device_id}/commands/next` (uses `FOR UPDATE SKIP LOCKED` to be safe against concurrent callers) and posts the result back via `POST /api/v1/devices/{device_id}/commands/{command_id}/result`.
 
 Because the device only polls for commands at the end of a normal measurement cycle, there is an inherent delay between queuing the command and the device acting on it. The delay equals at most one normal send interval (default 10 minutes). The frontend reflects this with a "Queued" badge until the device confirms calibration mode is active by sending a measurement with `calibration_mode = true`.
 
