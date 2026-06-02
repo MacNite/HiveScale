@@ -89,8 +89,12 @@ extern unsigned long buttonDownMs;
 extern bool longPressHandled;
 
 // ---- Values that survive deep sleep --------------------------------------
-extern RTC_DATA_ATTR uint32_t rtcCyclesUntilOta;
-extern RTC_DATA_ATTR uint32_t rtcBootCount;
+// The RTC_DATA_ATTR (section) attribute belongs only on the definitions in
+// globals.cpp. Repeating it here would generate a second, auto-numbered RTC
+// section that conflicts with the definition's, which the compiler then
+// discards with a -Wattributes warning. Plain extern declarations are enough.
+extern uint32_t rtcCyclesUntilOta;
+extern uint32_t rtcBootCount;
 
 // ---- Small shared utilities ----------------------------------------------
 void debugLine();
