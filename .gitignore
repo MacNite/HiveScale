@@ -25,4 +25,5 @@ venv/
 # OS/editor
 .DS_Store
 secrets.h
+secrets-*.h
 *.code-workspace
