@@ -136,7 +136,7 @@ The column is added with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in `init_db(
 
 ### Calibration Mode endpoints (App API)
 
-Both endpoints require the `X-HivePal-Service-Key` header and the `X-User-Id` header. The calling user must have the `owner` or `admin` role on the device.
+Both endpoints require the `X-HivePal-Service-Key` header and an `Authorization: Bearer <hivepal-jwt>` header (verified with `HIVEPAL_JWT_SECRET`). The calling user, identified by the token's `sub` claim, must have the `owner` or `admin` role on the device.
 
 #### `POST /api/v1/app/devices/{device_id}/calibration/start`
 

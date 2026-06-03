@@ -45,8 +45,9 @@ services:
       hivescale-db:
         condition: service_healthy
     environment:
-      API_KEY: <your-strong-api-key>
+      API_KEY: <your-master-admin-key>
       HIVEPAL_SERVICE_API_KEY: <your-hivepal-service-key>
+      HIVEPAL_JWT_SECRET: <match-hivepal-jwt-secret>
       DATABASE_URL: postgresql://hivescale:<db-password>@hivescale-db:5432/hivescale
       PUBLIC_BASE_URL: http://<truenas-ip-or-hostname>:31115
       TZ: Europe/Berlin
@@ -77,17 +78,22 @@ services:
 
 | Placeholder | What to set |
 |---|---|
-| `<your-strong-api-key>` | A long random string used by the ESP32 firmware (`API_KEY` in `secrets.h`) |
+| `<your-master-admin-key>` | A long random string used as the master/admin key for server-to-server tooling (firmware releases, command queueing). Devices register their own per-device keys automatically and do **not** need this value. |
 | `<your-hivepal-service-key>` | A separate long random string for HivePal integration (can be left as a placeholder if you are not using HivePal) |
+| `<match-hivepal-jwt-secret>` | The same secret as HivePal's `jwtConstants.secret`, used to verify per-user Bearer tokens. Required for HivePal app endpoints; placeholder is fine if not using HivePal. |
 | `<db-password>` | A strong password for the PostgreSQL user (must match in both services) |
 | `<truenas-ip-or-hostname>` | The LAN IP or hostname of your TrueNAS box — used to build OTA firmware download URLs |
 | `/mnt/<pool>/hivescale-db` | Full path to the dataset you created in Step 1 |
 | `Europe/Berlin` | Your timezone — adjust for correct timestamps in logs |
 
-> **Security note:** Use randomly generated strings for both API keys. You can generate one with:
+> **Security note:** Use randomly generated strings for all keys and secrets
+> (`API_KEY`, `HIVEPAL_SERVICE_API_KEY`, `HIVEPAL_JWT_SECRET`, and the DB
+> password). You can generate one with:
 > ```bash
 > openssl rand -hex 32
 > ```
+> Note `HIVEPAL_JWT_SECRET` must be set to the **same** value as HivePal's
+> `jwtConstants.secret`, not a fresh random string.
 
 ---
 
@@ -127,11 +133,19 @@ You can also open `http://<truenas-ip>:31115/docs` in a browser to access the in
 Update `firmware/include/secrets.h` on your ESP32 project:
 
 ```cpp
-#define API_BASE_URL  "http://<truenas-ip>:31115"
-#define API_KEY       "<your-strong-api-key>"
+#define API_BASE_URL  "https://<your-domain>"   // HTTPS — the firmware verifies the TLS cert
+#define API_KEY       "<unique-per-device-key>"  // generate with: openssl rand -hex 32
 ```
 
-Then re-flash the device (or push the key via the provisioning portal if already deployed).
+Give each device a unique `API_KEY`; the backend registers it against the
+device's `device_id` on first contact. Then re-flash the device (or push the key
+via the provisioning portal if already deployed).
+
+> **HTTPS is required.** The firmware verifies the backend's TLS certificate
+> against the Let's Encrypt root CA bundled in `firmware/include/ca_cert.h`. Put
+> the API behind a reverse proxy that terminates TLS with a valid certificate; a
+> plain `http://…:31115` address will be rejected by the device. For a CA other
+> than Let's Encrypt, replace the certificate in `ca_cert.h`.
 
 ---
 
@@ -216,5 +230,6 @@ docker logs <container-name>
 - The `depends_on` health check ensures the API waits for PostgreSQL to be ready, but if the DB dataset path is wrong the container will fail to start — check the volume mount path.
 
 **`/health` returns OK but measurements are not stored:**
-- Double-check `API_KEY` matches between the firmware and the server environment variable.
+- Each device registers its own per-device `API_KEY` on first contact; if a device later presents a *different* key for the same `device_id` it gets `401`. To re-register a key, clear the stored hash: `UPDATE devices SET api_key_hash = NULL WHERE device_id = '…';`
+- Confirm the device can complete a TLS handshake (valid certificate, NTP reachable for clock sync) — a failed handshake looks like a silent upload failure on the device.
 - Use the test commands in [test-commands.md](test-commands.md) to submit a measurement manually and inspect the response.

@@ -33,11 +33,17 @@ nano .env
 Fill in all values:
 
 ```env
-# API key used by the ESP32 firmware (X-API-Key header)
+# Master/admin key (X-API-Key header) for server-to-server tooling:
+# firmware-release registration, command queueing, latest-measurements, time.
+# Devices no longer need this — each device registers its own per-device key.
 API_KEY=change-this-to-a-long-random-string
 
 # Service key used by HivePal (X-HivePal-Service-Key header)
 HIVEPAL_SERVICE_API_KEY=change-this-to-another-long-random-string
+
+# Shared secret (HS256) used to verify HivePal's per-user Bearer tokens.
+# Must match HivePal's jwtConstants.secret. Required for HivePal app endpoints.
+HIVEPAL_JWT_SECRET=change-this-to-match-hivepal-jwt-secret
 
 # PostgreSQL password — must match POSTGRES_PASSWORD below
 POSTGRES_PASSWORD=change-this-database-password
@@ -80,6 +86,7 @@ services:
     environment:
       API_KEY: ${API_KEY}
       HIVEPAL_SERVICE_API_KEY: ${HIVEPAL_SERVICE_API_KEY}
+      HIVEPAL_JWT_SECRET: ${HIVEPAL_JWT_SECRET}
       DATABASE_URL: postgresql://hivescale:${POSTGRES_PASSWORD}@hivescale-db:5432/hivescale
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       FIRMWARE_DIR: /app/firmware
@@ -157,11 +164,19 @@ Interactive API docs: `http://your-server-ip:31115/docs`
 Edit `firmware/include/secrets.h`:
 
 ```cpp
-#define API_BASE_URL  "http://your-server-ip-or-domain:31115"
-#define API_KEY       "change-this-to-a-long-random-string"
+#define API_BASE_URL  "https://your-domain.example"   # HTTPS — the firmware verifies the TLS cert
+#define API_KEY       "a-unique-per-device-key"        # generate with: openssl rand -hex 32
 ```
 
-Re-flash the device, or update via the provisioning portal if it is already deployed.
+Give each device a unique `API_KEY`; the backend registers it against the
+device's `device_id` on first contact. Re-flash the device, or update the key
+via the provisioning portal if it is already deployed.
+
+> **HTTPS is required.** The firmware verifies the backend's TLS certificate
+> against the Let's Encrypt root CA bundled in `firmware/include/ca_cert.h`, so
+> `API_BASE_URL` must point at an HTTPS endpoint with a valid certificate — see
+> [Exposing to the internet](#exposing-to-the-internet-optional). For a different
+> CA, replace the certificate in `ca_cert.h`.
 
 ---
 
@@ -213,11 +228,12 @@ docker compose exec -T hivescale-db psql -U hivescale hivescale < hivescale-back
 
 ## Exposing to the internet (optional)
 
-If you want the ESP32 to reach the server from outside your LAN (e.g. when the beehives are in a field with mobile data), you have several options:
+The firmware verifies the backend's TLS certificate, so devices must reach the
+API over **HTTPS with a valid certificate**. The recommended setup:
 
-- **Reverse proxy with HTTPS** — run Nginx or Caddy in front of the API and obtain a TLS certificate via Let's Encrypt. Caddy does this automatically with a single config line.
-- **Tailscale / WireGuard** — put both the server and the ESP32 (via a companion device or router) on a private VPN.
-- **Port forwarding** — forward port `31115` on your router to the server. This works but exposes the API directly; ensure your API keys are strong.
+- **Reverse proxy with HTTPS (recommended)** — run Nginx or Caddy in front of the API and obtain a TLS certificate via Let's Encrypt. Caddy does this automatically with a single config line. The bundled `firmware/include/ca_cert.h` already trusts the Let's Encrypt root, so no firmware change is needed.
+- **Tailscale / WireGuard** — put both the server and the ESP32 (via a companion device or router) on a private VPN. You still need a valid TLS certificate the device will trust on the address it connects to.
+- **Port forwarding** — forward port `31115` on your router to the server, but terminate TLS in front of it (e.g. via a proxy) so the device can verify the certificate; the firmware will reject a plain-HTTP endpoint or an untrusted certificate.
 
 > **Rate limiting & request size:** the API enforces a per-client-IP rate limit
 > and a request-body cap out of the box (see the environment variables above).

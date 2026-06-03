@@ -7,12 +7,12 @@ Replace placeholders before running:
 | Placeholder | Replace with |
 |---|---|
 | `HOST` | Server host or domain, for example `192.168.1.100` or `hivescale.example.com` |
-| `YOUR_API_KEY` | HiveScale `API_KEY` used by ESP32 devices |
+| `YOUR_API_KEY` | For device endpoints: that device's **per-device key** (registered on first contact). For the admin/tooling endpoints (`measurements/latest`, `firmware/releases`, queueing commands, `update-beecounter`, `time`): the server's master `API_KEY`. |
 | `YOUR_HIVEPAL_KEY` | HiveScale `HIVEPAL_SERVICE_API_KEY`, also configured in HivePal as `HIVESCALE_SERVICE_API_KEY` |
 | `DEVICE_ID` | Device ID, for example `hive_scale_dual_01` |
-| `USER_ID` | HivePal user ID forwarded through `X-User-Id` |
+| `JWT_TOKEN` | A HivePal user access token (JWT). HiveScale verifies it with `HIVEPAL_JWT_SECRET` and reads the user from the `sub` claim. Get one from HivePal's login/register response. |
 
-The examples assume HTTP on port `31115`. Use HTTPS and omit the port when running behind a reverse proxy.
+The examples assume HTTP on port `31115` for host-side testing. Use HTTPS and omit the port when running behind a reverse proxy. Note the ESP32 firmware itself only talks to the API over HTTPS with a verified certificate.
 
 ---
 
@@ -246,7 +246,7 @@ call. Requires `owner`/`admin` on the device:
 ```bash
 curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/firmware \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID" \
+  -H "Authorization: Bearer JWT_TOKEN" \
   -F "file=@hivescale-0.9.3.bin" \
   -F "version=0.9.3" \
   -F "target=hivescale" \
@@ -265,7 +265,7 @@ The device must have sent at least one measurement containing the claim code.
 curl -X POST http://HOST:31115/api/v1/app/devices/claim \
   -H "Content-Type: application/json" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID" \
+  -H "Authorization: Bearer JWT_TOKEN" \
   -d '{
     "claim_code": "ABCD-1234",
     "display_name": "Back garden scale",
@@ -279,7 +279,7 @@ curl -X POST http://HOST:31115/api/v1/app/devices/claim \
 ```bash
 curl http://HOST:31115/api/v1/app/devices \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID"
+  -H "Authorization: Bearer JWT_TOKEN"
 ```
 
 ### Get device measurements
@@ -287,13 +287,13 @@ curl http://HOST:31115/api/v1/app/devices \
 ```bash
 curl "http://HOST:31115/api/v1/app/devices/DEVICE_ID/measurements?limit=100" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID"
+  -H "Authorization: Bearer JWT_TOKEN"
 ```
 
 ```bash
 curl "http://HOST:31115/api/v1/app/devices/DEVICE_ID/measurements?start_at=2026-05-01T00:00:00Z&end_at=2026-05-07T00:00:00Z" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID"
+  -H "Authorization: Bearer JWT_TOKEN"
 ```
 
 ### Get latest measurements
@@ -301,7 +301,7 @@ curl "http://HOST:31115/api/v1/app/devices/DEVICE_ID/measurements?start_at=2026-
 ```bash
 curl "http://HOST:31115/api/v1/app/devices/DEVICE_ID/measurements/latest?limit=10" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID"
+  -H "Authorization: Bearer JWT_TOKEN"
 ```
 
 ### Update channel names
@@ -310,7 +310,7 @@ curl "http://HOST:31115/api/v1/app/devices/DEVICE_ID/measurements/latest?limit=1
 curl -X PATCH http://HOST:31115/api/v1/app/devices/DEVICE_ID/channels \
   -H "Content-Type: application/json" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID" \
+  -H "Authorization: Bearer JWT_TOKEN" \
   -d '{
     "scale_1_display_name": "Hive A",
     "scale_2_display_name": "Hive B"
@@ -323,7 +323,7 @@ curl -X PATCH http://HOST:31115/api/v1/app/devices/DEVICE_ID/channels \
 curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/members \
   -H "Content-Type: application/json" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID" \
+  -H "Authorization: Bearer JWT_TOKEN" \
   -d '{"user_id": "other-user-id", "role": "viewer"}'
 ```
 
@@ -333,14 +333,14 @@ curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/members \
 curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/calibration/start \
   -H "Content-Type: application/json" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID" \
+  -H "Authorization: Bearer JWT_TOKEN" \
   -d '{"interval_seconds": 5, "timeout_seconds": 600}'
 ```
 
 ```bash
 curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/calibration/stop \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID"
+  -H "Authorization: Bearer JWT_TOKEN"
 ```
 
 ### Insights
@@ -348,11 +348,11 @@ curl -X POST http://HOST:31115/api/v1/app/devices/DEVICE_ID/calibration/stop \
 ```bash
 curl "http://HOST:31115/api/v1/app/devices/DEVICE_ID/insights?lookback_days=14" \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID"
+  -H "Authorization: Bearer JWT_TOKEN"
 ```
 
 ```bash
 curl http://HOST:31115/api/v1/app/devices/DEVICE_ID/insights/summary \
   -H "X-HivePal-Service-Key: YOUR_HIVEPAL_KEY" \
-  -H "X-User-Id: USER_ID"
+  -H "Authorization: Bearer JWT_TOKEN"
 ```

@@ -12,11 +12,18 @@ http://<host>:31115
 
 Replace `<host>` with the server IP address or domain name.
 
+> **TLS:** the ESP32 firmware now verifies the backend's TLS certificate (it
+> ships the ISRG Root X1 / Let's Encrypt root CA in `firmware/include/ca_cert.h`
+> and syncs time over NTP for validity checks). Production devices must reach
+> the API over **HTTPS with a valid certificate** — put the API behind a reverse
+> proxy that terminates TLS. Plain-HTTP examples below are for host-side `curl`
+> testing only.
+
 ---
 
 ## Authentication
 
-HiveScale uses separate keys for device traffic and HivePal app traffic.
+HiveScale uses separate credentials for device traffic and HivePal app traffic.
 
 ### Device key
 
@@ -26,18 +33,40 @@ ESP32 firmware and administrative device tooling use `X-API-Key`.
 X-API-Key: your-api-key
 ```
 
-The value must match the server `API_KEY` environment variable and the firmware `API_KEY` define.
+There are two kinds of device key:
 
-### HivePal service key
+- **Per-device key** — each device has its own unique key (set as `API_KEY` in
+  that device's `secrets.h`). On the first request from a new `device_id`, the
+  backend stores a hash of the presented key and binds it to that device.
+  Every later request for that device must present the same key, so a leaked
+  key only affects the one device it belongs to. Used by the device-initiated
+  endpoints: `POST /api/v1/measurements`, `GET/PATCH …/config`,
+  `GET …/firmware`, `GET …/commands/next`, and `POST …/commands/{id}/result`.
+- **Master/admin key** — the value of the server `API_KEY` environment
+  variable. Used for server-to-server / tooling endpoints that no device
+  calls: `GET /api/v1/measurements/latest`, `POST /api/v1/firmware/releases`,
+  `POST …/commands` (queueing), `…/commands/update-beecounter`, and
+  `GET /api/v1/time`.
 
-HivePal uses `X-HivePal-Service-Key` plus `X-User-Id` on all app endpoints.
+> A device's per-device key no longer has to match the server `API_KEY`. To
+> rotate or re-register a device key, clear its stored hash with
+> `UPDATE devices SET api_key_hash = NULL WHERE device_id = '…';` and the next
+> request re-registers whatever key the device presents.
+
+### HivePal service key + user token
+
+HivePal uses `X-HivePal-Service-Key` plus a per-user JWT on all app endpoints.
 
 ```text
 X-HivePal-Service-Key: your-hivepal-service-key
-X-User-Id: hivepal-user-id
+Authorization: Bearer <hivepal-jwt>
 ```
 
-The service key must match HiveScale's `HIVEPAL_SERVICE_API_KEY`. HiveScale uses `X-User-Id` to enforce per-device ownership and roles.
+The service key must match HiveScale's `HIVEPAL_SERVICE_API_KEY`. The JWT is the
+access token HivePal issues to its own users; HiveScale verifies its signature
+with the shared `HIVEPAL_JWT_SECRET` (HS256) and reads the user ID from the
+token's `sub` claim to enforce per-device ownership and roles. The legacy
+plaintext `X-User-Id` header is no longer accepted.
 
 ---
 
@@ -55,7 +84,7 @@ Health check. No authentication required.
 
 Returns current UTC server time for RTC sync.
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (master/admin key)
 
 ```json
 {
@@ -71,16 +100,16 @@ Returns current UTC server time for RTC sync.
 
 ### `POST /api/v1/measurements`
 
-Submit a measurement from a device. On the first measurement from a new `device_id`, the backend creates a device record and a default config row. If a `claim_code` is included, it is hashed and stored so a HivePal user can claim the device.
+Submit a measurement from a device. On the first measurement from a new `device_id`, the backend creates a device record and a default config row, and registers the presented `X-API-Key` as that device's per-device key. If a `claim_code` is included, it is hashed and stored so a HivePal user can claim the device.
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (per-device key — registered on first contact, enforced thereafter)
 
 #### Request fields
 
 | Field | Type | Required | Description |
 |---|---|---:|---|
 | `device_id` | string | Yes | Unique device identifier |
-| `claim_code` | string | No | Pairing code sent until the device is claimed |
+| `claim_code` | string | No | Pairing code; the firmware sends it only until its first successful upload, after which it is omitted to limit exposure |
 | `timestamp` | ISO datetime | No | Measurement time; server receive time is used if omitted |
 | `scale_1_weight_kg` | number | No | Scale 1 weight in kilograms |
 | `scale_2_weight_kg` | number | No | Scale 2 weight in kilograms |
@@ -227,7 +256,7 @@ accepted (the model allows extras) and preserved in `raw_json`.
 
 Returns recent measurements across all devices, newest-first.
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (master/admin key)
 
 | Query parameter | Default | Max | Description |
 |---|---:|---:|---|
@@ -243,7 +272,7 @@ The response includes the core fields and the optional off-grid fields listed ab
 
 Returns the current config for a device. A default config is created if none exists.
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (per-device key)
 
 ```json
 {
@@ -261,7 +290,7 @@ Returns the current config for a device. A default config is created if none exi
 
 Updates one or more config fields and increments `config_version`.
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (per-device key)
 
 ```json
 {
@@ -278,7 +307,7 @@ Updates one or more config fields and increments `config_version`.
 
 Checks whether a newer active firmware release is available for the given target.
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (per-device key)
 
 | Query parameter | Default | Description |
 |---|---|---|
@@ -309,7 +338,7 @@ Update available:
 
 Registers or updates a firmware release. The binary must already exist in `FIRMWARE_DIR`. The server computes and stores the image CRC-32.
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (master/admin key)
 
 ```json
 {
@@ -336,7 +365,7 @@ Queues an `update_beecounter` command that tells the HiveScale to relay the acti
 BeeCounter firmware image to the BeeCounter at the given slot over I2C. The image
 URL, version, and CRC-32 are looked up server-side and embedded in the command payload.
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (master/admin key)
 
 | Query parameter | Default | Description |
 |---|---|---|
@@ -356,7 +385,7 @@ Commands are queued server-side and claimed by the device on a later cycle.
 
 ### `POST /api/v1/devices/{device_id}/commands`
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (master/admin key)
 
 ```json
 {
@@ -391,7 +420,7 @@ Response:
 
 Claims the next pending command and marks it as claimed.
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (per-device key)
 
 No command:
 
@@ -414,7 +443,7 @@ Command returned:
 
 Reports command success or failure. Calibration command results can include updated offset/factor values; the server applies them to `device_configs`.
 
-**Auth:** `X-API-Key`
+**Auth:** `X-API-Key` (per-device key)
 
 ```json
 {
@@ -430,7 +459,7 @@ Reports command success or failure. Calibration command results can include upda
 
 ## App endpoints for HivePal
 
-All app endpoints require both `X-HivePal-Service-Key` and `X-User-Id`.
+All app endpoints require both `X-HivePal-Service-Key` and an `Authorization: Bearer <hivepal-jwt>` header. The user is identified by the verified token's `sub` claim.
 
 | Role | Permissions |
 |---|---|
@@ -614,7 +643,7 @@ The backend auto-creates and updates the schema on startup.
 
 | Table | Description |
 |---|---|
-| `devices` | Device identity, claim status, display name, last seen, firmware version |
+| `devices` | Device identity, claim status, per-device API key hash, display name, last seen, firmware version |
 | `device_members` | Users with `owner`, `admin`, or `viewer` role per device |
 | `device_channels` | Display names for scale channel 1 and 2 |
 | `device_configs` | Send interval, offsets, calibration factors, config version |
@@ -637,7 +666,7 @@ FastAPI errors are returned as JSON:
 | Status | Meaning |
 |---:|---|
 | 400 | Bad request or invalid command payload |
-| 401 | Missing or invalid API key / service key / user ID |
+| 401 | Missing or invalid API key / service key / bearer token |
 | 403 | Insufficient device role |
 | 404 | Resource not found |
 | 500 | Server misconfiguration or unexpected backend error |
