@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Literal, Any
 
+from jose import jwt, JWTError
+
 import psycopg
 from psycopg_pool import ConnectionPool
 from fastapi import (
@@ -31,6 +33,7 @@ from insights import compute_insights, summarize
 DATABASE_URL = os.environ["DATABASE_URL"]
 API_KEY = os.environ["API_KEY"]
 HIVEPAL_SERVICE_API_KEY = os.environ.get("HIVEPAL_SERVICE_API_KEY", "")
+HIVEPAL_JWT_SECRET = os.environ.get("HIVEPAL_JWT_SECRET", "")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 FIRMWARE_DIR = Path(os.environ.get("FIRMWARE_DIR", "/app/firmware"))
 DB_POOL_MIN_SIZE = int(os.environ.get("DB_POOL_MIN_SIZE", "1"))
@@ -350,9 +353,10 @@ class AppCalibrationModeStartIn(BaseModel):
     timeout_seconds: int = Field(default=600, ge=1, le=86400)
 
 
-def require_api_key(x_api_key: str = Header(default="")):
+def require_api_key(x_api_key: str = Header(default="")) -> str:
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
+    return x_api_key
 
 
 def require_hivepal_service_key(x_hivepal_service_key: str = Header(default="")):
@@ -362,12 +366,53 @@ def require_hivepal_service_key(x_hivepal_service_key: str = Header(default=""))
         raise HTTPException(status_code=401, detail="Invalid HivePal service key")
 
 
-def require_user_id(x_user_id: str = Header(default="")) -> str:
-    # Temporary bridge until HivePal JWT/session validation is wired in.
-    # In HivePal, replace this with token verification and return the logged-in user id.
-    if not x_user_id:
-        raise HTTPException(status_code=401, detail="X-User-Id header is required")
-    return x_user_id
+def require_user_id(authorization: str = Header(default="")) -> str:
+    if not HIVEPAL_JWT_SECRET:
+        raise HTTPException(status_code=500, detail="HIVEPAL_JWT_SECRET is not configured")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization: Bearer <token> header required")
+    token = authorization[7:]
+    try:
+        payload = jwt.decode(token, HIVEPAL_JWT_SECRET, algorithms=["HS256"])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token missing sub claim")
+    return str(user_id)
+
+
+def verify_device_key(device_id: str, api_key: str):
+    """Register a device's API key on first contact; reject mismatches thereafter."""
+    if len(api_key) < 16:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE devices
+                SET api_key_hash = COALESCE(api_key_hash, %s)
+                WHERE device_id = %s
+                RETURNING api_key_hash
+                """,
+                (key_hash, device_id),
+            )
+            row = cur.fetchone()
+            conn.commit()
+    if row is None:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    if row[0] != key_hash:
+        raise HTTPException(status_code=401, detail="API key does not match this device")
+
+
+class DeviceKeyGuard:
+    """FastAPI dependency for device-scoped endpoints. Reads device_id from the
+    path and X-API-Key from the header, then delegates to verify_device_key."""
+    def __call__(self, device_id: str, x_api_key: str = Header(default="")):
+        verify_device_key(device_id, x_api_key)
+
+require_device_key = DeviceKeyGuard()
 
 
 db_pool = ConnectionPool(
@@ -585,6 +630,7 @@ def init_db():
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS bee_counter_2_latch_succeeded   BOOLEAN;
 
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS claim_code_hash TEXT;
+                ALTER TABLE devices ADD COLUMN IF NOT EXISTS api_key_hash TEXT;
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS display_name TEXT;
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
@@ -634,21 +680,32 @@ def init_db():
             conn.commit()
 
 
-def ensure_device_config(device_id: str, claim_code: Optional[str] = None, firmware_version: Optional[str] = None):
+def ensure_device_config(
+    device_id: str,
+    claim_code: Optional[str] = None,
+    firmware_version: Optional[str] = None,
+    api_key: str = "",
+):
+    claim_hash = hash_claim_code(claim_code) if claim_code else None
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest() if len(api_key) >= 16 else None
     with get_conn() as conn:
         with conn.cursor() as cur:
-            claim_hash = hash_claim_code(claim_code) if claim_code else None
             cur.execute(
                 """
-                INSERT INTO devices (device_id, claim_code_hash, last_seen_at, last_firmware_version)
-                VALUES (%s, %s, now(), %s)
+                INSERT INTO devices (device_id, claim_code_hash, api_key_hash, last_seen_at, last_firmware_version)
+                VALUES (%s, %s, %s, now(), %s)
                 ON CONFLICT (device_id) DO UPDATE
                     SET last_seen_at = now(),
                         last_firmware_version = COALESCE(EXCLUDED.last_firmware_version, devices.last_firmware_version),
-                        claim_code_hash = COALESCE(devices.claim_code_hash, EXCLUDED.claim_code_hash);
+                        claim_code_hash = COALESCE(devices.claim_code_hash, EXCLUDED.claim_code_hash),
+                        api_key_hash = COALESCE(devices.api_key_hash, EXCLUDED.api_key_hash)
+                RETURNING api_key_hash;
                 """,
-                (device_id, claim_hash, firmware_version),
+                (device_id, claim_hash, key_hash, firmware_version),
             )
+            row = cur.fetchone()
+            if key_hash and row and row[0] and row[0] != key_hash:
+                raise HTTPException(status_code=401, detail="API key does not match this device")
             cur.execute(
                 """
                 INSERT INTO device_configs (device_id) VALUES (%s)
@@ -699,10 +756,12 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/api/v1/measurements", dependencies=[Depends(require_api_key)])
-def create_measurement(payload: MeasurementIn):
+@app.post("/api/v1/measurements")
+def create_measurement(payload: MeasurementIn, x_api_key: str = Header(default="")):
+    if len(x_api_key) < 16:
+        raise HTTPException(status_code=401, detail="Invalid API key")
     measured_at = payload.timestamp or datetime.now(timezone.utc)
-    ensure_device_config(payload.device_id, payload.claim_code, payload.firmware_version)
+    ensure_device_config(payload.device_id, payload.claim_code, payload.firmware_version, x_api_key)
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1119,7 +1178,7 @@ def latest_measurements(limit: int = 50):
     return [measurement_row_to_dict(r) for r in rows]
 
 
-@app.get("/api/v1/devices/{device_id}/config", dependencies=[Depends(require_api_key)])
+@app.get("/api/v1/devices/{device_id}/config", dependencies=[Depends(require_device_key)])
 def get_device_config(device_id: str):
     ensure_device_config(device_id)
     with get_conn() as conn:
@@ -1139,7 +1198,7 @@ def get_device_config(device_id: str):
     )
 
 
-@app.patch("/api/v1/devices/{device_id}/config", dependencies=[Depends(require_api_key)])
+@app.patch("/api/v1/devices/{device_id}/config", dependencies=[Depends(require_device_key)])
 def update_device_config(device_id: str, patch: DeviceConfigUpdate):
     ensure_device_config(device_id)
     fields = patch.model_dump(exclude_unset=True)
@@ -1159,7 +1218,7 @@ def update_device_config(device_id: str, patch: DeviceConfigUpdate):
     return get_device_config(device_id)
 
 
-@app.get("/api/v1/devices/{device_id}/firmware", dependencies=[Depends(require_api_key)])
+@app.get("/api/v1/devices/{device_id}/firmware", dependencies=[Depends(require_device_key)])
 def check_firmware(device_id: str, version: str = Query("0.0.0"),
                    target: str = Query("hivescale")):
     ensure_device_config(device_id)
@@ -1308,7 +1367,7 @@ def queue_beecounter_update(device_id: str, slot: int = Query(1)):
     ))
 
 
-@app.get("/api/v1/devices/{device_id}/commands/next", dependencies=[Depends(require_api_key)])
+@app.get("/api/v1/devices/{device_id}/commands/next", dependencies=[Depends(require_device_key)])
 def next_command(device_id: str):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -1357,7 +1416,7 @@ def apply_command_result_to_config(device_id: str, result: dict[str, Any]):
             conn.commit()
 
 
-@app.post("/api/v1/devices/{device_id}/commands/{command_id}/result", dependencies=[Depends(require_api_key)])
+@app.post("/api/v1/devices/{device_id}/commands/{command_id}/result", dependencies=[Depends(require_device_key)])
 def command_result(device_id: str, command_id: int, payload: DeviceCommandResult):
     if payload.success:
         apply_command_result_to_config(device_id, payload.result)

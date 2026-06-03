@@ -7,7 +7,7 @@
 // Unique per device (can be overwritten later via backend provisioning)
 #define DEVICE_ID        "hive-001"
 
-// Per-device API key (recommended) OR shared key (your current setup)
+// Per-device API key - can be created via CLI:   openssl rand -hex 32
 #define API_KEY          "your-api-key-here"
 
 // Human-entered pairing code. The firmware seeds this into Preferences and sends it
