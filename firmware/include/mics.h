@@ -9,10 +9,10 @@
 #include <driver/i2s.h>
 
 // Number of samples fed into the FFT. Must be a power of two and fit in RAM.
-// 4096 * sizeof(double) * 4 arrays = 128 kB, comfortably within the ESP32's
-// 320 kB heap. At 16 kHz this gives ~3.9 Hz resolution — enough to resolve the
-// narrow piping band (300-550 Hz).
-#define FFT_SAMPLE_COUNT 4096
+// 2048 samples: vReal + vImag = 2 × 16 kB = 32 kB per computeBands() call.
+// At 16 kHz this gives ~7.8 Hz resolution — more than enough to resolve all
+// five bands (narrowest is piping at 300–550 Hz = 32 bins).
+#define FFT_SAMPLE_COUNT 2048
 
 struct MicBands {
   float sub_bass_dbfs = NAN;  //   50 - 150 Hz  structural / low rumble

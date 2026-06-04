@@ -249,14 +249,18 @@ MicMeasurement readMicSamples() {
   result.ok = result.left.ok || result.right.ok;
  
   // ── FFT band analysis ──────────────────────────────────────────────────────
+  // Free each buffer immediately after its FFT pass so the next pass only holds
+  // one 16 kB buffer instead of two while computeBands allocates vReal/vImag.
   if (leftBuf && leftFftCount >= 64) {
     computeBands(leftBuf,  leftFftCount,  INMP441_SAMPLE_RATE, FULL_SCALE, result.left.bands);
   }
+  free(leftBuf);
+  leftBuf = nullptr;
   if (rightBuf && rightFftCount >= 64) {
     computeBands(rightBuf, rightFftCount, INMP441_SAMPLE_RATE, FULL_SCALE, result.right.bands);
   }
-  free(leftBuf);
   free(rightBuf);
+  rightBuf = nullptr;
  
   Serial.printf("[INMP441] L: rms=%.1f dBFS peak=%.1f dBFS | sub=%.1f hum=%.1f pipe=%.1f stress=%.1f hi=%.1f\n",
     result.left.rmsDbfs, result.left.peakDbfs,
