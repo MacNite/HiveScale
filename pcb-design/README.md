@@ -1,6 +1,6 @@
-# current state of PCB-Design (as of 2nd July 2026)
+# current state of PCB-Design (as of 4th July 2026)
 
-Scale Module: V0.2 is  tested and works (expansion header and beecounter header are untested)
+Scale Module: V0.2 is  tested and works (expansion header and beecounter header are untested): on the 2nd sound input terminal the silk screen print is wrong. pinout on this connector is: 3.3v / 3.3v / GND / BCLK / WS / SD
 Scale Module: completely untested but only minor layout-changes and silk screen optimisation
 Power Module: V0.3 is only tested for use with the buck-boost converter. Solar charging, Lipo Connection, USB charging are currently untested.
 
