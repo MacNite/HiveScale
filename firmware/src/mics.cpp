@@ -15,10 +15,14 @@ bool micsI2sInstalled = false;  // keep this global as before
 // expressed in dBFS relative to the same full-scale reference used for broadband RMS.
 // Returns NAN if no bins fall in the range.
 // ---------------------------------------------------------------------------
+// normScale converts a raw FFT bin magnitude back to a full-scale-relative
+// amplitude. The time-domain samples are already divided by the ADC full scale
+// before the transform (see computeBands), so here we only undo the FFT gain:
+// a full-scale tone yields a peak-bin magnitude of ~(fftSize/2) * windowGain.
 static float bandEnergyDbfs(const double* magnitudes, size_t fftSize,
                              uint32_t sampleRate,
                              uint32_t loHz, uint32_t hiHz,
-                             double fullScale) {
+                             double normScale) {
   double sumSq = 0.0;
   size_t count = 0;
   double freqPerBin = (double)sampleRate / (double)fftSize;
@@ -29,7 +33,7 @@ static float bandEnergyDbfs(const double* magnitudes, size_t fftSize,
   if (binLo >= nyquist) return NAN;
   if (binHi >= nyquist) binHi = nyquist - 1;
   for (size_t b = binLo; b <= binHi; b++) {
-    double m = magnitudes[b] / fullScale;
+    double m = magnitudes[b] / normScale;
     sumSq += m * m;
     count++;
   }
@@ -69,12 +73,19 @@ static void computeBands(const int32_t* samples, size_t count,
   fft.windowing(FFTWindow::Hann, FFTDirection::Forward);
   fft.compute(FFTDirection::Forward);
   fft.complexToMagnitude();  // magnitudes now in vReal[0..FFT_SAMPLE_COUNT/2-1]
- 
-  out.sub_bass_dbfs = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,   50,  150, fullScale);
-  out.hum_dbfs      = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,  150,  300, fullScale);
-  out.piping_dbfs   = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,  300,  550, fullScale);
-  out.stress_dbfs   = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,  550, 1500, fullScale);
-  out.high_dbfs     = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate, 1500, 3000, fullScale);
+
+  // Samples were already scaled by fullScale before the FFT, so band levels are
+  // normalized only by the FFT gain. A full-scale tone produces a peak-bin
+  // magnitude of ~(N/2) * window coherent gain (Hann ≈ 0.5), which this maps to
+  // ~0 dBFS — putting the bands on the same scale as the broadband RMS above.
+  const double HANN_COHERENT_GAIN = 0.5;
+  const double normScale = (FFT_SAMPLE_COUNT / 2.0) * HANN_COHERENT_GAIN;
+
+  out.sub_bass_dbfs = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,   50,  150, normScale);
+  out.hum_dbfs      = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,  150,  300, normScale);
+  out.piping_dbfs   = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,  300,  550, normScale);
+  out.stress_dbfs   = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate,  550, 1500, normScale);
+  out.high_dbfs     = bandEnergyDbfs(vReal, FFT_SAMPLE_COUNT, sampleRate, 1500, 3000, normScale);
  
   free(vReal);
   free(vImag);
@@ -185,6 +196,7 @@ MicMeasurement readMicSamples() {
     return result;
   }
  
+  double leftSum = 0.0, rightSum = 0.0;       // running sums for DC/mean removal
   double leftSumSq = 0.0, rightSumSq = 0.0;
   int32_t leftPeak = 0, rightPeak = 0;
   uint32_t leftCount = 0, rightCount = 0;
@@ -206,6 +218,8 @@ MicMeasurement readMicSamples() {
       int32_t ls = chunk[i * 2 + 1] >> 8;
  
       double rf = (double)rs, lf = (double)ls;
+      rightSum   += rf;
+      leftSum    += lf;
       rightSumSq += rf * rf;
       leftSumSq  += lf * lf;
  
@@ -230,11 +244,18 @@ MicMeasurement readMicSamples() {
   // ── Fill RMS / Peak stats ─────────────────────────────────────────────────
   const double FULL_SCALE = 8388608.0; // 2^23
  
-  auto fillStats = [&](MicChannelStats& s, double sumSq, int32_t peak, uint32_t count) {
+  auto fillStats = [&](MicChannelStats& s, double sum, double sumSq,
+                       int32_t peak, uint32_t count) {
     if (count == 0) return;
     s.ok = true;
     s.sampleCount = count;
-    double rms = sqrt(sumSq / (double)count);
+    // Remove the INMP441 DC offset before computing RMS: the AC power is the
+    // variance, i.e. mean-of-squares minus square-of-mean. Without this the
+    // mic's large DC bias dominates and pins the RMS near full scale.
+    double mean     = sum / (double)count;
+    double variance = sumSq / (double)count - mean * mean;
+    if (variance < 0.0) variance = 0.0;   // guard against rounding below zero
+    double rms = sqrt(variance);
     s.rmsNormalized = (float)(rms / FULL_SCALE);
     s.rmsDbfs  = s.rmsNormalized > 0.0f
                  ? (float)(20.0 * log10((double)s.rmsNormalized))
@@ -243,9 +264,9 @@ MicMeasurement readMicSamples() {
                  ? (float)(20.0 * log10((double)peak / FULL_SCALE))
                  : -200.0f;
   };
- 
-  fillStats(result.left,  leftSumSq,  leftPeak,  leftCount);
-  fillStats(result.right, rightSumSq, rightPeak, rightCount);
+
+  fillStats(result.left,  leftSum,  leftSumSq,  leftPeak,  leftCount);
+  fillStats(result.right, rightSum, rightSumSq, rightPeak, rightCount);
   result.ok = result.left.ok || result.right.ok;
  
   // ── FFT band analysis ──────────────────────────────────────────────────────
