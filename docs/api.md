@@ -635,6 +635,58 @@ Highest-severity summary of current alerts (fixed 14-day lookback), suitable for
 }
 ```
 
+### `GET /api/v1/app/devices/{device_id}/insights/history`
+
+Persisted **history** of insight alerts for the device. Unlike `/insights`
+(which recomputes the *current* state on each call and stores nothing), this
+returns the stored lifecycle of every alert the backend has observed —
+including ones that have since resolved — newest first. Any role may read.
+
+Alert lifecycle is reconciled by a background thread (see
+`INSIGHTS_RECONCILE_*` in [.env.example](../server/.env.example)) and
+opportunistically whenever `/insights/summary` is hit. While a detector keeps
+firing the same row is updated (`last_seen_at` bumped, `peak_severity`
+tracked); when it stops firing the row is resolved (`resolved_at` set). A later
+recurrence of the same detector starts a new row.
+
+| Query parameter | Default | Constraints | Description |
+|---|---|---|---|
+| `status` | `all` | `all` \| `active` \| `resolved` | Filter by lifecycle state |
+| `category` | — | swarm, queenless, robbing, … | Filter by detector category |
+| `since` | — | ISO 8601 | Only alerts last seen at/after this time |
+| `limit` | 100 | 1 ≤ value ≤ 500 | Max rows returned |
+
+```json
+{
+  "device_id": "hive_scale_dual_01",
+  "lookback_days": 14,
+  "count": 2,
+  "active_count": 1,
+  "alerts": [
+    {
+      "id": 42,
+      "alert_key": "swarm-watch-ch1",
+      "category": "swarm",
+      "channel": 1,
+      "severity": "watch",
+      "peak_severity": "warning",
+      "title": "Pre-swarm watch (hive 1)",
+      "description": "...",
+      "confidence": 0.65,
+      "evidence": { "...": "..." },
+      "source": "project spec Phase 1; MSPB arXiv 2311.10876",
+      "window_start": "2026-04-30T00:00:00+00:00",
+      "window_end": "2026-05-01T12:00:00+00:00",
+      "first_seen_at": "2026-04-30T08:15:00+00:00",
+      "last_seen_at": "2026-05-01T12:00:00+00:00",
+      "resolved_at": null,
+      "status": "active",
+      "update_count": 7
+    }
+  ]
+}
+```
+
 ---
 
 ## Database schema
@@ -650,8 +702,9 @@ The backend auto-creates and updates the schema on startup.
 | `measurements` | Measurement records, including power/acoustic/BeeCounter columns and `raw_json` |
 | `firmware_releases` | Firmware versions available for OTA, with `target` and `crc32` |
 | `device_commands` | Pending, claimed, done, and failed commands |
+| `insight_alerts` | Persisted lifecycle of insight alerts (first/last seen, peak severity, resolution) powering the history endpoint |
 
-The backend creates the full schema on startup and runs idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` statements, so existing deployments upgrade automatically. Columns cover power telemetry (battery/solar), cellular status, calibration mode, boot count, time source, INMP441 acoustic levels + FFT bands, and per-hive BeeCounter counts; `firmware_releases` gains `target` and `crc32`. The SQL files in `server/migrations/` (`001_offgrid_telemetry.sql`, `002_mic_telemetry.sql`, `003_mic_fft_bands.sql`, `004_firmware_upload.sql`) can also be applied manually. All fields remain available in `raw_json` for forward compatibility.
+The backend creates the full schema on startup and runs idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` statements, so existing deployments upgrade automatically. Columns cover power telemetry (battery/solar), cellular status, calibration mode, boot count, time source, INMP441 acoustic levels + FFT bands, and per-hive BeeCounter counts; `firmware_releases` gains `target` and `crc32`. The SQL files in `server/migrations/` (`001_offgrid_telemetry.sql`, `002_mic_telemetry.sql`, `003_mic_fft_bands.sql`, `004_firmware_upload.sql`, `005_insight_alerts.sql`) can also be applied manually. All fields remain available in `raw_json` for forward compatibility.
 
 ---
 
