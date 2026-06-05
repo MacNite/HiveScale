@@ -2032,7 +2032,7 @@ def persist_insights(device_id: str, alerts: list, computed_at: datetime) -> Non
                 SET resolved_at = %(now)s, updated_at = now()
                 WHERE device_id = %(device_id)s
                   AND resolved_at IS NULL
-                  AND alert_key <> ALL(%(active_keys)s);
+                  AND alert_key <> ALL(%(active_keys)s::text[]);
                 """,
                 {
                     "device_id": device_id,
