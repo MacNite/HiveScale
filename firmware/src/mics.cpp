@@ -7,6 +7,11 @@
 #include <arduinoFFT.h>
 
 bool micsI2sInstalled = false;  // keep this global as before
+
+// Handle for the RX channel created by the new (IDF 5.x) I2S driver. NULL until
+// initMicsI2s() succeeds. The old driver was addressed purely by port number;
+// the new one hands back an opaque channel handle that every call needs.
+static i2s_chan_handle_t micsRxChan = nullptr;
  
 // ---------------------------------------------------------------------------
 // Helper: compute band energy from a magnitude spectrum.
@@ -99,41 +104,60 @@ static void computeBands(const int32_t* samples, size_t count,
 bool initMicsI2s() {
   if (micsI2sInstalled) return true;
 
-  i2s_config_t i2sConfig = {};
-  i2sConfig.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX);
-  i2sConfig.sample_rate = INMP441_SAMPLE_RATE;
-  // Read as 32-bit samples and shift right by 8 to get the 24-bit signed value.
-  i2sConfig.bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT;
-  // Stereo so we capture both mics (one wired L, the other wired R).
-  i2sConfig.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
-  i2sConfig.communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_STAND_I2S);
-  i2sConfig.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
-  i2sConfig.dma_buf_count = 4;
-  i2sConfig.dma_buf_len = 512;
-  i2sConfig.use_apll = false;
-  i2sConfig.tx_desc_auto_clear = false;
-  i2sConfig.fixed_mclk = 0;
+  // 1) Create an RX-only channel on the configured port, master role.
+  //    dma_frame_num * slot_num * (bits/8) must stay <= 4092 bytes, so 256
+  //    frames * 2 slots * 4 bytes = 2048 is safe. The capture loop reads in
+  //    512-frame chunks; i2s_channel_read() spans DMA descriptors as needed, so
+  //    the DMA buffer size does not have to match the read size.
+  i2s_chan_config_t chanCfg = I2S_CHANNEL_DEFAULT_CONFIG(INMP441_I2S_PORT, I2S_ROLE_MASTER);
+  chanCfg.dma_desc_num  = 4;    // was dma_buf_count
+  chanCfg.dma_frame_num = 256;  // was dma_buf_len
+  chanCfg.auto_clear    = false;
 
-  esp_err_t err = i2s_driver_install(INMP441_I2S_PORT, &i2sConfig, 0, nullptr);
+  esp_err_t err = i2s_new_channel(&chanCfg, nullptr, &micsRxChan);
   if (err != ESP_OK) {
-    Serial.printf("[INMP441] i2s_driver_install failed: %d\n", (int)err);
+    Serial.printf("[INMP441] i2s_new_channel failed: %d\n", (int)err);
+    micsRxChan = nullptr;
     return false;
   }
 
-  i2s_pin_config_t pinConfig = {};
-  pinConfig.bck_io_num   = INMP441_BCLK_PIN;
-  pinConfig.ws_io_num    = INMP441_WS_PIN;
-  pinConfig.data_out_num = I2S_PIN_NO_CHANGE;
-  pinConfig.data_in_num  = INMP441_SD_PIN;
+  // 2) Standard (Philips) mode, 32-bit slots, stereo so we capture both mics
+  //    (one wired L, the other wired R). We still read 32-bit words and shift
+  //    right by 8 to recover the INMP441's 24-bit signed sample.
+  i2s_std_config_t stdCfg = {
+    .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(INMP441_SAMPLE_RATE),
+    .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
+    .gpio_cfg = {
+      .mclk = I2S_GPIO_UNUSED,
+      .bclk = (gpio_num_t)INMP441_BCLK_PIN,
+      .ws   = (gpio_num_t)INMP441_WS_PIN,
+      .dout = I2S_GPIO_UNUSED,
+      .din  = (gpio_num_t)INMP441_SD_PIN,
+      .invert_flags = {
+        .mclk_inv = false,
+        .bclk_inv = false,
+        .ws_inv   = false,
+      },
+    },
+  };
 
-  err = i2s_set_pin(INMP441_I2S_PORT, &pinConfig);
+  err = i2s_channel_init_std_mode(micsRxChan, &stdCfg);
   if (err != ESP_OK) {
-    Serial.printf("[INMP441] i2s_set_pin failed: %d\n", (int)err);
-    i2s_driver_uninstall(INMP441_I2S_PORT);
+    Serial.printf("[INMP441] i2s_channel_init_std_mode failed: %d\n", (int)err);
+    i2s_del_channel(micsRxChan);
+    micsRxChan = nullptr;
     return false;
   }
 
-  i2s_zero_dma_buffer(INMP441_I2S_PORT);
+  // 3) Enable the channel so the DMA engine starts clocking in samples.
+  err = i2s_channel_enable(micsRxChan);
+  if (err != ESP_OK) {
+    Serial.printf("[INMP441] i2s_channel_enable failed: %d\n", (int)err);
+    i2s_del_channel(micsRxChan);
+    micsRxChan = nullptr;
+    return false;
+  }
+
   micsI2sInstalled = true;
   Serial.printf("[INMP441] I2S installed: BCLK=%d WS=%d SD=%d rate=%d\n",
                 INMP441_BCLK_PIN, INMP441_WS_PIN, INMP441_SD_PIN, INMP441_SAMPLE_RATE);
@@ -142,7 +166,10 @@ bool initMicsI2s() {
 
 void shutdownMicsI2s() {
   if (!micsI2sInstalled) return;
-  i2s_driver_uninstall(INMP441_I2S_PORT);
+  // The new driver requires disabling the channel before deleting it.
+  i2s_channel_disable(micsRxChan);
+  i2s_del_channel(micsRxChan);
+  micsRxChan = nullptr;
   micsI2sInstalled = false;
   Serial.println("[INMP441] I2S uninstalled");
 }
@@ -162,7 +189,9 @@ MicMeasurement readMicSamples() {
     int32_t* warmup = (int32_t*)malloc(WARMUP_FRAMES * 2 * sizeof(int32_t));
     if (warmup) {
       size_t warmupBytesRead = 0;
-      i2s_read(INMP441_I2S_PORT, warmup, WARMUP_FRAMES * 2 * sizeof(int32_t), &warmupBytesRead, pdMS_TO_TICKS(500));
+      // i2s_channel_read() takes its timeout directly in milliseconds (the
+      // legacy i2s_read() wanted FreeRTOS ticks via pdMS_TO_TICKS).
+      i2s_channel_read(micsRxChan, warmup, WARMUP_FRAMES * 2 * sizeof(int32_t), &warmupBytesRead, 500);
       free(warmup);
     } else {
       Serial.println("[INMP441] warmup alloc failed; continuing without settling");
@@ -208,14 +237,17 @@ MicMeasurement readMicSamples() {
     size_t framesThisRound = framesRemaining > CHUNK_FRAMES ? CHUNK_FRAMES : framesRemaining;
     size_t bytesWanted = framesThisRound * 2 * sizeof(int32_t);
     size_t bytesRead = 0;
-    esp_err_t err = i2s_read(INMP441_I2S_PORT, chunk, bytesWanted, &bytesRead, pdMS_TO_TICKS(1000));
+    esp_err_t err = i2s_channel_read(micsRxChan, chunk, bytesWanted, &bytesRead, 1000);
     if (err != ESP_OK || bytesRead == 0) break;
  
     size_t framesRead = bytesRead / (2 * sizeof(int32_t));
     for (size_t i = 0; i < framesRead; i++) {
-      // ESP-IDF legacy driver: index 0 = right, 1 = left
-      int32_t rs = chunk[i * 2 + 0] >> 8;  // 24-bit signed
-      int32_t ls = chunk[i * 2 + 1] >> 8;
+      // The new standard (Philips) driver delivers the left channel first:
+      // index 0 = left, 1 = right. (The old legacy driver swapped these and
+      // gave right first, which is why this mapping is flipped versus before —
+      // the physical L/R wiring is unchanged, only the driver's slot order is.)
+      int32_t ls = chunk[i * 2 + 0] >> 8;  // 24-bit signed
+      int32_t rs = chunk[i * 2 + 1] >> 8;
  
       double rf = (double)rs, lf = (double)ls;
       rightSum   += rf;

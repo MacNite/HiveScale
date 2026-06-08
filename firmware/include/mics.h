@@ -6,7 +6,11 @@
 #include "config.h"
 
 #if ENABLE_INMP441_MICS
-#include <driver/i2s.h>
+// Arduino-ESP32 3.x (ESP-IDF 5.x) replaced the old monolithic legacy I2S driver
+// (driver/i2s.h: i2s_driver_install / i2s_set_pin / i2s_read) with the new
+// channel-based "standard" driver. driver/i2s_std.h pulls in the common channel
+// API (i2s_new_channel / i2s_channel_read / ...) too.
+#include <driver/i2s_std.h>
 
 // Number of samples fed into the FFT. Must be a power of two and fit in RAM.
 // 2048 samples: vReal + vImag = 2 × 16 kB = 32 kB per computeBands() call.
