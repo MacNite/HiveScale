@@ -531,6 +531,41 @@ Returns the newest measurements for one device.
 |---|---:|---:|---|
 | `limit` | 50 | 500 | Number of rows |
 
+### `POST /api/v1/app/devices/{device_id}/measurements/import`
+
+Bulk-imports measurements parsed from a device's SD card backup
+(`measurements.ndjson` / the AP-mode `hivescale-sd-data.tar` download). Used by
+the HivePal web UI's "Import SD card data" button. Requires `owner` or `admin`
+on the device — devices are never auto-created from uploaded data.
+
+The request body is the same measurement objects as `POST /api/v1/measurements`,
+wrapped in a list (max 20000 per request; `device_id` is taken from the URL and
+forced onto every row):
+
+```json
+{
+  "measurements": [
+    { "timestamp": "2025-01-15T14:30:45Z", "scale_1_weight_kg": 42.1 },
+    { "timestamp": "2025-01-15T14:40:45Z", "scale_1_weight_kg": 42.3 }
+  ]
+}
+```
+
+Import is idempotent: `(device_id, measured_at)` is the natural key, so rows that
+already exist — and rows repeated within the file — are skipped, not duplicated.
+
+#### Response
+
+```json
+{
+  "status": "ok",
+  "device_id": "hive_scale_dual_01",
+  "received": 2,
+  "inserted": 2,
+  "duplicates": 0
+}
+```
+
 ### `GET /api/v1/app/devices/{device_id}/members`
 
 Lists members and roles.

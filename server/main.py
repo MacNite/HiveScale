@@ -31,6 +31,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 from insights import compute_insights, summarize
+from sd_import import split_new_and_duplicate
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 API_KEY = os.environ["API_KEY"]
@@ -299,6 +300,19 @@ class MeasurementIn(BaseModel):
     bee_counter_1_per_gate_out: Optional[list[int]] = Field(default=None, max_length=64)
     bee_counter_2_per_gate_in:  Optional[list[int]] = Field(default=None, max_length=64)
     bee_counter_2_per_gate_out: Optional[list[int]] = Field(default=None, max_length=64)
+
+
+# Max measurements accepted in a single bulk-import request. The HivePal backend
+# chunks a large SD download into batches no larger than this before forwarding.
+MEASUREMENT_IMPORT_MAX = 20000
+
+
+class MeasurementImportIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    measurements: list[MeasurementIn] = Field(
+        ..., min_length=1, max_length=MEASUREMENT_IMPORT_MAX
+    )
 
 
 class DeviceConfig(BaseModel):
@@ -820,16 +834,12 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/api/v1/measurements")
-def create_measurement(payload: MeasurementIn, x_api_key: str = Header(default="")):
-    if len(x_api_key) < 16:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    measured_at = payload.timestamp or datetime.now(timezone.utc)
-    ensure_device_config(payload.device_id, payload.claim_code, payload.firmware_version, x_api_key)
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
+# Column/value mapping for a single measurement row. Shared by the device-facing
+# ingest endpoint (POST /api/v1/measurements) and the app-facing bulk SD import
+# (POST /api/v1/app/devices/{device_id}/measurements/import) so the two paths can
+# never drift apart. The statement deliberately omits a trailing clause: callers
+# append " RETURNING id;" (single insert) or ";" (executemany bulk insert).
+MEASUREMENT_INSERT_SQL = """
                 INSERT INTO measurements (
                     device_id, measured_at, scale_1_weight_kg, scale_2_weight_kg,
                     hive_1_temp_c, hive_2_temp_c, ambient_temp_c,
@@ -894,97 +904,186 @@ def create_measurement(payload: MeasurementIn, x_api_key: str = Header(default="
                     %(bee_counter_2_glitch_count)s, %(bee_counter_2_busy_retries)s,
                     %(bee_counter_2_read_attempts)s, %(bee_counter_2_latch_succeeded)s,
                     %(raw_json)s
-                )
-                RETURNING id;
-                """,
-                {
-                    "device_id": payload.device_id,
-                    "measured_at": measured_at,
-                    "scale_1_weight_kg": payload.scale_1_weight_kg,
-                    "scale_2_weight_kg": payload.scale_2_weight_kg,
-                    "hive_1_temp_c": payload.hive_1_temp_c,
-                    "hive_2_temp_c": payload.hive_2_temp_c,
-                    "ambient_temp_c": payload.ambient_temp_c,
-                    "ambient_humidity_percent": payload.ambient_humidity_percent,
-                    "battery_voltage": payload.battery_voltage_v if payload.battery_voltage_v is not None else payload.battery_voltage,
-                    "battery_soc_percent": payload.battery_soc_percent,
-                    "battery_alert": payload.battery_alert,
-                    "battery_monitor_ok": payload.battery_monitor_ok,
-                    "solar_monitor_ok": payload.solar_monitor_ok,
-                    "solar_bus_voltage_v": payload.solar_bus_voltage_v,
-                    "solar_shunt_voltage_mv": payload.solar_shunt_voltage_mv,
-                    "solar_load_voltage_v": payload.solar_load_voltage_v,
-                    "solar_current_ma": payload.solar_current_ma,
-                    "solar_power_mw": payload.solar_power_mw,
-                    "network_transport": payload.network_transport,
-                    "cellular_ok": payload.cellular_ok,
-                    "cellular_csq": payload.cellular_csq,
-                    "calibration_mode": payload.calibration_mode,
-                    "boot_count": payload.boot_count,
-                    "time_source": payload.time_source,
-                    "rssi_dbm": payload.rssi_dbm,
-                    "firmware_version": payload.firmware_version,
-                    "config_version": payload.config_version,
-                    "sd_ok": payload.sd_ok,
-                    "rtc_ok": payload.rtc_ok,
-                    "sht_ok": payload.sht_ok,
-                    "scale_1_raw": payload.scale_1_raw,
-                    "scale_2_raw": payload.scale_2_raw,
-                    "mic_ok": payload.mic_ok,
-                    "mic_sample_rate_hz": payload.mic_sample_rate_hz,
-                    "mic_sample_frames": payload.mic_sample_frames,
-                    "mic_left_ok": payload.mic_left_ok,
-                    "mic_left_rms_dbfs": payload.mic_left_rms_dbfs,
-                    "mic_left_peak_dbfs": payload.mic_left_peak_dbfs,
-                    "mic_left_rms_normalized": payload.mic_left_rms_normalized,
-                    "mic_right_ok": payload.mic_right_ok,
-                    "mic_right_rms_dbfs": payload.mic_right_rms_dbfs,
-                    "mic_right_peak_dbfs": payload.mic_right_peak_dbfs,
-                    "mic_right_rms_normalized": payload.mic_right_rms_normalized,
-                    "mic_left_band_sub_bass_dbfs":  payload.mic_left_band_sub_bass_dbfs,
-                    "mic_left_band_hum_dbfs":       payload.mic_left_band_hum_dbfs,
-                    "mic_left_band_piping_dbfs":    payload.mic_left_band_piping_dbfs,
-                    "mic_left_band_stress_dbfs":    payload.mic_left_band_stress_dbfs,
-                    "mic_left_band_high_dbfs":      payload.mic_left_band_high_dbfs,
-                    "mic_right_band_sub_bass_dbfs": payload.mic_right_band_sub_bass_dbfs,
-                    "mic_right_band_hum_dbfs":      payload.mic_right_band_hum_dbfs,
-                    "mic_right_band_piping_dbfs":   payload.mic_right_band_piping_dbfs,
-                    "mic_right_band_stress_dbfs":   payload.mic_right_band_stress_dbfs,
-                    "mic_right_band_high_dbfs":     payload.mic_right_band_high_dbfs,
-                    "bee_counter_1_ok":               payload.bee_counter_1_ok,
-                    "bee_counter_1_protocol_version": payload.bee_counter_1_protocol_version,
-                    "bee_counter_1_status_flags":     payload.bee_counter_1_status_flags,
-                    "bee_counter_1_uptime_s":         payload.bee_counter_1_uptime_s,
-                    "bee_counter_1_num_gates":        payload.bee_counter_1_num_gates,
-                    "bee_counter_1_gates_healthy":    payload.bee_counter_1_gates_healthy,
-                    "bee_counter_1_total_in":         payload.bee_counter_1_total_in,
-                    "bee_counter_1_total_out":        payload.bee_counter_1_total_out,
-                    "bee_counter_1_interval_in":      payload.bee_counter_1_interval_in,
-                    "bee_counter_1_interval_out":     payload.bee_counter_1_interval_out,
-                    "bee_counter_1_glitch_count":     payload.bee_counter_1_glitch_count,
-                    "bee_counter_1_busy_retries":     payload.bee_counter_1_busy_retries,
-                    "bee_counter_1_read_attempts":    payload.bee_counter_1_read_attempts,
-                    "bee_counter_1_latch_succeeded":  payload.bee_counter_1_latch_succeeded,
-                    "bee_counter_2_ok":               payload.bee_counter_2_ok,
-                    "bee_counter_2_protocol_version": payload.bee_counter_2_protocol_version,
-                    "bee_counter_2_status_flags":     payload.bee_counter_2_status_flags,
-                    "bee_counter_2_uptime_s":         payload.bee_counter_2_uptime_s,
-                    "bee_counter_2_num_gates":        payload.bee_counter_2_num_gates,
-                    "bee_counter_2_gates_healthy":    payload.bee_counter_2_gates_healthy,
-                    "bee_counter_2_total_in":         payload.bee_counter_2_total_in,
-                    "bee_counter_2_total_out":        payload.bee_counter_2_total_out,
-                    "bee_counter_2_interval_in":      payload.bee_counter_2_interval_in,
-                    "bee_counter_2_interval_out":     payload.bee_counter_2_interval_out,
-                    "bee_counter_2_glitch_count":     payload.bee_counter_2_glitch_count,
-                    "bee_counter_2_busy_retries":     payload.bee_counter_2_busy_retries,
-                    "bee_counter_2_read_attempts":    payload.bee_counter_2_read_attempts,
-                    "bee_counter_2_latch_succeeded":  payload.bee_counter_2_latch_succeeded,
-                    "raw_json": psycopg.types.json.Jsonb(payload.model_dump(mode="json", exclude={"claim_code"})),
-                },
+                )"""
+
+
+def measurement_insert_params(payload: "MeasurementIn", measured_at: datetime) -> dict:
+    """Build the named-parameter dict for ``MEASUREMENT_INSERT_SQL`` from a payload."""
+    return {
+        "device_id": payload.device_id,
+        "measured_at": measured_at,
+        "scale_1_weight_kg": payload.scale_1_weight_kg,
+        "scale_2_weight_kg": payload.scale_2_weight_kg,
+        "hive_1_temp_c": payload.hive_1_temp_c,
+        "hive_2_temp_c": payload.hive_2_temp_c,
+        "ambient_temp_c": payload.ambient_temp_c,
+        "ambient_humidity_percent": payload.ambient_humidity_percent,
+        "battery_voltage": payload.battery_voltage_v if payload.battery_voltage_v is not None else payload.battery_voltage,
+        "battery_soc_percent": payload.battery_soc_percent,
+        "battery_alert": payload.battery_alert,
+        "battery_monitor_ok": payload.battery_monitor_ok,
+        "solar_monitor_ok": payload.solar_monitor_ok,
+        "solar_bus_voltage_v": payload.solar_bus_voltage_v,
+        "solar_shunt_voltage_mv": payload.solar_shunt_voltage_mv,
+        "solar_load_voltage_v": payload.solar_load_voltage_v,
+        "solar_current_ma": payload.solar_current_ma,
+        "solar_power_mw": payload.solar_power_mw,
+        "network_transport": payload.network_transport,
+        "cellular_ok": payload.cellular_ok,
+        "cellular_csq": payload.cellular_csq,
+        "calibration_mode": payload.calibration_mode,
+        "boot_count": payload.boot_count,
+        "time_source": payload.time_source,
+        "rssi_dbm": payload.rssi_dbm,
+        "firmware_version": payload.firmware_version,
+        "config_version": payload.config_version,
+        "sd_ok": payload.sd_ok,
+        "rtc_ok": payload.rtc_ok,
+        "sht_ok": payload.sht_ok,
+        "scale_1_raw": payload.scale_1_raw,
+        "scale_2_raw": payload.scale_2_raw,
+        "mic_ok": payload.mic_ok,
+        "mic_sample_rate_hz": payload.mic_sample_rate_hz,
+        "mic_sample_frames": payload.mic_sample_frames,
+        "mic_left_ok": payload.mic_left_ok,
+        "mic_left_rms_dbfs": payload.mic_left_rms_dbfs,
+        "mic_left_peak_dbfs": payload.mic_left_peak_dbfs,
+        "mic_left_rms_normalized": payload.mic_left_rms_normalized,
+        "mic_right_ok": payload.mic_right_ok,
+        "mic_right_rms_dbfs": payload.mic_right_rms_dbfs,
+        "mic_right_peak_dbfs": payload.mic_right_peak_dbfs,
+        "mic_right_rms_normalized": payload.mic_right_rms_normalized,
+        "mic_left_band_sub_bass_dbfs":  payload.mic_left_band_sub_bass_dbfs,
+        "mic_left_band_hum_dbfs":       payload.mic_left_band_hum_dbfs,
+        "mic_left_band_piping_dbfs":    payload.mic_left_band_piping_dbfs,
+        "mic_left_band_stress_dbfs":    payload.mic_left_band_stress_dbfs,
+        "mic_left_band_high_dbfs":      payload.mic_left_band_high_dbfs,
+        "mic_right_band_sub_bass_dbfs": payload.mic_right_band_sub_bass_dbfs,
+        "mic_right_band_hum_dbfs":      payload.mic_right_band_hum_dbfs,
+        "mic_right_band_piping_dbfs":   payload.mic_right_band_piping_dbfs,
+        "mic_right_band_stress_dbfs":   payload.mic_right_band_stress_dbfs,
+        "mic_right_band_high_dbfs":     payload.mic_right_band_high_dbfs,
+        "bee_counter_1_ok":               payload.bee_counter_1_ok,
+        "bee_counter_1_protocol_version": payload.bee_counter_1_protocol_version,
+        "bee_counter_1_status_flags":     payload.bee_counter_1_status_flags,
+        "bee_counter_1_uptime_s":         payload.bee_counter_1_uptime_s,
+        "bee_counter_1_num_gates":        payload.bee_counter_1_num_gates,
+        "bee_counter_1_gates_healthy":    payload.bee_counter_1_gates_healthy,
+        "bee_counter_1_total_in":         payload.bee_counter_1_total_in,
+        "bee_counter_1_total_out":        payload.bee_counter_1_total_out,
+        "bee_counter_1_interval_in":      payload.bee_counter_1_interval_in,
+        "bee_counter_1_interval_out":     payload.bee_counter_1_interval_out,
+        "bee_counter_1_glitch_count":     payload.bee_counter_1_glitch_count,
+        "bee_counter_1_busy_retries":     payload.bee_counter_1_busy_retries,
+        "bee_counter_1_read_attempts":    payload.bee_counter_1_read_attempts,
+        "bee_counter_1_latch_succeeded":  payload.bee_counter_1_latch_succeeded,
+        "bee_counter_2_ok":               payload.bee_counter_2_ok,
+        "bee_counter_2_protocol_version": payload.bee_counter_2_protocol_version,
+        "bee_counter_2_status_flags":     payload.bee_counter_2_status_flags,
+        "bee_counter_2_uptime_s":         payload.bee_counter_2_uptime_s,
+        "bee_counter_2_num_gates":        payload.bee_counter_2_num_gates,
+        "bee_counter_2_gates_healthy":    payload.bee_counter_2_gates_healthy,
+        "bee_counter_2_total_in":         payload.bee_counter_2_total_in,
+        "bee_counter_2_total_out":        payload.bee_counter_2_total_out,
+        "bee_counter_2_interval_in":      payload.bee_counter_2_interval_in,
+        "bee_counter_2_interval_out":     payload.bee_counter_2_interval_out,
+        "bee_counter_2_glitch_count":     payload.bee_counter_2_glitch_count,
+        "bee_counter_2_busy_retries":     payload.bee_counter_2_busy_retries,
+        "bee_counter_2_read_attempts":    payload.bee_counter_2_read_attempts,
+        "bee_counter_2_latch_succeeded":  payload.bee_counter_2_latch_succeeded,
+        "raw_json": psycopg.types.json.Jsonb(payload.model_dump(mode="json", exclude={"claim_code"})),
+    }
+
+
+@app.post("/api/v1/measurements")
+def create_measurement(payload: MeasurementIn, x_api_key: str = Header(default="")):
+    if len(x_api_key) < 16:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    measured_at = payload.timestamp or datetime.now(timezone.utc)
+    ensure_device_config(payload.device_id, payload.claim_code, payload.firmware_version, x_api_key)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                MEASUREMENT_INSERT_SQL + " RETURNING id;",
+                measurement_insert_params(payload, measured_at),
             )
             new_id = cur.fetchone()[0]
             conn.commit()
     return {"status": "ok", "id": new_id, "measured_at": measured_at.isoformat()}
+
+
+@app.post(
+    "/api/v1/app/devices/{device_id}/measurements/import",
+    dependencies=[Depends(require_hivepal_service_key)],
+)
+def import_measurements(
+    device_id: str,
+    payload: MeasurementImportIn,
+    user_id: str = Depends(require_user_id),
+):
+    """Bulk-import measurements parsed from a device's SD card backup.
+
+    Called by the HivePal web backend after a beekeeper uploads the NDJSON/TAR
+    they pulled from the scale in AP mode. The device must already be claimed by
+    a user with owner/admin access — we never auto-create devices from uploaded
+    data, since the file's ``device_id`` is attacker-controllable and ownership
+    is established through the claim-code flow.
+
+    Re-importing the same file is a no-op: ``(device_id, measured_at)`` is treated
+    as the natural key and existing rows are skipped, so duplicates inside the
+    file and rows already stored are both counted and ignored.
+    """
+    require_device_role(user_id, device_id, ["owner", "admin"])
+
+    # Force the path device_id onto every row so a file cannot smuggle readings
+    # in under a different device the caller may not own.
+    prepared: list[tuple[datetime, MeasurementIn]] = []
+    for measurement in payload.measurements:
+        measured_at = measurement.timestamp or datetime.now(timezone.utc)
+        prepared.append(
+            (measured_at, measurement.model_copy(update={"device_id": device_id}))
+        )
+
+    # Keep the first record seen for each timestamp (file duplicates are identical).
+    record_by_key: dict[datetime, MeasurementIn] = {}
+    for measured_at, measurement in prepared:
+        record_by_key.setdefault(measured_at, measurement)
+
+    received = len(payload.measurements)
+    inserted = 0
+    duplicates = 0
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            keys = [measured_at for measured_at, _ in prepared]
+            existing: set = set()
+            unique_keys = list(record_by_key.keys())
+            if unique_keys:
+                cur.execute(
+                    "SELECT measured_at FROM measurements "
+                    "WHERE device_id = %s AND measured_at = ANY(%s);",
+                    (device_id, unique_keys),
+                )
+                existing = {row[0] for row in cur.fetchall()}
+
+            new_keys, duplicates = split_new_and_duplicate(keys, existing)
+            if new_keys:
+                cur.executemany(
+                    MEASUREMENT_INSERT_SQL + ";",
+                    [
+                        measurement_insert_params(record_by_key[key], key)
+                        for key in new_keys
+                    ],
+                )
+                inserted = len(new_keys)
+            conn.commit()
+
+    return {
+        "status": "ok",
+        "device_id": device_id,
+        "received": received,
+        "inserted": inserted,
+        "duplicates": duplicates,
+    }
 
 
 # ---------------------------------------------------------------------------
