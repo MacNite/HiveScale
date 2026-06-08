@@ -2,7 +2,7 @@
 #include "sensors.h"
 #include "globals.h"
 #include "config.h"
-#include "network.h"
+#include "hivescale_network.h"
 #include "storage_power.h"
 #include "bee_counter_client.h"
 

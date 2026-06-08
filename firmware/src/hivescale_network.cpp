@@ -1,5 +1,5 @@
 // network.cpp — WiFi, HTTP, upload, OTA and command-queue implementation.
-#include "network.h"
+#include "hivescale_network.h"
 #include "globals.h"
 #include "config.h"
 #include "device_prefs.h"
