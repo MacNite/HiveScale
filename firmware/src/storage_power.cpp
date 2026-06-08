@@ -12,15 +12,16 @@
 #include "mics.h"
 #endif
 
-String wakeReasonName(esp_sleep_wakeup_cause_t reason) {
-  switch (reason) {
-    case ESP_SLEEP_WAKEUP_TIMER: return "timer";
-    case ESP_SLEEP_WAKEUP_EXT0: return "button/ext0";
-    case ESP_SLEEP_WAKEUP_EXT1: return "ext1";
-    case ESP_SLEEP_WAKEUP_TOUCHPAD: return "touchpad";
-    case ESP_SLEEP_WAKEUP_ULP: return "ulp";
-    default: return "power-on/reset";
-  }
+String wakeReasonName(uint32_t wakeCauses) {
+  // esp_sleep_get_wakeup_causes() returns a uint32_t bitmask; each cause is
+  // checked with BIT(enum_value) because the ESP_SLEEP_WAKEUP_* values are
+  // sequential indices, not powers of two.
+  if (wakeCauses & BIT(ESP_SLEEP_WAKEUP_TIMER))    return "timer";
+  if (wakeCauses & BIT(ESP_SLEEP_WAKEUP_EXT0))     return "button/ext0";
+  if (wakeCauses & BIT(ESP_SLEEP_WAKEUP_EXT1))     return "ext1";
+  if (wakeCauses & BIT(ESP_SLEEP_WAKEUP_TOUCHPAD)) return "touchpad";
+  if (wakeCauses & BIT(ESP_SLEEP_WAKEUP_ULP))      return "ulp";
+  return "power-on/reset";
 }
 
 void releaseSleepPinHolds() {

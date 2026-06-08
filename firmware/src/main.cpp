@@ -69,10 +69,10 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  esp_sleep_wakeup_cause_t wakeReason = esp_sleep_get_wakeup_cause();
-  bool wokeFromDeepSleep = wakeReason == ESP_SLEEP_WAKEUP_TIMER ||
-                            wakeReason == ESP_SLEEP_WAKEUP_EXT0 ||
-                            wakeReason == ESP_SLEEP_WAKEUP_EXT1;
+  uint32_t wakeReason = esp_sleep_get_wakeup_causes();
+  bool wokeFromDeepSleep = (wakeReason & BIT(ESP_SLEEP_WAKEUP_TIMER)) ||
+                            (wakeReason & BIT(ESP_SLEEP_WAKEUP_EXT0)) ||
+                            (wakeReason & BIT(ESP_SLEEP_WAKEUP_EXT1));
 
   releaseSleepPinHolds();
   pinMode(SETUP_BUTTON_PIN, INPUT_PULLUP);
@@ -90,7 +90,7 @@ void setup() {
   seedPrefsFromSecretsIfNeeded();
   loadConfigFromPrefs();
 
-  if (digitalRead(SETUP_BUTTON_PIN) == LOW || wakeReason == ESP_SLEEP_WAKEUP_EXT0) {
+  if (digitalRead(SETUP_BUTTON_PIN) == LOW || (wakeReason & BIT(ESP_SLEEP_WAKEUP_EXT0))) {
     Serial.println("[SETUP] Button wake/press detected; starting provisioning portal");
     initSdCard();
     startProvisioningPortal();

@@ -10,7 +10,7 @@
 #include <esp_sleep.h>
 
 // ---- Power / sleep --------------------------------------------------------
-String wakeReasonName(esp_sleep_wakeup_cause_t reason);
+String wakeReasonName(uint32_t wakeCauses);
 void releaseSleepPinHolds();
 uint32_t cyclesForInterval(unsigned long intervalMs);
 bool shouldCheckOtaThisCycle();
