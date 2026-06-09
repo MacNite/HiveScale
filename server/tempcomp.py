@@ -55,6 +55,35 @@ TEMP_SOURCE_FIELD = {
 # Defaults mirrored by the device_configs columns / DeviceConfig model.
 DEFAULT_REF_TEMP_C = 20.0
 DEFAULT_TEMP_SOURCE = "ambient"
+# EMA smoothing factor for temperature before applying compensation.
+# alpha=1.0 disables smoothing (raw temperature); lower values smooth more.
+# At a 10-minute measurement interval, 0.3 gives roughly a 20-minute time
+# constant — enough to damp sunrise/sunset transients without lagging badly.
+DEFAULT_EMA_ALPHA = 0.3
+
+
+def ema_temperatures(
+    temps: list,
+    alpha: float = DEFAULT_EMA_ALPHA,
+) -> list:
+    """Exponential moving average over a temperature sequence.
+
+    Smooths the temperature series fed to compensate_weight so that fast
+    transients (sunrise, direct sun on the enclosure) don't produce a spike in
+    the corrected weight. None values pass through unchanged; the EMA state
+    carries forward across them using the last known value.
+
+    alpha in (0, 1]: 1.0 = no smoothing, smaller = heavier smoothing.
+    """
+    smoothed: list = []
+    last: Optional[float] = None
+    for t in temps:
+        if t is None:
+            smoothed.append(None)
+        else:
+            last = t if last is None else alpha * t + (1.0 - alpha) * last
+            smoothed.append(last)
+    return smoothed
 
 
 def compensate_weight(

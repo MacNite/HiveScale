@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
-from tempcomp import compensate_weight, fit_temp_coefficient  # noqa: E402
+from tempcomp import compensate_weight, ema_temperatures, fit_temp_coefficient  # noqa: E402
 
 
 _failures = 0
@@ -58,6 +58,23 @@ check(
     "missing ref temp falls back to default 20°C",
     approx(compensate_weight(50.10, 30.0, None, 0.01), 50.0),
 )
+
+
+# ── ema_temperatures ─────────────────────────────────────────────────────────
+
+check("alpha=1 is a no-op (raw passthrough)", ema_temperatures([10.0, 20.0, 30.0], alpha=1.0) == [10.0, 20.0, 30.0])
+check("first value is always passed through unchanged", ema_temperatures([15.0, 25.0], alpha=0.5)[0] == 15.0)
+check(
+    "second value blended correctly",
+    approx(ema_temperatures([10.0, 20.0], alpha=0.5)[1], 15.0),
+)
+check("None passes through and EMA state is preserved", ema_temperatures([10.0, None, 20.0], alpha=1.0) == [10.0, None, 20.0])
+check(
+    "EMA continues across None using last known value",
+    approx(ema_temperatures([10.0, None, 10.0], alpha=0.5)[2], 10.0),
+)
+check("empty list returns empty list", ema_temperatures([]) == [])
+check("all-None list returns all-None", ema_temperatures([None, None]) == [None, None])
 
 
 # ── fit_temp_coefficient ─────────────────────────────────────────────────────

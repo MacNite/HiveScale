@@ -38,6 +38,7 @@ from tempcomp import (
     DEFAULT_REF_TEMP_C,
     DEFAULT_TEMP_SOURCE,
     compensate_weight,
+    ema_temperatures,
     fit_temp_coefficient,
 )
 
@@ -1415,29 +1416,43 @@ def load_tempco_configs(device_ids) -> dict:
 def attach_temperature_compensation(measurements: list[dict]) -> list[dict]:
     """Fill in the compensated-weight fields on serialized measurement dicts.
 
-    Looks up each device's coefficient once (a single batched query) and applies
-    the first-order correction from server/tempcomp.py. Rows whose device has no
-    enabled coefficient keep the defaults set in measurement_row_to_dict (raw
-    weight, tempco_applied=False).
+    Looks up each device's coefficient once (a single batched query), applies an
+    EMA to the temperature series (per device, in time order) to damp transient
+    lag errors, then applies the first-order correction from server/tempcomp.py.
+    Rows whose device has no enabled coefficient keep the defaults set in
+    measurement_row_to_dict (raw weight, tempco_applied=False).
     """
     if not measurements:
         return measurements
     cfgs = load_tempco_configs(m["device_id"] for m in measurements)
     if not cfgs:
         return measurements
+
+    # Group by device so EMA runs over each device's time-ordered sequence.
+    from collections import defaultdict
+    by_device: dict = defaultdict(list)
     for m in measurements:
-        cfg = cfgs.get(m["device_id"])
+        by_device[m["device_id"]].append(m)
+
+    for device_id, rows in by_device.items():
+        cfg = cfgs.get(device_id)
         if not cfg:
             continue
         source, ref_temp, c1, c2 = cfg
-        temp = m.get(TEMP_SOURCE_FIELD.get(source, "ambient_temp_c"))
-        m["scale_1_weight_kg_compensated"] = compensate_weight(
-            m["scale_1_weight_kg"], temp, ref_temp, c1
-        )
-        m["scale_2_weight_kg_compensated"] = compensate_weight(
-            m["scale_2_weight_kg"], temp, ref_temp, c2
-        )
-        m["tempco_applied"] = True
+        field = TEMP_SOURCE_FIELD.get(source, "ambient_temp_c")
+
+        rows.sort(key=lambda m: m["measured_at"])
+        smoothed_temps = ema_temperatures([m.get(field) for m in rows])
+
+        for m, temp in zip(rows, smoothed_temps):
+            m["scale_1_weight_kg_compensated"] = compensate_weight(
+                m["scale_1_weight_kg"], temp, ref_temp, c1
+            )
+            m["scale_2_weight_kg_compensated"] = compensate_weight(
+                m["scale_2_weight_kg"], temp, ref_temp, c2
+            )
+            m["tempco_applied"] = True
+
     return measurements
 
 
