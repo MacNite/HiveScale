@@ -1446,6 +1446,33 @@ def serialize_measurements(rows) -> list[dict]:
     return attach_temperature_compensation([measurement_row_to_dict(r) for r in rows])
 
 
+def measurements_for_insights(rows) -> list[dict]:
+    """Build measurement dicts for the insight engine on temperature-compensated
+    weights.
+
+    compute_insights() reads weight from ``scale_1_weight_kg`` /
+    ``scale_2_weight_kg``. Those keys hold the raw load-cell weight; the
+    compensated values live under the separate ``*_compensated`` keys. We run the
+    same compensation as the read APIs (serialize_measurements) and then fold the
+    compensated weight into the primary keys so every weight-based detector
+    (swarm, robbing, foraging, absconding, winter risk, harvest window) operates
+    on corrected weight without any change to the engine.
+
+    The compensated fields default to the raw weight when compensation is
+    disabled or no coefficient is set, so this is a no-op in that case. These
+    dicts are throwaway inputs to the engine — the stored DB rows are untouched.
+    """
+    measurements = serialize_measurements(rows)
+    for m in measurements:
+        comp1 = m.get("scale_1_weight_kg_compensated")
+        comp2 = m.get("scale_2_weight_kg_compensated")
+        if comp1 is not None:
+            m["scale_1_weight_kg"] = comp1
+        if comp2 is not None:
+            m["scale_2_weight_kg"] = comp2
+    return measurements
+
+
 @app.get("/api/v1/measurements/latest", dependencies=[Depends(require_api_key)])
 def latest_measurements(limit: int = 50):
     limit = min(max(limit, 1), 500)
@@ -2363,7 +2390,7 @@ def reconcile_device_insights(
                 (device_id, start_at),
             )
             rows = cur.fetchall()
-    measurements = [measurement_row_to_dict(r) for r in rows]
+    measurements = measurements_for_insights(rows)
     alerts = compute_insights(measurements, now=end_at)
     persist_insights(device_id, alerts, end_at)
     return len(alerts)
@@ -2501,7 +2528,7 @@ def get_device_insights(
             )
             rows = cur.fetchall()
 
-    measurements = [measurement_row_to_dict(r) for r in rows]
+    measurements = measurements_for_insights(rows)
     alerts = compute_insights(measurements, now=end_at)
     return {
         "device_id": device_id,
@@ -2541,7 +2568,7 @@ def get_device_insights_summary(
             )
             rows = cur.fetchall()
 
-    measurements = [measurement_row_to_dict(r) for r in rows]
+    measurements = measurements_for_insights(rows)
     alerts = compute_insights(measurements, now=end_at)
     # Opportunistically keep the persisted history fresh on every summary hit,
     # in addition to the background reconciler. Never let a persistence error
