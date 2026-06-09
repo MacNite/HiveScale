@@ -525,7 +525,8 @@ temperature-compensation fields in addition to the calibration fields.
 ### `POST /api/v1/app/devices/{device_id}/temp-compensation/fit`
 
 Fits a load-cell temperature coefficient from the device's own history by
-regressing a scale's raw weight against a temperature channel. A plain fit needs
+regressing a scale's raw weight against an EMA-smoothed temperature channel (the
+same smoothing applied at read time). A plain fit needs
 `viewer`; persisting it (`apply: true`) needs `owner`/`admin`. See
 [temperature-compensation.md](temperature-compensation.md).
 
@@ -556,8 +557,11 @@ Returns measurements for one device.
 
 The response includes off-grid fields when the firmware sends them, plus
 `scale_1_weight_kg_compensated` / `scale_2_weight_kg_compensated` and a
-`tempco_applied` flag. When compensation is disabled the compensated values equal
-the raw weights and `tempco_applied` is `false`.
+`tempco_applied` flag. The compensated values apply the per-device coefficient to
+an EMA-smoothed temperature (see
+[temperature-compensation.md](temperature-compensation.md)). When compensation is
+disabled the compensated values equal the raw weights and `tempco_applied` is
+`false`.
 
 ### `GET /api/v1/app/devices/{device_id}/measurements/latest`
 

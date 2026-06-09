@@ -2068,9 +2068,11 @@ def fit_temp_compensation_from_app(
 ):
     """Derive a load-cell temperature coefficient from this device's history.
 
-    Regresses the chosen scale's *raw* weight against a temperature channel over
-    the requested window (see server/tempcomp.fit_temp_coefficient) and returns
-    the fit. With ``apply=true`` the coefficient, reference temperature and
+    Regresses the chosen scale's *raw* weight against an EMA-smoothed temperature
+    channel over the requested window (see server/tempcomp.fit_temp_coefficient
+    and ema_temperatures) — the same smoothing read-time compensation applies, so
+    the coefficient is fitted in the regime it is used in — and returns the fit.
+    With ``apply=true`` the coefficient, reference temperature and
     temperature source are written to the device config and compensation is
     enabled — applying ``apply`` requires owner/admin, a plain fit needs only
     viewer access.
@@ -2100,6 +2102,13 @@ def fit_temp_compensation_from_app(
                 params,
             )
             samples = cur.fetchall()
+
+    # Smooth the temperature series the same way read-time compensation does, so
+    # the coefficient is fitted in the regime it is applied in
+    # (raw − coeff·(EMA(temp) − ref)). Rows come back ordered by measured_at ASC,
+    # which is what the EMA needs.
+    smoothed_temps = ema_temperatures([row[0] for row in samples])
+    samples = [(t, row[1]) for t, row in zip(smoothed_temps, samples)]
 
     fit = fit_temp_coefficient(samples)
     fit.update(

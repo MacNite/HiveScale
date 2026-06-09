@@ -32,10 +32,12 @@ backend — which is not how HiveScale is used.
 
 ## The model
 
-A first-order (linear) correction around a reference temperature:
+A first-order (linear) correction around a reference temperature, applied to an
+**EMA-smoothed** temperature:
 
 ```
-compensated_kg = raw_kg - coeff_kg_per_c * (temp_c - ref_temp_c)
+ema_temp_c    = ema(temp_c)            # exponential moving average, per device
+compensated_kg = raw_kg - coeff_kg_per_c * (ema_temp_c - ref_temp_c)
 ```
 
 - `coeff_kg_per_c` — drift of the **reported** weight per °C, in kg/°C. Positive
@@ -44,6 +46,25 @@ compensated_kg = raw_kg - coeff_kg_per_c * (temp_c - ref_temp_c)
   kilogram value.
 - `ref_temp_c` — the temperature at which the correction is zero, i.e. the
   temperature the compensated reading is normalized to.
+
+### Temperature smoothing (EMA)
+
+Before the correction is applied, the temperature channel is run through an
+**exponential moving average** (`ema_temperatures` in `server/tempcomp.py`),
+computed per device over its time-ordered measurements:
+
+```
+ema_t = alpha * temp_t + (1 - alpha) * ema_(t-1)
+```
+
+The ambient sensor reacts faster than the load cell's body, so on fast swings
+(sunrise, direct sun on the enclosure) the raw temperature would over-correct
+and inject a spike into the compensated weight. The EMA damps those transients
+so the corrected series tracks the slow thermal drift instead of the sensor's
+noise. `alpha` defaults to `0.3` (`DEFAULT_EMA_ALPHA`) — at a 10-minute
+measurement interval that is roughly a 20-minute time constant. `alpha = 1.0`
+disables smoothing (raw temperature); lower values smooth more. `None` readings
+pass through and the EMA carries its last value across the gap.
 
 The math lives in [`server/tempcomp.py`](../server/tempcomp.py) and is covered by
 [`test-data/test_tempcomp.py`](../test-data/test_tempcomp.py) (pure functions, no
@@ -67,9 +88,10 @@ the fit endpoint write them for you.
 
 > **Note on the temperature source.** The SHT4x measures *ambient air*, which
 > tracks the cell body closely in steady state but lags it during fast swings
-> (sunrise, direct sun on the enclosure), so the correction is imperfect on
-> transients. A thermistor bonded to the cell body would be the gold standard; the
-> ambient sensor is a solid, already-present starting point.
+> (sunrise, direct sun on the enclosure). The EMA smoothing (above) is what keeps
+> those transients from corrupting the correction; a thermistor bonded to the cell
+> body would be the gold standard, but the ambient sensor plus EMA is a solid,
+> already-present starting point.
 
 ## What the API returns
 
@@ -110,7 +132,9 @@ drift, then fit:
    ```
 
    The endpoint regresses that scale's raw weight against the chosen temperature
-   over the window and returns:
+   over the window — first running the temperature through the same EMA smoothing
+   used at read time, so the coefficient is fitted in the regime it is applied in
+   — and returns:
 
    - `coeff_kg_per_c` — the fitted slope;
    - `ref_temp_c` — the mean temperature of the window (the natural reference);
