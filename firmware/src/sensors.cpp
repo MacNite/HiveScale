@@ -199,7 +199,15 @@ String createMeasurementJson() {
   JsonDocument doc;
   doc["device_id"] = deviceId;
   if (claimCode.length() > 0 && !claimRegistered) doc["claim_code"] = claimCode;
-  doc["timestamp"] = timestampNow();
+  // Only attach a client timestamp when the device actually knows the time.
+  // When RTC and NTP have both failed (timeSource == "invalid"), timestampNow()
+  // returns the 1970-01-01 epoch fallback. The server stores the client
+  // timestamp verbatim, so sending 1970 silently freezes "last data" in the
+  // dashboard at the last good reading even though uploads keep succeeding.
+  // Omitting the field instead lets the server stamp the row with its own clock.
+  if (timeSource != "invalid") {
+    doc["timestamp"] = timestampNow();
+  }
   doc["scale_1_weight_kg"] = weight1;
   doc["scale_2_weight_kg"] = weight2;
   doc["hive_1_temp_c"] = hiveTemp1;

@@ -12,13 +12,22 @@ bool micsI2sInstalled = false;  // keep this global as before
 // initMicsI2s() succeeds. The old driver was addressed purely by port number;
 // the new one hands back an opaque channel handle that every call needs.
 static i2s_chan_handle_t micsRxChan = nullptr;
+
+// Finite dBFS value reported for a silent / unmeasurable band, instead of NAN.
+// Mirrors the floor used by the broadband RMS/peak stats below.
+static constexpr float MIC_SILENCE_DBFS = -200.0f;
  
 // ---------------------------------------------------------------------------
 // Helper: compute band energy from a magnitude spectrum.
 // binFreq(n) = n * sampleRate / fftSize
 // Returns the RMS energy of all bins whose centre frequency falls in [loHz, hiHz],
 // expressed in dBFS relative to the same full-scale reference used for broadband RMS.
-// Returns NAN if no bins fall in the range.
+// Returns the silence floor (MIC_SILENCE_DBFS) when no bins fall in the range or
+// the band is silent — never NAN. A raw NAN here would be serialized into the
+// measurement JSON (as null with this ArduinoJson build, but as a literal "nan"
+// token if NAN output is ever enabled, which is invalid JSON and would make the
+// whole measurement POST fail validation server-side). The broadband RMS/peak
+// stats already use this same finite floor, so the bands now match them.
 // ---------------------------------------------------------------------------
 // normScale converts a raw FFT bin magnitude back to a full-scale-relative
 // amplitude. The time-domain samples are already divided by the ADC full scale
@@ -35,14 +44,14 @@ static float bandEnergyDbfs(const double* magnitudes, size_t fftSize,
   size_t binHi = (size_t)floor((double)hiHz / freqPerBin);
   // Only use the first half of the spectrum (Nyquist)
   size_t nyquist = fftSize / 2;
-  if (binLo >= nyquist) return NAN;
+  if (binLo >= nyquist) return MIC_SILENCE_DBFS;
   if (binHi >= nyquist) binHi = nyquist - 1;
   for (size_t b = binLo; b <= binHi; b++) {
     double m = magnitudes[b] / normScale;
     sumSq += m * m;
     count++;
   }
-  if (count == 0 || sumSq <= 0.0) return NAN;
+  if (count == 0 || sumSq <= 0.0) return MIC_SILENCE_DBFS;
   float rms = (float)sqrt(sumSq / (double)count);
   return (float)(20.0 * log10((double)rms));
 }

@@ -89,6 +89,11 @@ INSIGHTS_HISTORY_LOOKBACK_DAYS = int(
 
 logger = logging.getLogger("hivescale.insights")
 
+# Earliest year a device-supplied measurement timestamp is trusted. Anything
+# older (notably the 1970 epoch a device emits when RTC and NTP both fail) is
+# treated as a missing timestamp and replaced with the server clock on ingest.
+MIN_PLAUSIBLE_YEAR = 2020
+
 
 class MaxBodySizeMiddleware:
     """Reject requests whose body exceeds ``max_body_bytes``.
@@ -1056,7 +1061,21 @@ def measurement_insert_params(payload: "MeasurementIn", measured_at: datetime) -
 def create_measurement(payload: MeasurementIn, x_api_key: str = Header(default="")):
     if len(x_api_key) < 16:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    measured_at = payload.timestamp or datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    # A device whose RTC and NTP have both failed sends the 1970 epoch fallback
+    # (or, more generally, a clock far from reality). Storing that verbatim
+    # freezes "last data" in the dashboard even though uploads keep arriving, so
+    # we fall back to the server clock for any missing or implausible timestamp.
+    measured_at = payload.timestamp
+    if measured_at is None or not (
+        measured_at.year >= MIN_PLAUSIBLE_YEAR and measured_at <= now + timedelta(days=1)
+    ):
+        if measured_at is not None:
+            logger.warning(
+                "Ignoring implausible client timestamp %s from device %s; using server time",
+                measured_at.isoformat(), payload.device_id,
+            )
+        measured_at = now
     ensure_device_config(payload.device_id, payload.claim_code, payload.firmware_version, x_api_key)
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -1396,20 +1415,34 @@ def load_tempco_configs(device_ids) -> dict:
     ids = [d for d in {d for d in device_ids} if d]
     if not ids:
         return {}
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT device_id, tempco_source, tempco_ref_temp_c,
-                       scale1_tempco_kg_per_c, scale2_tempco_kg_per_c
-                FROM device_configs
-                WHERE device_id = ANY(%s)
-                  AND tempco_enabled
-                  AND (scale1_tempco_kg_per_c <> 0 OR scale2_tempco_kg_per_c <> 0);
-                """,
-                (ids,),
-            )
-            rows = cur.fetchall()
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT device_id, tempco_source, tempco_ref_temp_c,
+                           scale1_tempco_kg_per_c, scale2_tempco_kg_per_c
+                    FROM device_configs
+                    WHERE device_id = ANY(%s)
+                      AND tempco_enabled
+                      AND (scale1_tempco_kg_per_c <> 0 OR scale2_tempco_kg_per_c <> 0);
+                    """,
+                    (ids,),
+                )
+                rows = cur.fetchall()
+    except psycopg.errors.UndefinedColumn:
+        # The temp-compensation columns are missing — migration 006 has not been
+        # applied (e.g. the process was hot-reloaded without re-running init_db).
+        # Degrade to serving raw, uncompensated weights rather than 500-ing the
+        # whole measurement-read endpoint, which would blank "last data" in the
+        # dashboard. Reads keep working; compensation resumes once the migration
+        # runs.
+        logger.warning(
+            "device_configs temp-compensation columns missing; "
+            "serving uncompensated weights. Apply migration "
+            "006_loadcell_temp_compensation.sql (or restart to run init_db)."
+        )
+        return {}
     return {r[0]: (r[1], r[2], r[3], r[4]) for r in rows}
 
 
