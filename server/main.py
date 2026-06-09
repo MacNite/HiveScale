@@ -471,7 +471,13 @@ def require_user_id(authorization: str = Header(default="")) -> str:
 
 
 def verify_device_key(device_id: str, api_key: str):
-    """Register a device's API key on first contact; reject mismatches thereafter."""
+    """Register a device's API key on first contact; reject mismatches thereafter.
+
+    This runs only for device-authenticated endpoints (config/firmware/command
+    polls), so it is also where we record genuine device contact: last_seen_at
+    is bumped here, never by the HivePal app reading config on the device's
+    behalf (see ensure_device_config / touch_last_seen).
+    """
     if len(api_key) < 16:
         raise HTTPException(status_code=401, detail="Invalid API key")
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
@@ -480,7 +486,8 @@ def verify_device_key(device_id: str, api_key: str):
             cur.execute(
                 """
                 UPDATE devices
-                SET api_key_hash = COALESCE(api_key_hash, %s)
+                SET api_key_hash = COALESCE(api_key_hash, %s),
+                    last_seen_at = now()
                 WHERE device_id = %s
                 RETURNING api_key_hash
                 """,
@@ -823,17 +830,30 @@ def ensure_device_config(
     claim_code: Optional[str] = None,
     firmware_version: Optional[str] = None,
     api_key: str = "",
+    touch_last_seen: bool = False,
 ):
+    """Upsert the devices/device_configs rows for a device.
+
+    last_seen_at is updated only when touch_last_seen is True — i.e. only for a
+    genuine measurement upload. It must NOT be bumped when the HivePal app reads
+    or edits config on the device's behalf (the common case here), otherwise an
+    open dashboard polling config keeps a long-offline device looking "online".
+    Device config/firmware polls record contact via verify_device_key instead.
+    """
     claim_hash = hash_claim_code(claim_code) if claim_code else None
     key_hash = hashlib.sha256(api_key.encode()).hexdigest() if len(api_key) >= 16 else None
+    # Leave last_seen_at untouched for non-device-contact calls: NULL on first
+    # insert, unchanged on conflict.
+    insert_last_seen = "now()" if touch_last_seen else "NULL"
+    update_last_seen = "last_seen_at = now()," if touch_last_seen else ""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 INSERT INTO devices (device_id, claim_code_hash, api_key_hash, last_seen_at, last_firmware_version)
-                VALUES (%s, %s, %s, now(), %s)
+                VALUES (%s, %s, %s, {insert_last_seen}, %s)
                 ON CONFLICT (device_id) DO UPDATE
-                    SET last_seen_at = now(),
+                    SET {update_last_seen}
                         last_firmware_version = COALESCE(EXCLUDED.last_firmware_version, devices.last_firmware_version),
                         claim_code_hash = COALESCE(devices.claim_code_hash, EXCLUDED.claim_code_hash),
                         api_key_hash = COALESCE(devices.api_key_hash, EXCLUDED.api_key_hash)
@@ -1076,7 +1096,10 @@ def create_measurement(payload: MeasurementIn, x_api_key: str = Header(default="
                 measured_at.isoformat(), payload.device_id,
             )
         measured_at = now
-    ensure_device_config(payload.device_id, payload.claim_code, payload.firmware_version, x_api_key)
+    ensure_device_config(
+        payload.device_id, payload.claim_code, payload.firmware_version, x_api_key,
+        touch_last_seen=True,
+    )
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
