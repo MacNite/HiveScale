@@ -20,8 +20,16 @@ static constexpr float MIC_SILENCE_DBFS = -200.0f;
 // ---------------------------------------------------------------------------
 // Helper: compute band energy from a magnitude spectrum.
 // binFreq(n) = n * sampleRate / fftSize
-// Returns the RMS energy of all bins whose centre frequency falls in [loHz, hiHz],
-// expressed in dBFS relative to the same full-scale reference used for broadband RMS.
+// Returns the TOTAL energy of all bins whose centre frequency falls in
+// [loHz, hiHz], expressed in dBFS relative to the same full-scale reference used
+// for broadband RMS. We sum the per-bin power across the band (no division by
+// the bin count) so that the value reflects the real acoustic energy in the
+// band and is comparable between bands of different widths. The previous
+// implementation averaged power per bin, which made wide bands (e.g. stress
+// 550-1500 Hz ≈ 121 bins) read ~8-10 dB lower than narrow bands (e.g. hum
+// 150-300 Hz ≈ 19 bins) for the same energy, and diluted any broadband colony
+// noise down toward the floor — making the bands hard to interpret.
+//
 // Returns the silence floor (MIC_SILENCE_DBFS) when no bins fall in the range or
 // the band is silent — never NAN. A raw NAN here would be serialized into the
 // measurement JSON (as null with this ArduinoJson build, but as a literal "nan"
@@ -33,12 +41,13 @@ static constexpr float MIC_SILENCE_DBFS = -200.0f;
 // amplitude. The time-domain samples are already divided by the ADC full scale
 // before the transform (see computeBands), so here we only undo the FFT gain:
 // a full-scale tone yields a peak-bin magnitude of ~(fftSize/2) * windowGain.
+// A full-scale tone landing in a single bin therefore gives a band sum of
+// 1.0 → 0 dBFS, keeping the bands on the broadband full-scale reference.
 static float bandEnergyDbfs(const double* magnitudes, size_t fftSize,
                              uint32_t sampleRate,
                              uint32_t loHz, uint32_t hiHz,
                              double normScale) {
   double sumSq = 0.0;
-  size_t count = 0;
   double freqPerBin = (double)sampleRate / (double)fftSize;
   size_t binLo = (size_t)ceil((double)loHz  / freqPerBin);
   size_t binHi = (size_t)floor((double)hiHz / freqPerBin);
@@ -49,10 +58,10 @@ static float bandEnergyDbfs(const double* magnitudes, size_t fftSize,
   for (size_t b = binLo; b <= binHi; b++) {
     double m = magnitudes[b] / normScale;
     sumSq += m * m;
-    count++;
   }
-  if (count == 0 || sumSq <= 0.0) return MIC_SILENCE_DBFS;
-  float rms = (float)sqrt(sumSq / (double)count);
+  if (sumSq <= 0.0) return MIC_SILENCE_DBFS;
+  // Total band amplitude = sqrt of summed per-bin power (Parseval), no /count.
+  float rms = (float)sqrt(sumSq);
   return (float)(20.0 * log10((double)rms));
 }
  
@@ -73,8 +82,17 @@ static void computeBands(const int32_t* samples, size_t count,
   }
  
   size_t n = min(count, (size_t)FFT_SAMPLE_COUNT);
+  // Remove the INMP441 DC bias before windowing. The broadband RMS path already
+  // subtracts the mean (variance = power), but the FFT path used to feed raw
+  // samples straight in, so the large DC term leaked through the Hann window's
+  // side lobes into the low bins and contaminated the sub_bass/hum bands. Match
+  // the RMS path by centring the block on its mean here too.
+  double mean = 0.0;
+  for (size_t i = 0; i < n; i++) mean += (double)samples[i];
+  if (n > 0) mean /= (double)n;
+
   for (size_t i = 0; i < n; i++) {
-    vReal[i] = (double)samples[i] / fullScale;
+    vReal[i] = ((double)samples[i] - mean) / fullScale;
     vImag[i] = 0.0;
   }
   // Zero-pad if we captured fewer than FFT_SAMPLE_COUNT samples
@@ -236,7 +254,13 @@ MicMeasurement readMicSamples() {
  
   double leftSum = 0.0, rightSum = 0.0;       // running sums for DC/mean removal
   double leftSumSq = 0.0, rightSumSq = 0.0;
-  int32_t leftPeak = 0, rightPeak = 0;
+  // Track signed min/max (not raw |peak|) so the peak can be measured relative
+  // to the DC mean once it is known. The INMP441 carries a large DC bias, so a
+  // raw |sample| peak is dominated by that offset and pins near full scale —
+  // making peak_dbfs unusable. |x - mean| is maximised at either the largest or
+  // smallest raw sample, so min/max is enough to recover the true peak below.
+  int32_t leftMin = INT32_MAX, leftMax = INT32_MIN;
+  int32_t rightMin = INT32_MAX, rightMax = INT32_MIN;
   uint32_t leftCount = 0, rightCount = 0;
   size_t leftFftCount = 0, rightFftCount = 0;
  
@@ -264,10 +288,10 @@ MicMeasurement readMicSamples() {
       rightSumSq += rf * rf;
       leftSumSq  += lf * lf;
  
-      int32_t absR = rs < 0 ? -rs : rs;
-      int32_t absL = ls < 0 ? -ls : ls;
-      if (absR > rightPeak) rightPeak = absR;
-      if (absL > leftPeak)  leftPeak  = absL;
+      if (rs > rightMax) rightMax = rs;
+      if (rs < rightMin) rightMin = rs;
+      if (ls > leftMax)  leftMax  = ls;
+      if (ls < leftMin)  leftMin  = ls;
  
       rightCount++;
       leftCount++;
@@ -286,7 +310,7 @@ MicMeasurement readMicSamples() {
   const double FULL_SCALE = 8388608.0; // 2^23
  
   auto fillStats = [&](MicChannelStats& s, double sum, double sumSq,
-                       int32_t peak, uint32_t count) {
+                       int32_t mn, int32_t mx, uint32_t count) {
     if (count == 0) return;
     s.ok = true;
     s.sampleCount = count;
@@ -301,13 +325,18 @@ MicMeasurement readMicSamples() {
     s.rmsDbfs  = s.rmsNormalized > 0.0f
                  ? (float)(20.0 * log10((double)s.rmsNormalized))
                  : -200.0f;
-    s.peakDbfs = peak > 0
-                 ? (float)(20.0 * log10((double)peak / FULL_SCALE))
+    // Peak relative to the DC mean, not the raw sample, for the same reason RMS
+    // subtracts the mean. The largest |sample - mean| is at one of the extremes.
+    double devHi = (double)mx - mean;
+    double devLo = mean - (double)mn;
+    double peakDev = devHi > devLo ? devHi : devLo;
+    s.peakDbfs = peakDev > 0.0
+                 ? (float)(20.0 * log10(peakDev / FULL_SCALE))
                  : -200.0f;
   };
 
-  fillStats(result.left,  leftSum,  leftSumSq,  leftPeak,  leftCount);
-  fillStats(result.right, rightSum, rightSumSq, rightPeak, rightCount);
+  fillStats(result.left,  leftSum,  leftSumSq,  leftMin,  leftMax,  leftCount);
+  fillStats(result.right, rightSum, rightSumSq, rightMin, rightMax, rightCount);
   result.ok = result.left.ok || result.right.ok;
  
   // ── FFT band analysis ──────────────────────────────────────────────────────
