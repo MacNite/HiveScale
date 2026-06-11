@@ -184,6 +184,57 @@ Multi-modal long-term sensing enables robust colony-state inference, with temper
 
 ---
 
+# 6. Ramsey et al. (2020) — *Scientific Reports* 10:9798
+**Paper:** *The prediction of swarming in honeybee colonies using vibrational spectra.*
+
+### Core Contribution
+The first study to **accurately predict swarming days-to-weeks in advance** from in-hive **vibration**, using accelerometers coupled to the comb.
+
+### Key Findings
+- A specific **~20 Hz vibrational signal** rises in the run-up to swarming.
+- The signal is **most discriminative at night (00:00–05:00)**.
+- A trained alarm fired in **>90 %** of swarming events and **never** for hives that did not swarm.
+- Crucially, ~20 Hz is **below the usable range of most hive microphones** (~50 Hz floor), so it is only reliably captured with a **low-frequency accelerometer**.
+
+### Relevance for HiveScale
+Direct basis for the per-hive **LIS3DH / LIS2DH12 accelerometer** and the
+`detect_vibration_swarm_prediction` insight: compare a recent **night-time** mean
+of the 8–30 Hz band to a longer baseline and warn on a sustained rise.
+
+### Main Takeaway
+A rising night-time ~20 Hz comb vibration is the strongest known multi-day swarm predictor — and needs an accelerometer, not a microphone.
+
+---
+
+# 7. Bencsik et al. (2011) — *Computers and Electronics in Agriculture* 76
+**Paper:** *Identification of the honey bee swarming process by analysing the time course of hive vibrations.*
+
+### Key Findings
+- Comb **vibration patterns diverge from baseline 5–10 hours to ~11 days before** swarming.
+- Established that accelerometer time-series carry a **pre-swarm** signature, not just a swarm-moment one.
+
+### Relevance for HiveScale
+Justifies a **trend/baseline** comparison over days (rather than an instantaneous threshold) for the vibration swarm detector.
+
+---
+
+# 8. Uthoff, Nabhan Homsi & von Bergen (2023) — *Computers and Electronics in Agriculture* 205:107589
+**Paper (review):** *Acoustic and vibration monitoring of honeybee colonies for beekeeping-relevant aspects of presence of queen bee and swarming.*
+
+### Key Findings
+- Surveys acoustic + vibration methods for **queen presence** and **swarming**.
+- Highlights that the predictive **~20 Hz** band "**cannot be recorded by most microphones**" and explicitly recommends **adding low-frequency accelerometers** to "maximise the data quality".
+- Notes the strongest signals (queen warble, swarm vibration) appear **at night**.
+
+### Relevance for HiveScale
+The review that motivated adding the accelerometer alongside the existing
+microphones, and the source for the night-time analysis window.
+
+### Main Takeaway
+To capture the best swarm-prediction signal, combine microphones with a **low-frequency accelerometer** — which HiveScale now does.
+
+---
+
 # Cross-Paper Synthesis
 
 ## Emerging Consensus Across the Literature
@@ -232,6 +283,7 @@ Based on the literature:
 3. Entrance traffic
 4. Optional humidity
 5. Optional audio
+6. Optional low-frequency vibration (accelerometer) — uniquely captures the ~20 Hz pre-swarm signal microphones miss
 
 ## Most Promising ML Features
 - Rolling temperature deviation

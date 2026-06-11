@@ -15,6 +15,10 @@
 #include "mics.h"
 #endif
 
+#if ENABLE_LIS3DH_ACCEL
+#include "accel.h"
+#endif
+
 void initializeTime(bool wokeFromDeepSleep) {
   if (rtcHasValidTime()) {
     timeSource = "rtc";
@@ -176,6 +180,16 @@ String createMeasurementJson() {
   MicMeasurement micResult = readMicSamples();
 #endif
 
+#if ENABLE_LIS3DH_ACCEL
+  // One accelerometer per hive on the shared I2C bus (0x18 / 0x19). Each capture
+  // is independent — a missing sensor just reports ok=false. Reading both adds
+  // roughly LIS3DH_SAMPLE_COUNT / ODR seconds per slot (~0.6 s each at default).
+  accel::AccelSnapshot accelSnap1;
+  accel::AccelSnapshot accelSnap2;
+  (void)accel::readSlot(accel::SLAVE_ADDR_SLOT_1, accelSnap1);
+  (void)accel::readSlot(accel::SLAVE_ADDR_SLOT_2, accelSnap2);
+#endif
+
 // ---- BeeCounter polling -------------------------------------------------
   // Poll both possible BeeCounters on the shared I2C bus. Each slot is
   // independent — a missing counter just reports "ok=false". Reading both
@@ -265,6 +279,11 @@ String createMeasurementJson() {
 
   beecnt::writeSnapshotToJson(doc, 1, beeSnap1);
   beecnt::writeSnapshotToJson(doc, 2, beeSnap2);
+
+#if ENABLE_LIS3DH_ACCEL
+  accel::writeSnapshotToJson(doc, 1, accelSnap1);
+  accel::writeSnapshotToJson(doc, 2, accelSnap2);
+#endif
 
   String output;
   serializeJson(doc, output);

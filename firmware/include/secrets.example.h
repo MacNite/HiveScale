@@ -84,6 +84,37 @@
 #define INMP441_SAMPLE_FRAMES    8000
 
 // ==============================
+// LIS3DH / LIS2DH12 ACCELEROMETERS (per-hive vibration)
+// ==============================
+// One MEMS accelerometer per hive on the shared I2C bus captures low-frequency
+// comb/wall vibration — most importantly the ~20 Hz pre-swarm signal that hive
+// microphones miss (Ramsey et al. 2020; Uthoff et al. 2023). The LIS3DH on the
+// purple breakout (prototype) and the LIS2DH12TR (final BOM) are register- and
+// address-compatible, so the same firmware drives both. See docs/wiring.md and
+// docs/accelerometer.md.
+//
+// Wiring (I2C mode) per board:
+//   VCC -> 3.3V, GND -> GND, SCL -> GPIO22, SDA -> GPIO21
+//   CS  -> 3.3V            (forces I2C; LOW would select SPI)
+//   SDO -> GND for hive 1 (address 0x18), SDO -> 3.3V for hive 2 (address 0x19)
+//   INT1/INT2/ADC1-3      left unconnected (polled reads, no interrupts used)
+#define ENABLE_LIS3DH_ACCEL      1
+
+#define LIS3DH_ADDR_SLOT_1       0x18   // hive 1 (SDO/SA0 -> GND)
+#define LIS3DH_ADDR_SLOT_2       0x19   // hive 2 (SDO/SA0 -> VCC)
+
+// Output data rate (Hz): 10/25/50/100/200/400. 400 Hz gives a 200 Hz Nyquist,
+// covering all three vibration bands; lower it to save power if you only care
+// about the 8–30 Hz swarm band.
+#define LIS3DH_ODR_HZ            400
+
+// Samples per hive per cycle (clamped to a power of two for the FFT).
+#define LIS3DH_SAMPLE_COUNT      256
+
+// Full-scale range in g (2/4/8/16). 2 g maximises sensitivity.
+#define LIS3DH_RANGE_G           2
+
+// ==============================
 // OPTIONAL FLAGS
 // ==============================
 

@@ -181,6 +181,27 @@ the rest of its fields are null. For `N` in `1`, `2`:
 The per-gate 24-byte arrays are kept only in `raw_json` as
 `bee_counter_N_per_gate_in` / `bee_counter_N_per_gate_out`.
 
+#### Vibration fields (LIS3DH / LIS2DH12 accelerometer)
+
+One accelerometer may be fitted per hive on the shared I2C bus (`0x18` / `0x19`).
+Each block is independent; a missing unit reports `accel_N_ok=false` and the rest
+of its fields are null. All band/RMS values are AC (gravity removed), in
+milli-g (mg). For `N` in `1`, `2`:
+
+| Field | Type | Description |
+|---|---|---|
+| `accel_N_ok` | boolean | Accelerometer present (WHO_AM_I matched) and read this cycle |
+| `accel_N_sample_rate_hz` | integer | Output data rate used for the capture |
+| `accel_N_sample_count` | integer | Samples fed into the FFT |
+| `accel_N_range_g` | integer | Full-scale range (±2/4/8/16 g) |
+| `accel_N_rms_mg` | number | Broadband AC RMS of the vector magnitude |
+| `accel_N_peak_mg` | number | Peak deviation from the mean |
+| `accel_N_band_swarm_mg` | number | 8–30 Hz energy — ~20 Hz pre-swarm signal (consumed by Insights) |
+| `accel_N_band_fanning_mg` | number | 30–100 Hz fanning/ventilation energy |
+| `accel_N_band_activity_mg` | number | 100–200 Hz general activity energy |
+
+See [accelerometer.md](accelerometer.md) for the rationale and wiring.
+
 The full payload is also stored as JSONB in `raw_json`. Unknown fields are
 accepted (the model allows extras) and preserved in `raw_json`.
 

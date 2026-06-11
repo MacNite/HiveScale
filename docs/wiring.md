@@ -25,8 +25,9 @@ The firmware pin definitions live in `firmware/include/config.h` (with optional 
 | INMP441 BCLK | 14 | Output | I2S bit clock, shared by both mics (`ENABLE_INMP441_MICS`) |
 | INMP441 WS | 13 | Output | I2S word select (LRCLK), shared by both mics |
 | INMP441 SD | 34 | Input | I2S data from both mics; GPIO34 is input-only |
+| LIS3DH/LIS2DH12 ×2 | — | I2C | Accelerometers on the shared I2C bus at `0x18` / `0x19` (`ENABLE_LIS3DH_ACCEL`) |
 
-> Important pin notes: the firmware uses **GPIO23 as SD MISO** and **GPIO19 as SD MOSI** (many generic ESP32 examples use the opposite mapping). The two INMP441 microphones share one I2S bus; channel (left/right) is set in hardware by tying each mic's L/R pin to GND or 3.3 V. BeeCounters are not on dedicated GPIOs — they are polled over the shared I2C bus at `0x30` / `0x31`.
+> Important pin notes: the firmware uses **GPIO23 as SD MISO** and **GPIO19 as SD MOSI** (many generic ESP32 examples use the opposite mapping). The two INMP441 microphones share one I2S bus; channel (left/right) is set in hardware by tying each mic's L/R pin to GND or 3.3 V. BeeCounters and the optional LIS3DH/LIS2DH12 accelerometers are not on dedicated GPIOs — they are polled over the shared I2C bus (BeeCounters at `0x30` / `0x31`, accelerometers at `0x18` / `0x19`).
 
 ---
 
@@ -43,6 +44,7 @@ The firmware pin definitions live in `firmware/include/config.h` (with optional 
 | Setup button | Digital input | GPIO27 to GND |
 | INMP441 mics x2 | I2S | BCLK 14, WS 13, SD 34 (shared bus) |
 | BeeCounter x2 | I2C | GPIO21 SDA, GPIO22 SCL (`0x30` / `0x31`) |
+| LIS3DH / LIS2DH12 x2 | I2C | GPIO21 SDA, GPIO22 SCL (`0x18` / `0x19`) |
 | INA219 | I2C | GPIO21 SDA, GPIO22 SCL |
 | MAX17048 | I2C | GPIO21 SDA, GPIO22 SCL |
 
@@ -197,6 +199,69 @@ energy (sub-bass, hum, piping, stress, high) per channel.
 
 ---
 
+## LIS3DH / LIS2DH12 accelerometers (per-hive vibration)
+
+One low-g MEMS accelerometer per hive captures low-frequency comb/wall
+vibration — most importantly the **~20 Hz pre-swarm signal** that hive
+microphones cannot reach. Enable with `ENABLE_LIS3DH_ACCEL`. The **LIS3DH**
+(purple GY-LIS3DH breakout, used for prototyping) and the **LIS2DH12TR** (final
+BOM) share the same WHO_AM_I (`0x33`), register map and I2C addresses, so the
+same firmware drives both. See [accelerometer.md](accelerometer.md) for the
+rationale, bands and config.
+
+### Which LIS3DH pins to connect (I2C mode)
+
+| LIS3DH pin | Connect to | Required? | Notes |
+|---|---|---|---|
+| VCC | 3.3 V | Yes | Board regulator accepts 3.3 V |
+| GND | GND | Yes | Common ground |
+| SCL | GPIO22 | Yes | Shared I2C clock |
+| SDA | GPIO21 | Yes | Shared I2C data |
+| CS | 3.3 V | **Yes** | Selects I2C. CS **low at power-up = SPI**, so tie it high |
+| SDO/SA0 | GND **or** 3.3 V | **Yes** | Sets the I2C address LSB: GND → `0x18` (hive 1), 3.3 V → `0x19` (hive 2) |
+| INT1 | — | No | Data-ready / motion interrupt; unused (firmware polls) |
+| INT2 | — | No | Second interrupt; unused |
+| ADC1 / ADC2 / ADC3 | — | No | LIS3DH auxiliary ADC inputs; unused |
+
+So the minimal per-board connection is **VCC, GND, SCL, SDA, CS→3.3 V, and
+SDO→GND or 3.3 V** for the address. To run both hives, wire two boards in
+parallel on SDA/SCL/VCC/GND and set one SDO low (`0x18`) and the other high
+(`0x19`):
+
+```text
+Accelerometer 1 (hive 1): VCC->3.3V GND->GND SCL->GPIO22 SDA->GPIO21 CS->3.3V SDO->GND   (0x18)
+Accelerometer 2 (hive 2): VCC->3.3V GND->GND SCL->GPIO22 SDA->GPIO21 CS->3.3V SDO->3.3V  (0x19)
+```
+
+Enable and tune in `secrets.h`:
+
+```cpp
+#define ENABLE_LIS3DH_ACCEL 1
+#define LIS3DH_ADDR_SLOT_1  0x18   // hive 1
+#define LIS3DH_ADDR_SLOT_2  0x19   // hive 2
+#define LIS3DH_ODR_HZ       400    // 10/25/50/100/200/400
+#define LIS3DH_SAMPLE_COUNT 256    // power of two; 256 @ 400 Hz ≈ 0.64 s
+#define LIS3DH_RANGE_G      2      // 2/4/8/16 g
+```
+
+Per cycle the firmware reports, per hive, the broadband AC RMS and the energy in
+three vibration bands — swarm (8–30 Hz), fanning (30–100 Hz) and activity
+(100–200 Hz) — under the `accel_1_*` / `accel_2_*` keys.
+
+> Mounting matters: bolt or firmly couple the sensor to the hive body or a brood
+> frame so substrate-borne vibration transfers into it. A board dangling on
+> flying leads mostly measures cable sway. The literature places transducers on
+> the inner hive wall or perpendicular to the comb in a brood frame.
+
+### LIS2DH12TR (final build)
+
+The LIS2DH12 is ST's pin-compatible successor and is register- and
+address-compatible for everything this firmware uses, so no code changes are
+needed — wire it exactly as above (VCC, GND, SCL, SDA, CS→3.3 V, SDO for the
+address). It is the recommended part for the final, easily sourced BOM.
+
+---
+
 ## Power / connectivity (Power Module)
 
 Cellular (SIM7080G) transport has been removed from the ESP32 firmware — the
@@ -259,6 +324,7 @@ The firmware reports battery voltage, state-of-charge, monitor status, and low-b
 | DS3231 RTC | `0x68` |
 | SHT4x | `0x44` |
 | BeeCounter 1 / 2 | `0x30` / `0x31` |
+| LIS3DH / LIS2DH12 1 / 2 | `0x18` / `0x19` (set by SDO/SA0) |
 | INA219 | `0x40` by default |
 | MAX17048 | Fixed by device/library |
 

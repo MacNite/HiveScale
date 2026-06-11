@@ -32,6 +32,15 @@ FFT bands (dBFS, 500 ms capture at 16 kHz, Hann window, 4096-point FFT):
     * stress    550 – 1500 Hz  agitated / robbing colony
     * high     1500 – 3000 Hz  harmonic overtones
 
+Optionally, one LIS3DH / LIS2DH12 accelerometer per hive contributes
+low-frequency vibration bands (mg, AC / gravity-removed, from an on-device FFT):
+    * accel_{ch}_band_swarm_mg      8 –  30 Hz  pre-swarm vibration (~20 Hz)
+    * accel_{ch}_band_fanning_mg   30 – 100 Hz  fanning / ventilation
+    * accel_{ch}_band_activity_mg 100 – 200 Hz  general worker activity
+    * accel_{ch}_rms_mg                          broadband AC RMS
+all gated by accel_{ch}_ok. These cover the sub-audible band that microphones
+miss; the swarm band is the headline pre-swarm predictor (see below).
+
 ------------------------------------------------------------------------------
 Acoustic thresholds & literature
 ------------------------------------------------------------------------------
@@ -71,6 +80,18 @@ Sources for the thresholds used below
   piping signal", PLOS ONE.
 * Nolasco, I. et al. (2019), "Honey bee detection ... BUZZ dataset",
   DCASE Workshop.
+* Ramsey, M.-T. et al. (2020), "The prediction of swarming in honeybee
+  colonies using vibrational spectra", Scientific Reports 10:9798 — a ~20 Hz
+  comb vibration rises for days/weeks before swarming and is most
+  discriminative at night (00:00–05:00). Basis for the accelerometer
+  swarm-prediction detector.
+* Bencsik, M. et al. (2011), "Identification of the honey bee swarming
+  process by analysing the time course of hive vibrations", Comput. Electron.
+  Agric. 76 — pre-swarm divergence of comb vibration days ahead.
+* Uthoff, C., Nabhan Homsi, M. & von Bergen, M. (2023), "Acoustic and
+  vibration monitoring of honeybee colonies ...", Comput. Electron. Agric.
+  205:107589 — review recommending low-frequency accelerometers to capture
+  the ~20 Hz swarm signal that microphones miss.
 """
 
 from __future__ import annotations
@@ -160,6 +181,24 @@ WINTER_WEIGHT_LOSS_G_PER_WEEK = 300
 HARVEST_FLOW_KG_PER_WEEK = 2.0
 HARVEST_PLATEAU_KG_PER_WEEK = 0.3
 HARVEST_PLATEAU_DAYS = 4
+
+# ── Vibration thresholds (accelerometer, mg — see module docstring refs) ────
+# Ramsey et al. (2020, Sci. Rep.) show the ~20 Hz comb-vibration band climbs for
+# days/weeks before swarming, strongest at night. We compare a recent night-time
+# mean of the 8–30 Hz swarm band to a longer night-time baseline and fire when it
+# has risen by at least this multiple. Night = VIBRATION_NIGHT_HOURS (local-ish:
+# the timestamp hour is used directly, matching the rest of this module).
+VIBRATION_NIGHT_HOURS = (0, 5)
+VIBRATION_RECENT_DAYS = 2
+VIBRATION_BASELINE_DAYS = 10
+VIBRATION_SWARM_RISE_MULT = 1.6
+# A standalone watch needs a clearer rise than the corroboration boost.
+VIBRATION_SWARM_STANDALONE_MULT = 2.0
+# Floors so a near-still hive (tiny mg) can't produce a huge, meaningless ratio.
+# The baseline night mean must be at least this, and the recent night mean must
+# reach this absolute level, before the multiplier test is trusted.
+VIBRATION_MIN_BASELINE_MG = 0.4
+VIBRATION_MIN_RECENT_MG = 0.8
 
 # ── Acoustic thresholds (dBFS, see module docstring for literature refs) ────
 # Pre-swarm: piping band energy at or above this level is a strong positive signal.
@@ -354,6 +393,91 @@ def _mic_band_snapshot(
         "stress":   _latest_band(measurements, f"mic_{side}_band_stress_dbfs"),
         "high":     _latest_band(measurements, f"mic_{side}_band_high_dbfs"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Accelerometer (per-hive vibration) helpers
+# ---------------------------------------------------------------------------
+
+def _accel_band_series(
+    measurements: Iterable[dict[str, Any]],
+    channel: ChannelRef,
+    band: Literal["swarm", "fanning", "activity"],
+) -> Series:
+    """
+    Pull a (timestamp, mg) series for one vibration band of one hive's
+    accelerometer. channel 1 -> accel_1_*, channel 2 -> accel_2_*.
+
+    Rows where the accelerometer was unreachable for that hive
+    (``accel_{ch}_ok`` falsy/absent) are skipped, so a missing sensor never
+    injects implicit zeros that would look like "perfectly still".
+    """
+    ok_field = f"accel_{channel}_ok"
+    val_field = f"accel_{channel}_band_{band}_mg"
+    out: Series = []
+    for m in measurements:
+        if not m.get(ok_field):
+            continue
+        ts = _as_datetime(m.get("measured_at"))
+        val = m.get(val_field)
+        if ts is None or val is None:
+            continue
+        try:
+            out.append((ts, float(val)))
+        except (TypeError, ValueError):
+            continue
+    out.sort(key=lambda p: p[0])
+    return out
+
+
+def _night_window(series: Series, end: datetime, days: float) -> Series:
+    """
+    Filter ``series`` to the last ``days`` ending at ``end`` AND to the
+    night-time hours in VIBRATION_NIGHT_HOURS. Ramsey et al. (2020) found the
+    swarm vibration signal is most discriminative overnight, so the detectors
+    compare night-only sub-series. The timestamp hour is used directly (same
+    local-time simplification the weight/robbing detectors use).
+    """
+    lo, hi = VIBRATION_NIGHT_HOURS
+    start = end - timedelta(days=days)
+    return [
+        (t, v) for t, v in series
+        if start < t <= end and lo <= t.hour < hi
+    ]
+
+
+def _vibration_swarm_rise(
+    accel_swarm_series: Series, now: datetime
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Compare the recent night-time mean of the 8–30 Hz swarm band to a longer
+    night-time baseline.
+
+    Returns (recent_mean_mg, baseline_mean_mg, ratio). All three are None when
+    there isn't enough night-time data, or when the levels are below the floors
+    (VIBRATION_MIN_BASELINE_MG / VIBRATION_MIN_RECENT_MG) where the ratio would
+    be dominated by sensor noise rather than real vibration.
+    """
+    if not accel_swarm_series:
+        return (None, None, None)
+    recent = _night_window(accel_swarm_series, now, VIBRATION_RECENT_DAYS)
+    # Baseline = the nights BEFORE the recent window, out to BASELINE_DAYS.
+    baseline_end = now - timedelta(days=VIBRATION_RECENT_DAYS)
+    baseline = _night_window(
+        accel_swarm_series,
+        baseline_end,
+        VIBRATION_BASELINE_DAYS - VIBRATION_RECENT_DAYS,
+    )
+    if len(recent) < 3 or len(baseline) < 6:
+        return (None, None, None)
+    recent_mean = _safe_mean(_values(recent))
+    baseline_mean = _safe_mean(_values(baseline))
+    if recent_mean is None or baseline_mean is None:
+        return (None, None, None)
+    if baseline_mean < VIBRATION_MIN_BASELINE_MG or recent_mean < VIBRATION_MIN_RECENT_MG:
+        return (recent_mean, baseline_mean, None)
+    ratio = recent_mean / baseline_mean
+    return (recent_mean, baseline_mean, ratio)
 
 
 # ---------------------------------------------------------------------------
@@ -652,6 +776,7 @@ def detect_pre_swarm_temp_instability(
     channel: ChannelRef,
     now: datetime,
     measurements: Optional[list[dict[str, Any]]] = None,
+    accel_swarm_series: Optional[Series] = None,
 ) -> Optional[Alert]:
     """
     Phase 1 - pre-swarm watch from brood-nest temperature instability.
@@ -666,6 +791,12 @@ def detect_pre_swarm_temp_instability(
         * raises base confidence by up to +0.35 (capped at 1.0)
         * adds acoustic_piping_dbfs to the evidence dict
       Source: Ramsey et al. (2020) PLOS ONE; Seeley (2010).
+
+    Vibration enhancement (when accelerometer data is available):
+      If the night-time 8–30 Hz swarm vibration band has risen by at least
+      VIBRATION_SWARM_RISE_MULT vs its baseline, that independently corroborates
+      swarm preparation and raises confidence by up to +0.30.
+      Source: Ramsey et al. (2020, Sci. Rep.); Bencsik et al. (2011).
     """
     last_24h = _window(hive_temp_series, now, hours=24)
     last_baseline = _window(
@@ -717,6 +848,25 @@ def detect_pre_swarm_temp_instability(
         evidence["acoustic_piping_dbfs"] = piping_dbfs
         evidence["acoustic_piping_active"] = False
 
+    # ── Vibration boost (accelerometer 8–30 Hz swarm band) ───────────────────
+    if accel_swarm_series:
+        recent_mg, baseline_mg, ratio = _vibration_swarm_rise(accel_swarm_series, now)
+        if ratio is not None:
+            evidence["vibration_swarm_recent_mg"] = recent_mg
+            evidence["vibration_swarm_baseline_mg"] = baseline_mg
+            evidence["vibration_swarm_ratio"] = ratio
+            if ratio >= VIBRATION_SWARM_RISE_MULT:
+                vib_boost = min(0.30, 0.15 + (ratio - VIBRATION_SWARM_RISE_MULT) * 0.2)
+                base_confidence = min(1.0, base_confidence + vib_boost)
+                evidence["vibration_swarm_active"] = True
+                desc_parts.append(
+                    f"Night-time 8–30 Hz comb vibration has risen {ratio:.1f}× "
+                    f"vs baseline ({recent_mg:.2f} vs {baseline_mg:.2f} mg) — "
+                    f"accelerometer corroboration of swarm preparation."
+                )
+            else:
+                evidence["vibration_swarm_active"] = False
+
     return Alert(
         id=f"swarm-watch-ch{channel}",
         category="swarm",
@@ -729,6 +879,59 @@ def detect_pre_swarm_temp_instability(
         confidence=base_confidence,
         evidence=evidence,
         source="project spec Phase 1 (temp); MSPB arXiv 2311.10876; Ramsey et al. 2020",
+    )
+
+
+def detect_vibration_swarm_prediction(
+    accel_swarm_series: Series,
+    channel: ChannelRef,
+    now: datetime,
+) -> Optional[Alert]:
+    """
+    Pre-swarm prediction from the accelerometer's 8–30 Hz vibration band.
+
+    This is the headline use of the accelerometer and the one signal in the
+    literature shown to predict swarming days-to-weeks ahead. Ramsey et al.
+    (2020, Sci. Rep. 10:9798) found a ~20 Hz comb vibration that climbs before
+    swarming and discriminates best at night; Bencsik et al. (2011) saw the same
+    pre-swarm divergence. Microphones miss this band (most have a ~50 Hz floor),
+    so it is unique to the accelerometer (Uthoff et al. 2023).
+
+    Rule (active season only): the recent night-time mean of the swarm band has
+    risen by >= VIBRATION_SWARM_STANDALONE_MULT vs the night-time baseline, with
+    both above the noise floors. Fires a ``swarm`` / ``watch`` alert on its own;
+    it also boosts the temperature-based pre-swarm watch when both agree.
+    """
+    if not _is_active_season(now):
+        return None
+
+    recent_mg, baseline_mg, ratio = _vibration_swarm_rise(accel_swarm_series, now)
+    if ratio is None or ratio < VIBRATION_SWARM_STANDALONE_MULT:
+        return None
+
+    confidence = min(0.9, 0.45 + (ratio - VIBRATION_SWARM_STANDALONE_MULT) * 0.2)
+    return Alert(
+        id=f"swarm-vibration-ch{channel}",
+        category="swarm",
+        severity="watch",
+        channel=channel,
+        title=f"Pre-swarm vibration rising (hive {channel})",
+        description=(
+            f"Night-time 8–30 Hz comb vibration has risen {ratio:.1f}× over its "
+            f"baseline ({recent_mg:.2f} vs {baseline_mg:.2f} mg). A rising ~20 Hz "
+            f"vibration is the strongest known multi-day swarm precursor — inspect "
+            f"for queen cells and prepare for swarm control."
+        ),
+        window_start=now - timedelta(days=VIBRATION_BASELINE_DAYS),
+        window_end=now,
+        confidence=confidence,
+        evidence={
+            "vibration_swarm_recent_mg": recent_mg,
+            "vibration_swarm_baseline_mg": baseline_mg,
+            "vibration_swarm_ratio": ratio,
+            "night_hours": list(VIBRATION_NIGHT_HOURS),
+        },
+        source="Ramsey et al. 2020 (Sci. Rep. 10:9798); Bencsik et al. 2011; Uthoff et al. 2023",
     )
 
 
@@ -1425,16 +1628,21 @@ def compute_insights(
         hive_temp = _extract_series(measurements, temp_field)
         bee_in = _extract_counter_series(measurements, channel, "in")
         bee_out = _extract_counter_series(measurements, channel, "out")
+        accel_swarm = _accel_band_series(measurements, channel, "swarm")
 
-        if not weight and not hive_temp and not bee_in and not bee_out:
+        if not weight and not hive_temp and not bee_in and not bee_out and not accel_swarm:
             continue
 
         # Detectors that accept acoustic data get ``measurements`` passed in.
         # Detectors that accept entrance-counter data get bee_in / bee_out.
+        # Detectors that accept vibration data get accel_swarm (8–30 Hz band).
         for detector in (
             lambda: detect_imminent_swarm(hive_temp, channel, now),
             lambda: detect_swarm_event(weight, channel, now, bee_in, bee_out),
-            lambda: detect_pre_swarm_temp_instability(hive_temp, channel, now, measurements),
+            lambda: detect_pre_swarm_temp_instability(
+                hive_temp, channel, now, measurements, accel_swarm
+            ),
+            lambda: detect_vibration_swarm_prediction(accel_swarm, channel, now),
             lambda: detect_queenlessness(
                 hive_temp, weight, channel, now, measurements, bee_out
             ),

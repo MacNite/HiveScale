@@ -82,8 +82,9 @@ void setup() {
   debugLine();
   Serial.println("Hive Scale ESP32 firmware with provisioning + OTA");
   Serial.printf("Firmware version: %s\n", FIRMWARE_VERSION);
-  Serial.printf("Optional modules: INA219=%d MAX17048=%d INMP441=%d\n",
-                ENABLE_INA219_SOLAR, ENABLE_MAX17048_BATTERY, ENABLE_INMP441_MICS);
+  Serial.printf("Optional modules: INA219=%d MAX17048=%d INMP441=%d LIS3DH=%d\n",
+                ENABLE_INA219_SOLAR, ENABLE_MAX17048_BATTERY, ENABLE_INMP441_MICS,
+                ENABLE_LIS3DH_ACCEL);
   Serial.printf("Wake reason: %s; RTC boot count: %u\n", wakeReasonName(wakeReason).c_str(), rtcBootCount);
   debugLine();
 

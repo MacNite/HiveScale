@@ -21,7 +21,7 @@ This document is the authoritative reference for **what is detected**,
 |---|---|
 | Computation source | `server/insights.py` (pure Python, no DB access) |
 | Trigger | Every call to the insights endpoint; cached on the frontend for 5 minutes |
-| Inputs | Weight, hive temperature, ambient temperature/humidity, FFT mic bands, and BeeCounter entrance counts — all per channel, all optional except weight/temperature |
+| Inputs | Weight, hive temperature, ambient temperature/humidity, FFT mic bands, BeeCounter entrance counts, and accelerometer vibration bands — all per channel, all optional except weight/temperature |
 | Lookback | Up to 14 days, configurable via the `lookback_days` query parameter |
 | Per-channel | Each detector runs independently for scale 1 and scale 2 |
 | Output | A flat list of `Alert` objects, sorted by severity then time |
@@ -78,9 +78,15 @@ event, and the rolling 24 h variance widens.
 
 **What it tells you.** Inspect for queen cells in the next 24–48 hours.
 
-**Not implemented.** The strongest swarm-preparation signal in the
-literature is acoustic (piping/tooting in the 300–550 Hz band), which
-requires a microphone HiveScale does not currently ship.
+**Acoustic corroboration.** When FFT mic bands are present and the 300–550 Hz
+`piping` band is active (≥ −45 dBFS), confidence is raised by up to +0.35 — a
+queen piping/tooting signal is direct evidence of swarm preparation.
+
+**Accelerometer corroboration.** When per-hive vibration is present and the
+night-time **8–30 Hz swarm band** has risen ≥ **1.6×** vs its baseline,
+confidence is raised by up to **+0.30**. This is the ~20 Hz pre-swarm signal of
+Ramsey et al. (2020) that microphones cannot reach (see detector 11 and
+[accelerometer.md](accelerometer.md)).
 
 ---
 
@@ -344,6 +350,40 @@ be ready to remove. Confirm by inspection (capped frames, water content).
 
 ---
 
+### 11. Pre-swarm vibration rising (accelerometer)
+
+| | |
+|---|---|
+| Function | `detect_vibration_swarm_prediction` |
+| Category | `swarm` |
+| Severity | `watch` |
+| Inputs | Accelerometer 8–30 Hz swarm band (`accel_{ch}_band_swarm_mg`), night-time (00:00–05:00), active season only |
+| Rule | Recent (last 2 days) night-time mean ≥ **2.0×** the night-time baseline (prior ~8 days), with both above the noise floors (baseline ≥ 0.4 mg, recent ≥ 0.8 mg) |
+| Confidence | 0.45 plus `(ratio − 2.0) × 0.2`, capped at 0.9 |
+| Source | Ramsey et al. (2020) *Sci. Rep.* 10:9798; Bencsik et al. (2011); Uthoff et al. (2023) |
+
+**Why it fires.** A substrate-borne comb vibration at about **20 Hz** rises in
+the days-to-weeks before a colony swarms, and is most distinct **at night**.
+Ramsey et al. (2020) turned this into an alarm that fired for over 90 % of
+swarms and never for hives that did not swarm. The band is below what hive
+microphones capture (~50 Hz floor), so it is unique to the accelerometer — which
+is exactly why the Uthoff et al. (2023) review recommends adding one.
+
+**Why night-time and trend-based.** The signal discriminates best between
+midnight and 05:00, and it is a slow build-up rather than a single threshold
+crossing, so the detector compares a recent night-only mean to a longer
+night-only baseline instead of looking at one reading.
+
+**What it tells you.** The colony is likely preparing to swarm over the coming
+days. Inspect for queen cells and plan swarm control. This detector also boosts
+the temperature-based **Pre-swarm watch** (detector 1) when both agree.
+
+**Degrades to nothing** when no accelerometer is fitted, outside the active
+season, or when vibration levels are below the noise floor. See
+[accelerometer.md](accelerometer.md) for the hardware and bands.
+
+---
+
 ## Severity precedence
 
 When multiple detectors fire for the same channel, all alerts are kept and
@@ -392,6 +432,15 @@ ROBBING_MIN_INBOUND_PER_HOUR            = 200.0
 ABSCONDING_FORAGER_DECLINE_FRAC_PER_DAY = 0.03   # 3%/day outbound decline
 WINTER_CLEANSING_FLIGHT_OUT             = 50.0   # bees out in one interval
 FORAGING_ACTIVE_OUT_PER_HOUR            = 100.0  # "active foraging" traffic
+
+# ── Accelerometer (per-hive vibration) thresholds ──
+VIBRATION_NIGHT_HOURS           = (0, 5)   # night window (00:00–05:00)
+VIBRATION_RECENT_DAYS           = 2        # "recent" night-time window
+VIBRATION_BASELINE_DAYS         = 10       # total span; baseline = older nights
+VIBRATION_SWARM_RISE_MULT       = 1.6      # rise that boosts the temp watch
+VIBRATION_SWARM_STANDALONE_MULT = 2.0      # rise that fires a standalone watch
+VIBRATION_MIN_BASELINE_MG       = 0.4      # noise floor for the baseline
+VIBRATION_MIN_RECENT_MG         = 0.8      # noise floor for the recent level
 ```
 
 These are starting values calibrated against the project spec and the
@@ -419,6 +468,7 @@ which detectors each one feeds:
 |---|---|---|
 | Microphone | Pre-swarm (piping/tooting), queenlessness (acoustic signature), robbing (agitated spectrum) | **Integrated** (FFT bands) |
 | Entrance counter (BeeCounter) | Swarm event (asymmetric outflow), robbing (incoming-spike pattern), queenlessness (forager decline), absconding (daily decline → 3-of-3), foraging (traffic cross-check), winter (cleansing flights) | **Integrated** |
+| Accelerometer (LIS3DH / LIS2DH12) | Pre-swarm vibration rising (8–30 Hz, detector 11) and the pre-swarm temperature watch boost | **Integrated** (vibration bands) |
 
 With the BeeCounter integrated, the swarm-event, robbing, queenlessness,
 absconding, foraging and winter detectors all consume
@@ -426,6 +476,12 @@ absconding, foraging and winter detectors all consume
 `bee_counter_{ch}_ok`) when present, and fall back to their
 weight/temperature/acoustic rules when the counter is absent or a hive has
 no counter fitted. No detector *requires* the counter.
+
+With the accelerometer integrated, the pre-swarm detectors additionally consume
+`accel_{ch}_band_swarm_mg` (gated by `accel_{ch}_ok`) when present — the
+low-frequency ~20 Hz swarm precursor the microphones cannot record. It is
+optional too: no detector *requires* the accelerometer. See
+[accelerometer.md](accelerometer.md).
 
 ---
 
@@ -449,6 +505,17 @@ no counter fitted. No detector *requires* the counter.
 - **MSPB multi-modal dataset** — arXiv 2311.10876. Audio + temperature +
   humidity across 53 hives over 1 year; cited as validation for the
   temperature-based queenlessness fallback.
+- **Ramsey, M.-T. et al. (2020).** "The prediction of swarming in honeybee
+  colonies using vibrational spectra." *Scientific Reports* 10:9798. The ~20 Hz
+  night-time comb vibration that predicts swarming days ahead — basis for the
+  accelerometer swarm-prediction detector (11).
+- **Bencsik, M. et al. (2011).** "Identification of the honey bee swarming
+  process by analysing the time course of hive vibrations." *Computers and
+  Electronics in Agriculture* 76. Pre-swarm vibration divergence days ahead.
+- **Uthoff, C., Nabhan Homsi, M. & von Bergen, M. (2023).** "Acoustic and
+  vibration monitoring of honeybee colonies …" *Computers and Electronics in
+  Agriculture* 205:107589. Review recommending low-frequency accelerometers to
+  capture the ~20 Hz swarm signal microphones miss.
 
 Other public datasets useful for validation: BeeTogether, UrBAN, NU-Hive,
 OSBH, BUZZ1–4.

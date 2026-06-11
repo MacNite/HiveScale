@@ -306,6 +306,32 @@ class MeasurementIn(BaseModel):
     bee_counter_2_read_attempts:     Optional[int]  = None
     bee_counter_2_latch_succeeded:   Optional[bool] = None
 
+    # ── LIS3DH / LIS2DH12 per-hive vibration (accelerometer) ─────────────────
+    # One accelerometer per hive on the shared I2C bus (0x18 / 0x19). Each block
+    # is independent — a missing sensor reports accel_N_ok=False and the rest of
+    # its fields are null. All band/RMS values are AC (gravity removed), in mg.
+    # The swarm band (8–30 Hz) carries the ~20 Hz pre-swarm vibration the mics
+    # cannot reach (Ramsey et al. 2020; Uthoff et al. 2023). See accel.h.
+    accel_1_ok:                Optional[bool]  = None
+    accel_1_sample_rate_hz:    Optional[int]   = None
+    accel_1_sample_count:      Optional[int]   = None
+    accel_1_range_g:           Optional[int]   = None
+    accel_1_rms_mg:            Optional[float] = None
+    accel_1_peak_mg:           Optional[float] = None
+    accel_1_band_swarm_mg:     Optional[float] = None  #   8–30 Hz pre-swarm
+    accel_1_band_fanning_mg:   Optional[float] = None  #  30–100 Hz fanning
+    accel_1_band_activity_mg:  Optional[float] = None  # 100–200 Hz activity
+
+    accel_2_ok:                Optional[bool]  = None
+    accel_2_sample_rate_hz:    Optional[int]   = None
+    accel_2_sample_count:      Optional[int]   = None
+    accel_2_range_g:           Optional[int]   = None
+    accel_2_rms_mg:            Optional[float] = None
+    accel_2_peak_mg:           Optional[float] = None
+    accel_2_band_swarm_mg:     Optional[float] = None
+    accel_2_band_fanning_mg:   Optional[float] = None
+    accel_2_band_activity_mg:  Optional[float] = None
+
     # ── Per-gate forensic arrays (one value per entrance gate) ───────────────
     # Sent only inside the measurement body and kept in raw_json (never promoted
     # to columns). Declared explicitly so extra="ignore" does not drop them, and
@@ -643,6 +669,25 @@ def init_db():
                     bee_counter_2_busy_retries      INTEGER,
                     bee_counter_2_read_attempts     INTEGER,
                     bee_counter_2_latch_succeeded   BOOLEAN,
+                    -- LIS3DH/LIS2DH12 per-hive vibration columns (mg)
+                    accel_1_ok                      BOOLEAN,
+                    accel_1_sample_rate_hz          INTEGER,
+                    accel_1_sample_count            INTEGER,
+                    accel_1_range_g                 INTEGER,
+                    accel_1_rms_mg                  DOUBLE PRECISION,
+                    accel_1_peak_mg                 DOUBLE PRECISION,
+                    accel_1_band_swarm_mg           DOUBLE PRECISION,
+                    accel_1_band_fanning_mg         DOUBLE PRECISION,
+                    accel_1_band_activity_mg        DOUBLE PRECISION,
+                    accel_2_ok                      BOOLEAN,
+                    accel_2_sample_rate_hz          INTEGER,
+                    accel_2_sample_count            INTEGER,
+                    accel_2_range_g                 INTEGER,
+                    accel_2_rms_mg                  DOUBLE PRECISION,
+                    accel_2_peak_mg                 DOUBLE PRECISION,
+                    accel_2_band_swarm_mg           DOUBLE PRECISION,
+                    accel_2_band_fanning_mg         DOUBLE PRECISION,
+                    accel_2_band_activity_mg        DOUBLE PRECISION,
                     raw_json JSONB NOT NULL
                 );
 
@@ -721,6 +766,26 @@ def init_db():
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS bee_counter_2_busy_retries      INTEGER;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS bee_counter_2_read_attempts     INTEGER;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS bee_counter_2_latch_succeeded   BOOLEAN;
+
+                -- accelerometer (per-hive vibration) columns (idempotent)
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_1_ok                BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_1_sample_rate_hz    INTEGER;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_1_sample_count      INTEGER;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_1_range_g           INTEGER;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_1_rms_mg            DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_1_peak_mg           DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_1_band_swarm_mg     DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_1_band_fanning_mg   DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_1_band_activity_mg  DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_ok                BOOLEAN;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_sample_rate_hz    INTEGER;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_sample_count      INTEGER;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_range_g           INTEGER;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_rms_mg            DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_peak_mg           DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_band_swarm_mg     DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_band_fanning_mg   DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_band_activity_mg  DOUBLE PRECISION;
 
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS claim_code_hash TEXT;
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS api_key_hash TEXT;
@@ -949,6 +1014,12 @@ MEASUREMENT_INSERT_SQL = """
                     bee_counter_2_interval_in, bee_counter_2_interval_out,
                     bee_counter_2_glitch_count, bee_counter_2_busy_retries,
                     bee_counter_2_read_attempts, bee_counter_2_latch_succeeded,
+                    accel_1_ok, accel_1_sample_rate_hz, accel_1_sample_count,
+                    accel_1_range_g, accel_1_rms_mg, accel_1_peak_mg,
+                    accel_1_band_swarm_mg, accel_1_band_fanning_mg, accel_1_band_activity_mg,
+                    accel_2_ok, accel_2_sample_rate_hz, accel_2_sample_count,
+                    accel_2_range_g, accel_2_rms_mg, accel_2_peak_mg,
+                    accel_2_band_swarm_mg, accel_2_band_fanning_mg, accel_2_band_activity_mg,
                     raw_json
                 )
                 VALUES (
@@ -983,6 +1054,12 @@ MEASUREMENT_INSERT_SQL = """
                     %(bee_counter_2_interval_in)s, %(bee_counter_2_interval_out)s,
                     %(bee_counter_2_glitch_count)s, %(bee_counter_2_busy_retries)s,
                     %(bee_counter_2_read_attempts)s, %(bee_counter_2_latch_succeeded)s,
+                    %(accel_1_ok)s, %(accel_1_sample_rate_hz)s, %(accel_1_sample_count)s,
+                    %(accel_1_range_g)s, %(accel_1_rms_mg)s, %(accel_1_peak_mg)s,
+                    %(accel_1_band_swarm_mg)s, %(accel_1_band_fanning_mg)s, %(accel_1_band_activity_mg)s,
+                    %(accel_2_ok)s, %(accel_2_sample_rate_hz)s, %(accel_2_sample_count)s,
+                    %(accel_2_range_g)s, %(accel_2_rms_mg)s, %(accel_2_peak_mg)s,
+                    %(accel_2_band_swarm_mg)s, %(accel_2_band_fanning_mg)s, %(accel_2_band_activity_mg)s,
                     %(raw_json)s
                 )"""
 
@@ -1071,6 +1148,24 @@ def measurement_insert_params(payload: "MeasurementIn", measured_at: datetime) -
         "bee_counter_2_busy_retries":     payload.bee_counter_2_busy_retries,
         "bee_counter_2_read_attempts":    payload.bee_counter_2_read_attempts,
         "bee_counter_2_latch_succeeded":  payload.bee_counter_2_latch_succeeded,
+        "accel_1_ok":               payload.accel_1_ok,
+        "accel_1_sample_rate_hz":   payload.accel_1_sample_rate_hz,
+        "accel_1_sample_count":     payload.accel_1_sample_count,
+        "accel_1_range_g":          payload.accel_1_range_g,
+        "accel_1_rms_mg":           payload.accel_1_rms_mg,
+        "accel_1_peak_mg":          payload.accel_1_peak_mg,
+        "accel_1_band_swarm_mg":    payload.accel_1_band_swarm_mg,
+        "accel_1_band_fanning_mg":  payload.accel_1_band_fanning_mg,
+        "accel_1_band_activity_mg": payload.accel_1_band_activity_mg,
+        "accel_2_ok":               payload.accel_2_ok,
+        "accel_2_sample_rate_hz":   payload.accel_2_sample_rate_hz,
+        "accel_2_sample_count":     payload.accel_2_sample_count,
+        "accel_2_range_g":          payload.accel_2_range_g,
+        "accel_2_rms_mg":           payload.accel_2_rms_mg,
+        "accel_2_peak_mg":          payload.accel_2_peak_mg,
+        "accel_2_band_swarm_mg":    payload.accel_2_band_swarm_mg,
+        "accel_2_band_fanning_mg":  payload.accel_2_band_fanning_mg,
+        "accel_2_band_activity_mg": payload.accel_2_band_activity_mg,
         "raw_json": psycopg.types.json.Jsonb(payload.model_dump(mode="json", exclude={"claim_code"})),
     }
 
@@ -1252,6 +1347,24 @@ def import_measurements(
 #                               80  bee_counter_2_busy_retries
 #                               81  bee_counter_2_read_attempts
 #                               82  bee_counter_2_latch_succeeded
+#                               83  accel_1_ok
+#                               84  accel_1_sample_rate_hz
+#                               85  accel_1_sample_count
+#                               86  accel_1_range_g
+#                               87  accel_1_rms_mg
+#                               88  accel_1_peak_mg
+#                               89  accel_1_band_swarm_mg
+#                               90  accel_1_band_fanning_mg
+#                               91  accel_1_band_activity_mg
+#                               92  accel_2_ok
+#                               93  accel_2_sample_rate_hz
+#                               94  accel_2_sample_count
+#                               95  accel_2_range_g
+#                               96  accel_2_rms_mg
+#                               97  accel_2_peak_mg
+#                               98  accel_2_band_swarm_mg
+#                               99  accel_2_band_fanning_mg
+#                              100  accel_2_band_activity_mg
 # ---------------------------------------------------------------------------
 
 MEASUREMENT_SELECT_COLUMNS = """
@@ -1324,7 +1437,25 @@ MEASUREMENT_SELECT_COLUMNS = """
     COALESCE(bee_counter_2_glitch_count,      NULLIF(raw_json->>'bee_counter_2_glitch_count',      '')::integer) AS bee_counter_2_glitch_count,
     COALESCE(bee_counter_2_busy_retries,      NULLIF(raw_json->>'bee_counter_2_busy_retries',      '')::integer) AS bee_counter_2_busy_retries,
     COALESCE(bee_counter_2_read_attempts,     NULLIF(raw_json->>'bee_counter_2_read_attempts',     '')::integer) AS bee_counter_2_read_attempts,
-    COALESCE(bee_counter_2_latch_succeeded,   NULLIF(raw_json->>'bee_counter_2_latch_succeeded',   '')::boolean) AS bee_counter_2_latch_succeeded
+    COALESCE(bee_counter_2_latch_succeeded,   NULLIF(raw_json->>'bee_counter_2_latch_succeeded',   '')::boolean) AS bee_counter_2_latch_succeeded,
+    COALESCE(accel_1_ok,               NULLIF(raw_json->>'accel_1_ok',               '')::boolean)          AS accel_1_ok,
+    COALESCE(accel_1_sample_rate_hz,   NULLIF(raw_json->>'accel_1_sample_rate_hz',   '')::integer)          AS accel_1_sample_rate_hz,
+    COALESCE(accel_1_sample_count,     NULLIF(raw_json->>'accel_1_sample_count',     '')::integer)          AS accel_1_sample_count,
+    COALESCE(accel_1_range_g,          NULLIF(raw_json->>'accel_1_range_g',          '')::integer)          AS accel_1_range_g,
+    COALESCE(accel_1_rms_mg,           NULLIF(raw_json->>'accel_1_rms_mg',           '')::double precision) AS accel_1_rms_mg,
+    COALESCE(accel_1_peak_mg,          NULLIF(raw_json->>'accel_1_peak_mg',          '')::double precision) AS accel_1_peak_mg,
+    COALESCE(accel_1_band_swarm_mg,    NULLIF(raw_json->>'accel_1_band_swarm_mg',    '')::double precision) AS accel_1_band_swarm_mg,
+    COALESCE(accel_1_band_fanning_mg,  NULLIF(raw_json->>'accel_1_band_fanning_mg',  '')::double precision) AS accel_1_band_fanning_mg,
+    COALESCE(accel_1_band_activity_mg, NULLIF(raw_json->>'accel_1_band_activity_mg', '')::double precision) AS accel_1_band_activity_mg,
+    COALESCE(accel_2_ok,               NULLIF(raw_json->>'accel_2_ok',               '')::boolean)          AS accel_2_ok,
+    COALESCE(accel_2_sample_rate_hz,   NULLIF(raw_json->>'accel_2_sample_rate_hz',   '')::integer)          AS accel_2_sample_rate_hz,
+    COALESCE(accel_2_sample_count,     NULLIF(raw_json->>'accel_2_sample_count',     '')::integer)          AS accel_2_sample_count,
+    COALESCE(accel_2_range_g,          NULLIF(raw_json->>'accel_2_range_g',          '')::integer)          AS accel_2_range_g,
+    COALESCE(accel_2_rms_mg,           NULLIF(raw_json->>'accel_2_rms_mg',           '')::double precision) AS accel_2_rms_mg,
+    COALESCE(accel_2_peak_mg,          NULLIF(raw_json->>'accel_2_peak_mg',          '')::double precision) AS accel_2_peak_mg,
+    COALESCE(accel_2_band_swarm_mg,    NULLIF(raw_json->>'accel_2_band_swarm_mg',    '')::double precision) AS accel_2_band_swarm_mg,
+    COALESCE(accel_2_band_fanning_mg,  NULLIF(raw_json->>'accel_2_band_fanning_mg',  '')::double precision) AS accel_2_band_fanning_mg,
+    COALESCE(accel_2_band_activity_mg, NULLIF(raw_json->>'accel_2_band_activity_mg', '')::double precision) AS accel_2_band_activity_mg
 """
 
 
@@ -1423,6 +1554,25 @@ def measurement_row_to_dict(r):
         "bee_counter_2_busy_retries":      r[80],
         "bee_counter_2_read_attempts":     r[81],
         "bee_counter_2_latch_succeeded":   r[82],
+        # accelerometer (per-hive vibration, mg)
+        "accel_1_ok":                r[83],
+        "accel_1_sample_rate_hz":    r[84],
+        "accel_1_sample_count":      r[85],
+        "accel_1_range_g":           r[86],
+        "accel_1_rms_mg":            r[87],
+        "accel_1_peak_mg":           r[88],
+        "accel_1_band_swarm_mg":     r[89],
+        "accel_1_band_fanning_mg":   r[90],
+        "accel_1_band_activity_mg":  r[91],
+        "accel_2_ok":                r[92],
+        "accel_2_sample_rate_hz":    r[93],
+        "accel_2_sample_count":      r[94],
+        "accel_2_range_g":           r[95],
+        "accel_2_rms_mg":            r[96],
+        "accel_2_peak_mg":           r[97],
+        "accel_2_band_swarm_mg":     r[98],
+        "accel_2_band_fanning_mg":   r[99],
+        "accel_2_band_activity_mg":  r[100],
     }
 
 
