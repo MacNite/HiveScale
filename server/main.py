@@ -370,8 +370,6 @@ class FirmwareReleaseIn(BaseModel):
 
 class DeviceCommandIn(BaseModel):
     command_type: Literal[
-        "tare_scale_1",
-        "tare_scale_2",
         "calibrate_scale_1",
         "calibrate_scale_2",
         "reboot",

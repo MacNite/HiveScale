@@ -399,15 +399,13 @@ Commands are queued server-side and claimed by the device on a later cycle.
 
 ```json
 {
-  "command_type": "tare_scale_1",
-  "payload": {}
+  "command_type": "start_calibration_mode",
+  "payload": {"interval_seconds": 5, "timeout_seconds": 600}
 }
 ```
 
 | Command type | Payload | Description |
 |---|---|---|
-| `tare_scale_1` | `{}` | Zero scale 1 |
-| `tare_scale_2` | `{}` | Zero scale 2 |
 | `calibrate_scale_1` | `{"known_weight_kg": 10.0}` | Set scale 1 calibration factor using a known weight |
 | `calibrate_scale_2` | `{"known_weight_kg": 10.0}` | Set scale 2 calibration factor using a known weight |
 | `start_calibration_mode` | `{"interval_seconds": 5, "timeout_seconds": 600}` | Temporarily use fast cycles for calibration |
@@ -444,8 +442,8 @@ Command returned:
 {
   "command": true,
   "id": 55,
-  "command_type": "tare_scale_1",
-  "payload": {}
+  "command_type": "start_calibration_mode",
+  "payload": {"interval_seconds": 5, "timeout_seconds": 600}
 }
 ```
 
@@ -458,9 +456,9 @@ Reports command success or failure. Calibration command results can include upda
 ```json
 {
   "success": true,
-  "message": "Tare applied",
+  "message": "Calibration applied",
   "result": {
-    "scale1_offset": -124800
+    "scale1_factor": -7050.0
   }
 }
 ```

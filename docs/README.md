@@ -15,8 +15,8 @@
 - **RTC timekeeping** using a DS3231 so the device can timestamp measurements without depending on NTP.
 - **SD card cache and backup** for local buffering when uploads fail and for persistent measurement backup.
 - **Claim-code pairing** so devices can be claimed from HivePal without manual database setup.
-- **Remote configuration** for sampling interval, tare offsets, calibration factors, and config versioning.
-- **Remote commands** for tare, calibration, OTA checks, provisioning, reboot, Wi-Fi reset, and factory reset.
+- **Remote configuration** for sampling interval, scale offsets, calibration factors, and config versioning.
+- **Remote commands** for calibration, OTA checks, provisioning, reboot, Wi-Fi reset, and factory reset.
 - **OTA firmware updates** with server-side release registration.
 - **Wi-Fi provisioning portal** opened by the setup button for field configuration.
 - **Multi-network Wi-Fi** with up to three saved networks.
@@ -356,8 +356,6 @@ Commands are queued by the server and picked up by the device on its next cycle.
 
 | Command type | Payload | Description |
 |---|---|---|
-| `tare_scale_1` | `{}` | Zero scale 1 |
-| `tare_scale_2` | `{}` | Zero scale 2 |
 | `calibrate_scale_1` | `{"known_weight_kg": 10.0}` | Calibrate scale 1 with a known weight |
 | `calibrate_scale_2` | `{"known_weight_kg": 10.0}` | Calibrate scale 2 with a known weight |
 | `start_calibration_mode` | `{"interval_seconds": 5, "timeout_seconds": 600}` | Temporarily use fast measurement cycles for calibration |

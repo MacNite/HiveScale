@@ -136,14 +136,7 @@ curl -X PATCH http://HOST:31115/api/v1/devices/DEVICE_ID/config \
 
 ## Commands
 
-### Queue tare and calibration commands
-
-```bash
-curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -d '{"command_type": "tare_scale_1", "payload": {}}'
-```
+### Queue calibration commands
 
 ```bash
 curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
@@ -206,8 +199,8 @@ curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands/55/result \
   -H "X-API-Key: YOUR_API_KEY" \
   -d '{
     "success": true,
-    "message": "Tare applied",
-    "result": {"scale1_offset": -124800}
+    "message": "Calibration applied",
+    "result": {"scale2_factor": -7050.0}
   }'
 ```
 
