@@ -332,6 +332,29 @@ class MeasurementIn(BaseModel):
     accel_2_band_fanning_mg:   Optional[float] = None
     accel_2_band_activity_mg:  Optional[float] = None
 
+    # ── HolyIot 25015 in-hive BLE sensor (per hive) ──────────────────────────
+    # The 25015 is a passive BLE beacon (SHT40 + LPS22HB + LIS2DH12) bridged by
+    # the ESP32. Its acceleration is reported through the accel_N_* fields above
+    # (no FFT bands — a beacon only emits periodic single-shot samples). Humidity
+    # and pressure are promoted to columns; the raw per-axis acceleration,
+    # battery and link RSSI are kept in raw_json (declared so extra="ignore"
+    # does not drop them). Its temperature is delivered via hive_N_temp_c.
+    ble_1_humidity_percent: Optional[float] = None
+    ble_1_pressure_hpa:     Optional[float] = None
+    ble_1_accel_x_mg:       Optional[float] = None
+    ble_1_accel_y_mg:       Optional[float] = None
+    ble_1_accel_z_mg:       Optional[float] = None
+    ble_1_battery_percent:  Optional[int]   = None
+    ble_1_rssi_dbm:         Optional[int]   = None
+
+    ble_2_humidity_percent: Optional[float] = None
+    ble_2_pressure_hpa:     Optional[float] = None
+    ble_2_accel_x_mg:       Optional[float] = None
+    ble_2_accel_y_mg:       Optional[float] = None
+    ble_2_accel_z_mg:       Optional[float] = None
+    ble_2_battery_percent:  Optional[int]   = None
+    ble_2_rssi_dbm:         Optional[int]   = None
+
     # ── Per-gate forensic arrays (one value per entrance gate) ───────────────
     # Sent only inside the measurement body and kept in raw_json (never promoted
     # to columns). Declared explicitly so extra="ignore" does not drop them, and
@@ -688,6 +711,11 @@ def init_db():
                     accel_2_band_swarm_mg           DOUBLE PRECISION,
                     accel_2_band_fanning_mg         DOUBLE PRECISION,
                     accel_2_band_activity_mg        DOUBLE PRECISION,
+                    -- HolyIot 25015 in-hive BLE sensor columns (per hive)
+                    ble_1_humidity_percent          DOUBLE PRECISION,
+                    ble_1_pressure_hpa              DOUBLE PRECISION,
+                    ble_2_humidity_percent          DOUBLE PRECISION,
+                    ble_2_pressure_hpa              DOUBLE PRECISION,
                     raw_json JSONB NOT NULL
                 );
 
@@ -786,6 +814,10 @@ def init_db():
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_band_swarm_mg     DOUBLE PRECISION;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_band_fanning_mg   DOUBLE PRECISION;
                 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS accel_2_band_activity_mg  DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS ble_1_humidity_percent    DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS ble_1_pressure_hpa        DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS ble_2_humidity_percent    DOUBLE PRECISION;
+                ALTER TABLE measurements ADD COLUMN IF NOT EXISTS ble_2_pressure_hpa        DOUBLE PRECISION;
 
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS claim_code_hash TEXT;
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS api_key_hash TEXT;
@@ -1020,6 +1052,8 @@ MEASUREMENT_INSERT_SQL = """
                     accel_2_ok, accel_2_sample_rate_hz, accel_2_sample_count,
                     accel_2_range_g, accel_2_rms_mg, accel_2_peak_mg,
                     accel_2_band_swarm_mg, accel_2_band_fanning_mg, accel_2_band_activity_mg,
+                    ble_1_humidity_percent, ble_1_pressure_hpa,
+                    ble_2_humidity_percent, ble_2_pressure_hpa,
                     raw_json
                 )
                 VALUES (
@@ -1060,6 +1094,8 @@ MEASUREMENT_INSERT_SQL = """
                     %(accel_2_ok)s, %(accel_2_sample_rate_hz)s, %(accel_2_sample_count)s,
                     %(accel_2_range_g)s, %(accel_2_rms_mg)s, %(accel_2_peak_mg)s,
                     %(accel_2_band_swarm_mg)s, %(accel_2_band_fanning_mg)s, %(accel_2_band_activity_mg)s,
+                    %(ble_1_humidity_percent)s, %(ble_1_pressure_hpa)s,
+                    %(ble_2_humidity_percent)s, %(ble_2_pressure_hpa)s,
                     %(raw_json)s
                 )"""
 
@@ -1166,6 +1202,10 @@ def measurement_insert_params(payload: "MeasurementIn", measured_at: datetime) -
         "accel_2_band_swarm_mg":    payload.accel_2_band_swarm_mg,
         "accel_2_band_fanning_mg":  payload.accel_2_band_fanning_mg,
         "accel_2_band_activity_mg": payload.accel_2_band_activity_mg,
+        "ble_1_humidity_percent":   payload.ble_1_humidity_percent,
+        "ble_1_pressure_hpa":       payload.ble_1_pressure_hpa,
+        "ble_2_humidity_percent":   payload.ble_2_humidity_percent,
+        "ble_2_pressure_hpa":       payload.ble_2_pressure_hpa,
         "raw_json": psycopg.types.json.Jsonb(payload.model_dump(mode="json", exclude={"claim_code"})),
     }
 
@@ -1365,6 +1405,10 @@ def import_measurements(
 #                               98  accel_2_band_swarm_mg
 #                               99  accel_2_band_fanning_mg
 #                              100  accel_2_band_activity_mg
+#                              101  ble_1_humidity_percent
+#                              102  ble_1_pressure_hpa
+#                              103  ble_2_humidity_percent
+#                              104  ble_2_pressure_hpa
 # ---------------------------------------------------------------------------
 
 MEASUREMENT_SELECT_COLUMNS = """
@@ -1455,7 +1499,11 @@ MEASUREMENT_SELECT_COLUMNS = """
     COALESCE(accel_2_peak_mg,          NULLIF(raw_json->>'accel_2_peak_mg',          '')::double precision) AS accel_2_peak_mg,
     COALESCE(accel_2_band_swarm_mg,    NULLIF(raw_json->>'accel_2_band_swarm_mg',    '')::double precision) AS accel_2_band_swarm_mg,
     COALESCE(accel_2_band_fanning_mg,  NULLIF(raw_json->>'accel_2_band_fanning_mg',  '')::double precision) AS accel_2_band_fanning_mg,
-    COALESCE(accel_2_band_activity_mg, NULLIF(raw_json->>'accel_2_band_activity_mg', '')::double precision) AS accel_2_band_activity_mg
+    COALESCE(accel_2_band_activity_mg, NULLIF(raw_json->>'accel_2_band_activity_mg', '')::double precision) AS accel_2_band_activity_mg,
+    COALESCE(ble_1_humidity_percent, NULLIF(raw_json->>'ble_1_humidity_percent', '')::double precision) AS ble_1_humidity_percent,
+    COALESCE(ble_1_pressure_hpa,     NULLIF(raw_json->>'ble_1_pressure_hpa',     '')::double precision) AS ble_1_pressure_hpa,
+    COALESCE(ble_2_humidity_percent, NULLIF(raw_json->>'ble_2_humidity_percent', '')::double precision) AS ble_2_humidity_percent,
+    COALESCE(ble_2_pressure_hpa,     NULLIF(raw_json->>'ble_2_pressure_hpa',     '')::double precision) AS ble_2_pressure_hpa
 """
 
 
@@ -1573,6 +1621,11 @@ def measurement_row_to_dict(r):
         "accel_2_band_swarm_mg":     r[98],
         "accel_2_band_fanning_mg":   r[99],
         "accel_2_band_activity_mg":  r[100],
+        # HolyIot 25015 in-hive BLE sensor (per hive)
+        "ble_1_humidity_percent":    r[101],
+        "ble_1_pressure_hpa":        r[102],
+        "ble_2_humidity_percent":    r[103],
+        "ble_2_pressure_hpa":        r[104],
     }
 
 

@@ -200,6 +200,19 @@ VIBRATION_SWARM_STANDALONE_MULT = 2.0
 VIBRATION_MIN_BASELINE_MG = 0.4
 VIBRATION_MIN_RECENT_MG = 0.8
 
+# ── Low-rate (BLE beacon) vibration thresholds ──────────────────────────────
+# The HolyIot 25015 is a passive BLE beacon: it yields a per-cycle acceleration
+# magnitude (accel_N_rms_mg) rather than a high-rate stream, so the 8–30 Hz FFT
+# swarm band above cannot be computed from it. Instead we trend the night-time
+# mean of that per-cycle magnitude — a rising baseline of in-hive movement is a
+# coarse but real pre-swarm activity signal (Bencsik/Ramsey: comb excitation
+# climbs for days before swarming). Thresholds are deliberately conservative and
+# the alert is lower-confidence than the FFT-band detector. Recalibrate on data.
+LOWRATE_SWARM_RISE_MULT = 1.8
+# Absolute floors so beacon/sensor noise on a still hive can't fake a big ratio.
+LOWRATE_MIN_BASELINE_MG = 2.0
+LOWRATE_MIN_RECENT_MG = 4.0
+
 # ── Acoustic thresholds (dBFS, see module docstring for literature refs) ────
 # Pre-swarm: piping band energy at or above this level is a strong positive signal.
 PIPING_ACTIVE_DBFS = -45.0
@@ -430,6 +443,37 @@ def _accel_band_series(
     return out
 
 
+def _accel_rms_series(
+    measurements: Iterable[dict[str, Any]],
+    channel: ChannelRef,
+) -> Series:
+    """
+    Pull a (timestamp, mg) series of the per-cycle broadband AC magnitude
+    (``accel_{ch}_rms_mg``) for one hive, gated by ``accel_{ch}_ok``.
+
+    This is what a passive HolyIot 25015 BLE sensor produces — a single
+    acceleration magnitude per upload cycle rather than an FFT band. Used by the
+    low-rate pre-swarm detector. Identical gating to ``_accel_band_series`` so a
+    missing sensor never injects implicit zeros.
+    """
+    ok_field = f"accel_{channel}_ok"
+    val_field = f"accel_{channel}_rms_mg"
+    out: Series = []
+    for m in measurements:
+        if not m.get(ok_field):
+            continue
+        ts = _as_datetime(m.get("measured_at"))
+        val = m.get(val_field)
+        if ts is None or val is None:
+            continue
+        try:
+            out.append((ts, float(val)))
+        except (TypeError, ValueError):
+            continue
+    out.sort(key=lambda p: p[0])
+    return out
+
+
 def _night_window(series: Series, end: datetime, days: float) -> Series:
     """
     Filter ``series`` to the last ``days`` ending at ``end`` AND to the
@@ -475,6 +519,38 @@ def _vibration_swarm_rise(
     if recent_mean is None or baseline_mean is None:
         return (None, None, None)
     if baseline_mean < VIBRATION_MIN_BASELINE_MG or recent_mean < VIBRATION_MIN_RECENT_MG:
+        return (recent_mean, baseline_mean, None)
+    ratio = recent_mean / baseline_mean
+    return (recent_mean, baseline_mean, ratio)
+
+
+def _lowrate_vibration_rise(
+    accel_rms_series: Series, now: datetime
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Low-rate analogue of ``_vibration_swarm_rise`` for the per-cycle BLE-beacon
+    magnitude (``accel_{ch}_rms_mg``). Same night-window recent-vs-baseline
+    comparison, but with the LOWRATE_* floors (the per-cycle magnitude is in a
+    different, larger mg range than a narrow FFT band). Returns
+    (recent_mean_mg, baseline_mean_mg, ratio); ratio is None when there isn't
+    enough night-time data or levels are below the noise floors.
+    """
+    if not accel_rms_series:
+        return (None, None, None)
+    recent = _night_window(accel_rms_series, now, VIBRATION_RECENT_DAYS)
+    baseline_end = now - timedelta(days=VIBRATION_RECENT_DAYS)
+    baseline = _night_window(
+        accel_rms_series,
+        baseline_end,
+        VIBRATION_BASELINE_DAYS - VIBRATION_RECENT_DAYS,
+    )
+    if len(recent) < 3 or len(baseline) < 6:
+        return (None, None, None)
+    recent_mean = _safe_mean(_values(recent))
+    baseline_mean = _safe_mean(_values(baseline))
+    if recent_mean is None or baseline_mean is None:
+        return (None, None, None)
+    if baseline_mean < LOWRATE_MIN_BASELINE_MG or recent_mean < LOWRATE_MIN_RECENT_MG:
         return (recent_mean, baseline_mean, None)
     ratio = recent_mean / baseline_mean
     return (recent_mean, baseline_mean, ratio)
@@ -932,6 +1008,66 @@ def detect_vibration_swarm_prediction(
             "night_hours": list(VIBRATION_NIGHT_HOURS),
         },
         source="Ramsey et al. 2020 (Sci. Rep. 10:9798); Bencsik et al. 2011; Uthoff et al. 2023",
+    )
+
+
+def detect_lowrate_accel_swarm(
+    accel_rms_series: Series,
+    channel: ChannelRef,
+    now: datetime,
+    accel_swarm_series: Optional[Series] = None,
+) -> Optional[Alert]:
+    """
+    Pre-swarm watch from a passive BLE accelerometer (HolyIot 25015).
+
+    A passive beacon only emits periodic single-shot acceleration samples, so the
+    8–30 Hz FFT swarm band used by ``detect_vibration_swarm_prediction`` cannot be
+    computed. Instead this trends the night-time mean of the per-cycle broadband
+    magnitude (``accel_{ch}_rms_mg``): rising in-hive movement over days is a
+    coarse pre-swarm activity signal consistent with the comb-excitation increase
+    Bencsik/Ramsey report before swarming.
+
+    This is intentionally lower-confidence than the FFT-band detector. When real
+    8–30 Hz band data exists for this hive (a wired/high-rate sensor), it defers
+    to ``detect_vibration_swarm_prediction`` to avoid a duplicate alert. Active
+    season only.
+    """
+    if not _is_active_season(now):
+        return None
+
+    # Defer to the FFT-band detector when proper band data is available.
+    if accel_swarm_series:
+        return None
+
+    recent_mg, baseline_mg, ratio = _lowrate_vibration_rise(accel_rms_series, now)
+    if ratio is None or ratio < LOWRATE_SWARM_RISE_MULT:
+        return None
+
+    confidence = min(0.7, 0.35 + (ratio - LOWRATE_SWARM_RISE_MULT) * 0.2)
+    return Alert(
+        id=f"swarm-ble-vibration-ch{channel}",
+        category="swarm",
+        severity="watch",
+        channel=channel,
+        title=f"Pre-swarm movement rising (hive {channel})",
+        description=(
+            f"Night-time in-hive movement measured by the BLE accelerometer has "
+            f"risen {ratio:.1f}× over its baseline ({recent_mg:.1f} vs "
+            f"{baseline_mg:.1f} mg). Rising comb excitation over several days can "
+            f"precede swarming — inspect for queen cells. (Low-rate beacon signal: "
+            f"coarser than a wired vibration sensor.)"
+        ),
+        window_start=now - timedelta(days=VIBRATION_BASELINE_DAYS),
+        window_end=now,
+        confidence=confidence,
+        evidence={
+            "lowrate_vibration_recent_mg": recent_mg,
+            "lowrate_vibration_baseline_mg": baseline_mg,
+            "lowrate_vibration_ratio": ratio,
+            "night_hours": list(VIBRATION_NIGHT_HOURS),
+            "source_sensor": "ble_holyiot_25015",
+        },
+        source="Bencsik et al. 2011/2015; Ramsey et al. 2020 (low-rate proxy)",
     )
 
 
@@ -1629,8 +1765,12 @@ def compute_insights(
         bee_in = _extract_counter_series(measurements, channel, "in")
         bee_out = _extract_counter_series(measurements, channel, "out")
         accel_swarm = _accel_band_series(measurements, channel, "swarm")
+        accel_rms = _accel_rms_series(measurements, channel)
 
-        if not weight and not hive_temp and not bee_in and not bee_out and not accel_swarm:
+        if (
+            not weight and not hive_temp and not bee_in and not bee_out
+            and not accel_swarm and not accel_rms
+        ):
             continue
 
         # Detectors that accept acoustic data get ``measurements`` passed in.
@@ -1643,6 +1783,9 @@ def compute_insights(
                 hive_temp, channel, now, measurements, accel_swarm
             ),
             lambda: detect_vibration_swarm_prediction(accel_swarm, channel, now),
+            lambda: detect_lowrate_accel_swarm(
+                accel_rms, channel, now, accel_swarm
+            ),
             lambda: detect_queenlessness(
                 hive_temp, weight, channel, now, measurements, bee_out
             ),

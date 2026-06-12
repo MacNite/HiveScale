@@ -15,8 +15,8 @@
 #include "mics.h"
 #endif
 
-#if ENABLE_LIS3DH_ACCEL
-#include "accel.h"
+#if ENABLE_HOLYIOT_BLE
+#include "ble_sensor.h"
 #endif
 
 void initializeTime(bool wokeFromDeepSleep) {
@@ -120,10 +120,16 @@ String createMeasurementJson() {
 
   powerUpScales();
 
+  // Wired DS18B20 in-hive probes are now optional. When disabled the hive
+  // temperatures default to NAN and are filled from a paired HolyIot 25015 BLE
+  // sensor further down (see the BLE block below).
+  float hiveTemp1 = NAN;
+  float hiveTemp2 = NAN;
+#if ENABLE_DS18B20_HIVE_TEMP
   ds18b20.requestTemperatures();
-
-  float hiveTemp1 = ds18b20.getTempCByIndex(0);
-  float hiveTemp2 = ds18b20.getTempCByIndex(1);
+  hiveTemp1 = ds18b20.getTempCByIndex(0);
+  hiveTemp2 = ds18b20.getTempCByIndex(1);
+#endif
   float ambientTemp = NAN;
   float ambientHumidity = NAN;
 
@@ -180,14 +186,21 @@ String createMeasurementJson() {
   MicMeasurement micResult = readMicSamples();
 #endif
 
-#if ENABLE_LIS3DH_ACCEL
-  // One accelerometer per hive on the shared I2C bus (0x18 / 0x19). Each capture
-  // is independent — a missing sensor just reports ok=false. Reading both adds
-  // roughly LIS3DH_SAMPLE_COUNT / ODR seconds per slot (~0.6 s each at default).
-  accel::AccelSnapshot accelSnap1;
-  accel::AccelSnapshot accelSnap2;
-  (void)accel::readSlot(accel::SLAVE_ADDR_SLOT_1, accelSnap1);
-  (void)accel::readSlot(accel::SLAVE_ADDR_SLOT_2, accelSnap2);
+#if ENABLE_HOLYIOT_BLE
+  // Passive BLE bridge for the in-hive HolyIot 25015 sensors. One short scan
+  // fills both slots (slot 1 -> hive 1, slot 2 -> hive 2) from the MACs paired
+  // in the provisioning portal. Temperature, humidity, pressure and a per-cycle
+  // acceleration magnitude come back per slot; a missing/unpaired sensor just
+  // reports present=false. Done before the WiFi upload so the BLE controller is
+  // released first.
+  blesensor::Snapshot bleSnap1;
+  blesensor::Snapshot bleSnap2;
+  blesensor::scanPairedSensors(bleSensorMac0, bleSensorMac1, bleSnap1, bleSnap2);
+
+  // In-hive temperature source: prefer the wired DS18B20 when it produced a
+  // valid reading; otherwise fall back to the BLE sensor's SHT40 temperature.
+  if (isnan(hiveTemp1) && bleSnap1.present && !isnan(bleSnap1.temp_c)) hiveTemp1 = bleSnap1.temp_c;
+  if (isnan(hiveTemp2) && bleSnap2.present && !isnan(bleSnap2.temp_c)) hiveTemp2 = bleSnap2.temp_c;
 #endif
 
 // ---- BeeCounter polling -------------------------------------------------
@@ -280,9 +293,9 @@ String createMeasurementJson() {
   beecnt::writeSnapshotToJson(doc, 1, beeSnap1);
   beecnt::writeSnapshotToJson(doc, 2, beeSnap2);
 
-#if ENABLE_LIS3DH_ACCEL
-  accel::writeSnapshotToJson(doc, 1, accelSnap1);
-  accel::writeSnapshotToJson(doc, 2, accelSnap2);
+#if ENABLE_HOLYIOT_BLE
+  blesensor::writeSnapshotToJson(doc, 1, bleSnap1);
+  blesensor::writeSnapshotToJson(doc, 2, bleSnap2);
 #endif
 
   String output;

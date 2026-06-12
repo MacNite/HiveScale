@@ -1,5 +1,13 @@
 # Per-hive accelerometer (LIS3DH / LIS2DH12) — vibration monitoring
 
+> **Superseded.** The wired LIS3DH/LIS2DH12 accelerometer described here has been
+> removed from the firmware. In-hive acceleration (plus temperature, humidity and
+> pressure) now comes from the optional **HolyIot 25015 BLE sensor** —
+> see [holyiot-ble-sensor.md](holyiot-ble-sensor.md). This document is kept for
+> background on the vibration science and the FFT-band insight, which still apply
+> to any high-rate vibration source. The passive BLE beacon cannot produce FFT
+> bands, so it feeds a separate **low-rate** pre-swarm detector instead.
+
 HiveScale can carry **one MEMS accelerometer per hive** on the shared I2C bus to
 measure low-frequency comb/wall vibration. The feature is optional and compiled
 out unless `ENABLE_LIS3DH_ACCEL` is set in `secrets.h`.

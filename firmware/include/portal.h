@@ -4,6 +4,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "config.h"
 
 // ---- Calibration mode -----------------------------------------------------
 bool calibrationModeExpired();
@@ -21,6 +22,9 @@ void appendLastSensorPanel(String& html);
 
 // ---- HTTP route handlers --------------------------------------------------
 void handleSdDownloadAll();
+#if ENABLE_HOLYIOT_BLE
+void handleBleScan();
+#endif
 void handleSetupRoot();
 void handleSetupSave();
 void handleSetupReset();

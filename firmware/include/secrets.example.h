@@ -69,6 +69,9 @@
 //   GPIO 34 -> SD   (data out from both mics, ESP32 input-only pin)
 //
 // VDD on each mic -> 3.3V, GND -> GND.
+//
+// The wired in-hive microphone is OPTIONAL — set to 0 (or omit) on builds that
+// do not fit an INMP441.
 #define ENABLE_INMP441_MICS      1
 
 #define INMP441_BCLK_PIN         14
@@ -84,35 +87,41 @@
 #define INMP441_SAMPLE_FRAMES    8000
 
 // ==============================
-// LIS3DH / LIS2DH12 ACCELEROMETERS (per-hive vibration)
+// DS18B20 WIRED IN-HIVE TEMPERATURE (optional)
 // ==============================
-// One MEMS accelerometer per hive on the shared I2C bus captures low-frequency
-// comb/wall vibration — most importantly the ~20 Hz pre-swarm signal that hive
-// microphones miss (Ramsey et al. 2020; Uthoff et al. 2023). The LIS3DH on the
-// purple breakout (prototype) and the LIS2DH12TR (final BOM) are register- and
-// address-compatible, so the same firmware drives both. See docs/wiring.md and
-// docs/accelerometer.md.
+// The two 1-Wire DS18B20 probes (hive_1_temp_c / hive_2_temp_c) are optional.
+// Default is on (1). Set to 0 on builds where in-hive temperature comes from a
+// paired HolyIot 25015 BLE sensor instead (see below). When both are present
+// the wired probe wins and the BLE temperature is the fallback.
+#define ENABLE_DS18B20_HIVE_TEMP 1
+
+// ==============================
+// HOLYIOT 25015 IN-HIVE BLE SENSOR (optional)
+// ==============================
+// Replaces the wired LIS3DH/LIS2DH12 accelerometer. The HolyIot 25015 is an
+// nRF54L15 BLE beacon with an SHT40 (temp/humidity), LPS22HB (pressure) and
+// LIS2DH12 (acceleration). The ESP32 scans for it passively each cycle and folds
+// the readings into the upload — no wiring, just battery beacons in the hive.
 //
-// Wiring (I2C mode) per board:
-//   VCC -> 3.3V, GND -> GND, SCL -> GPIO22, SDA -> GPIO21
-//   CS  -> 3.3V            (forces I2C; LOW would select SPI)
-//   SDO -> GND for hive 1 (address 0x18), SDO -> 3.3V for hive 2 (address 0x19)
-//   INT1/INT2/ADC1-3      left unconnected (polled reads, no interrupts used)
-#define ENABLE_LIS3DH_ACCEL      1
+// Pair up to two sensors (slot 1 -> hive 1, slot 2 -> hive 2) from the
+// provisioning portal: open the setup page, use "scan for nearby sensors", and
+// paste each MAC into a slot. The MACs persist in Preferences.
+//
+// NOTE: the advertisement byte layout in firmware/src/ble_sensor.cpp is a
+// documented best guess (HolyIot publish no spec). After sniffing one real
+// packet, correct the HOLYIOT_OFF_* / *_SCALE constants there.
+#define ENABLE_HOLYIOT_BLE       1
 
-#define LIS3DH_ADDR_SLOT_1       0x18   // hive 1 (SDO/SA0 -> GND)
-#define LIS3DH_ADDR_SLOT_2       0x19   // hive 2 (SDO/SA0 -> VCC)
+// Seconds to scan for the paired beacons each cycle (they advertise ~0.5–2 s).
+#define HOLYIOT_BLE_SCAN_SECONDS 6
 
-// Output data rate (Hz): 10/25/50/100/200/400. 400 Hz gives a 200 Hz Nyquist,
-// covering all three vibration bands; lower it to save power if you only care
-// about the 8–30 Hz swarm band.
-#define LIS3DH_ODR_HZ            400
+// Active scan also fetches the device name (handy when pairing); costs a little
+// more power. Set to 0 for passive-only scanning.
+#define HOLYIOT_BLE_ACTIVE_SCAN  1
 
-// Samples per hive per cycle (clamped to a power of two for the FFT).
-#define LIS3DH_SAMPLE_COUNT      256
-
-// Full-scale range in g (2/4/8/16). 2 g maximises sensitivity.
-#define LIS3DH_RANGE_G           2
+// 16-bit BLE company id in the manufacturer-specific advertisement. 0xFFFF is a
+// common generic default; override once the real id is known from a capture.
+#define HOLYIOT_COMPANY_ID       0xFFFF
 
 // ==============================
 // OPTIONAL FLAGS

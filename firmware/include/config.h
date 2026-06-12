@@ -41,8 +41,21 @@
 #endif
 
 // ==============================
+// DS18B20 WIRED IN-HIVE TEMPERATURE (optional)
+// ==============================
+// The two 1-Wire DS18B20 probes (hive_1_temp_c / hive_2_temp_c) are now an
+// OPTIONAL sensor: in-hive temperature can instead come from a paired HolyIot
+// 25015 BLE sensor (see below). Default 1 so existing wired builds are
+// unchanged; set to 0 in secrets.h on devices that rely on the BLE sensor.
+#ifndef ENABLE_DS18B20_HIVE_TEMP
+#define ENABLE_DS18B20_HIVE_TEMP 1
+#endif
+
+// ==============================
 // INMP441 STEREO MICS (defaults)
 // ==============================
+// The wired in-hive microphone is optional and compiled out by default
+// (ENABLE_INMP441_MICS 0). Enable per device in secrets.h.
 #ifndef ENABLE_INMP441_MICS
 #define ENABLE_INMP441_MICS 0
 #endif
@@ -73,43 +86,43 @@
 #endif
 
 // ==============================
-// LIS3DH / LIS2DH12 ACCELEROMETER (defaults)
+// HOLYIOT 25015 IN-HIVE BLE SENSOR (optional)
 // ==============================
-// One low-g MEMS accelerometer per hive on the shared I2C bus, for capturing
-// low-frequency comb/wall vibration (notably the ~20 Hz pre-swarm signal the
-// microphones can't reach — see accel.h and docs/accelerometer.md). The LIS3DH
-// (prototype) and LIS2DH12 (final BOM) share a register map and addresses, so
-// the same driver handles both. Compiled out unless enabled in secrets.h.
-#ifndef ENABLE_LIS3DH_ACCEL
-#define ENABLE_LIS3DH_ACCEL 0
+// Replaces the previous wired LIS3DH/LIS2DH12 accelerometer. The HolyIot 25015
+// is an nRF54L15 BLE beacon carrying an SHT40 (temp/humidity), an LPS22HB
+// (barometric pressure) and a LIS2DH12 (3-axis acceleration). The ESP32 acts as
+// a passive BLE bridge: during each wake cycle it runs a short scan, parses the
+// beacon's advertisement and folds the readings into the normal measurement
+// upload. Up to two sensors can be paired (slot 1 -> hive 1, slot 2 -> hive 2)
+// from the provisioning portal; their MAC addresses live in Preferences.
+//
+// IMPORTANT — advertisement byte layout is a documented BEST GUESS.
+// HolyIot do not publish the 25015 advertisement format. The offsets in
+// firmware/src/ble_sensor.cpp (HOLYIOT_OFF_* constants) are an editable
+// best-effort layout; after sniffing one real packet (nRF Connect etc.) adjust
+// those constants — no other code needs to change.
+#ifndef ENABLE_HOLYIOT_BLE
+#define ENABLE_HOLYIOT_BLE 0
 #endif
 
-// I2C addresses, set in hardware by each board's SDO/SA0 pin:
-//   SDO/SA0 -> GND = 0x18 (hive 1), SDO/SA0 -> VCC = 0x19 (hive 2).
-#ifndef LIS3DH_ADDR_SLOT_1
-#define LIS3DH_ADDR_SLOT_1 0x18
-#endif
-#ifndef LIS3DH_ADDR_SLOT_2
-#define LIS3DH_ADDR_SLOT_2 0x19
+// How many seconds to scan for the paired beacons each cycle. The 25015
+// typically advertises every 0.5–2 s, so a few seconds reliably catches it
+// while keeping the extra awake time (and battery cost) small.
+#ifndef HOLYIOT_BLE_SCAN_SECONDS
+#define HOLYIOT_BLE_SCAN_SECONDS 6
 #endif
 
-// Output data rate in Hz. 400 Hz (Nyquist 200 Hz) cleanly resolves the swarm
-// (8–30 Hz), fanning (30–100 Hz) and activity (100–200 Hz) bands while staying
-// power-frugal. Supported: 10/25/50/100/200/400 (others fall back to 400).
-#ifndef LIS3DH_ODR_HZ
-#define LIS3DH_ODR_HZ 400
+// Active scan also pulls the scan-response payload (device name). Costs a little
+// more power but improves identification during portal pairing.
+#ifndef HOLYIOT_BLE_ACTIVE_SCAN
+#define HOLYIOT_BLE_ACTIVE_SCAN 1
 #endif
 
-// Samples captured per hive per cycle. Clamped to a power of two for the FFT;
-// 256 @ 400 Hz ≈ 640 ms and 1.56 Hz/bin resolution.
-#ifndef LIS3DH_SAMPLE_COUNT
-#define LIS3DH_SAMPLE_COUNT 256
-#endif
-
-// Full-scale range in g (±2/4/8/16). ±2 g maximises sensitivity for the small
-// substrate-borne vibrations of interest.
-#ifndef LIS3DH_RANGE_G
-#define LIS3DH_RANGE_G 2
+// 16-bit BLE company identifier in the manufacturer-specific AD structure.
+// 0xFFFF is the "no registered company" value many generic beacons ship with;
+// override in secrets.h once the real ID is known from a packet capture.
+#ifndef HOLYIOT_COMPANY_ID
+#define HOLYIOT_COMPANY_ID 0xFFFF
 #endif
 
 // ==============================

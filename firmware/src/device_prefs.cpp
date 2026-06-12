@@ -110,6 +110,11 @@ void loadConfigFromPrefs() {
   scale1Factor = prefs.getFloat("s1_factor", -7050.0f);
   scale2Factor = prefs.getFloat("s2_factor", -7050.0f);
 
+#if ENABLE_HOLYIOT_BLE
+  bleSensorMac0 = prefs.getString("ble_mac0", "");
+  bleSensorMac1 = prefs.getString("ble_mac1", "");
+#endif
+
   prefs.end();
 
   Serial.println("[PREFS] Loaded config");

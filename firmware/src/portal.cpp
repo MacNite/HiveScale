@@ -8,6 +8,10 @@
 #include <WiFi.h>
 #include <ArduinoJson.h>
 
+#if ENABLE_HOLYIOT_BLE
+#include "ble_sensor.h"
+#endif
+
 // ---- small JSON-to-display helpers (used only by the last-sensor panel) ---
 static String jsonStringOrNA(JsonDocument& doc, const char* key);
 static String jsonNumberOrNA(JsonDocument& doc, const char* key, uint8_t decimals, const char* unit);
@@ -168,6 +172,17 @@ void appendLastSensorPanel(String& html) {
     addMeasurementRow(html, "Mic right RMS", jsonNumberOrNA(doc, "mic_right_rms_dbfs", 1, "dBFS"));
   }
 
+  if (!doc["ble_1_pressure_hpa"].isNull() || !doc["ble_1_humidity_percent"].isNull()) {
+    addMeasurementRow(html, "Hive 1 BLE humidity", jsonNumberOrNA(doc, "ble_1_humidity_percent", 1, "%"));
+    addMeasurementRow(html, "Hive 1 BLE pressure", jsonNumberOrNA(doc, "ble_1_pressure_hpa", 1, "hPa"));
+    addMeasurementRow(html, "Hive 1 BLE battery", jsonNumberOrNA(doc, "ble_1_battery_percent", 0, "%"));
+  }
+  if (!doc["ble_2_pressure_hpa"].isNull() || !doc["ble_2_humidity_percent"].isNull()) {
+    addMeasurementRow(html, "Hive 2 BLE humidity", jsonNumberOrNA(doc, "ble_2_humidity_percent", 1, "%"));
+    addMeasurementRow(html, "Hive 2 BLE pressure", jsonNumberOrNA(doc, "ble_2_pressure_hpa", 1, "hPa"));
+    addMeasurementRow(html, "Hive 2 BLE battery", jsonNumberOrNA(doc, "ble_2_battery_percent", 0, "%"));
+  }
+
   html += "</table>";
   html += "<p class='meta'>Shown from the latest measurement in memory or from ";
   html += BACKUP_FILE;
@@ -216,6 +231,36 @@ void handleSdDownloadAll() {
   Serial.println("[SD] Download-all TAR completed");
 }
 
+#if ENABLE_HOLYIOT_BLE
+// Blocking BLE discovery page: scans for a few seconds and lists nearby devices
+// so the user can copy a MAC into the pairing fields. Runs while the AP is up;
+// ESP32 BLE + SoftAP coexist, though throughput dips during the scan.
+void handleBleScan() {
+  sendNoCacheHeaders();
+
+  std::vector<blesensor::Discovered> found = blesensor::discover(HOLYIOT_BLE_SCAN_SECONDS);
+
+  String html;
+  html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
+  html += "<title>BLE scan</title><style>body{font-family:system-ui;margin:24px;max-width:760px}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #ddd;padding:6px}code{background:#f4f4f4;padding:2px 4px}</style>";
+  html += "</head><body><h1>Nearby BLE devices</h1>";
+  html += "<p>HolyIot-looking sensors (a parseable 25015 payload) are marked. Copy a MAC, then paste it into a sensor slot on the <a href='/'>setup page</a>.</p>";
+
+  if (found.empty()) {
+    html += "<p>No BLE devices were seen during the scan. Make sure the sensor is powered and in range, then <a href='/ble/scan'>scan again</a>.</p>";
+  } else {
+    html += "<table><tr><th>MAC</th><th>Name</th><th>RSSI</th><th>HolyIot?</th></tr>";
+    for (const auto& d : found) {
+      html += "<tr><td><code>" + htmlEscape(d.mac) + "</code></td><td>" + htmlEscape(d.name) + "</td><td>" + String(d.rssi_dbm) + " dBm</td><td>" + (d.looks_like_holyiot ? "yes" : "") + "</td></tr>";
+    }
+    html += "</table>";
+    html += "<p><a href='/ble/scan'>Scan again</a></p>";
+  }
+  html += "</body></html>";
+  setupServer.send(200, "text/html", html);
+}
+#endif
+
 void handleSetupRoot() {
   sendNoCacheHeaders();
 
@@ -242,6 +287,15 @@ void handleSetupRoot() {
   html += "<label>API base URL</label><input name='api_base' value='" + htmlEscape(apiBaseUrl) + "'>";
   html += "<label>API key</label><input name='api_key' value='" + htmlEscape(apiKey) + "'>";
   html += "</fieldset>";
+
+#if ENABLE_HOLYIOT_BLE
+  html += "<fieldset><legend>In-hive BLE sensors (HolyIot 25015)</legend>";
+  html += "<p>Pair up to two sensors. Slot 1 maps to hive 1, slot 2 to hive 2. ";
+  html += "Enter each sensor's MAC address, or <a href='/ble/scan'>scan for nearby sensors</a> and copy a MAC below.</p>";
+  html += "<label>Sensor 1 MAC (hive 1)</label><input name='ble_mac0' placeholder='AA:BB:CC:DD:EE:FF' value='" + htmlEscape(bleSensorMac0) + "'>";
+  html += "<label>Sensor 2 MAC (hive 2)</label><input name='ble_mac1' placeholder='AA:BB:CC:DD:EE:FF' value='" + htmlEscape(bleSensorMac1) + "'>";
+  html += "</fieldset>";
+#endif
 
   html += "<fieldset><legend>WiFi networks</legend>";
   for (int i = 0; i < MAX_WIFI_NETWORKS; i++) {
@@ -273,6 +327,18 @@ void handleSetupSave() {
   prefs.putString("claim_code", newClaimCode);
   if (newApiBase.length() > 0) prefs.putString("api_base", newApiBase);
   if (newApiKey.length() > 0) prefs.putString("api_key", newApiKey);
+
+#if ENABLE_HOLYIOT_BLE
+  // Persist the paired HolyIot 25015 MACs. An empty field clears that slot.
+  // Normalising here means an invalid entry is stored as "" (unpaired) rather
+  // than a string that can never match an advertisement.
+  String bleMac0 = blesensor::normalizeMac(setupServer.arg("ble_mac0"));
+  String bleMac1 = blesensor::normalizeMac(setupServer.arg("ble_mac1"));
+  prefs.putString("ble_mac0", bleMac0);
+  prefs.putString("ble_mac1", bleMac1);
+  bleSensorMac0 = bleMac0;
+  bleSensorMac1 = bleMac1;
+#endif
 
   int savedCount = 0;
   for (int i = 0; i < MAX_WIFI_NETWORKS; i++) {
@@ -349,6 +415,9 @@ void startProvisioningPortal() {
   setupServer.on("/save", HTTP_POST, handleSetupSave);
   setupServer.on("/reset", HTTP_POST, handleSetupReset);
   setupServer.on("/sd/download-all", HTTP_GET, handleSdDownloadAll);
+#if ENABLE_HOLYIOT_BLE
+  setupServer.on("/ble/scan", HTTP_GET, handleBleScan);
+#endif
 
   // Common captive-portal probe URLs used by Android, iOS/macOS, Windows, and Firefox.
   // Redirecting these makes most phones/laptops show the setup page automatically

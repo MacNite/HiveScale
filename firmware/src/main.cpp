@@ -82,9 +82,9 @@ void setup() {
   debugLine();
   Serial.println("Hive Scale ESP32 firmware with provisioning + OTA");
   Serial.printf("Firmware version: %s\n", FIRMWARE_VERSION);
-  Serial.printf("Optional modules: INA219=%d MAX17048=%d INMP441=%d LIS3DH=%d\n",
+  Serial.printf("Optional modules: INA219=%d MAX17048=%d INMP441=%d DS18B20=%d HolyIotBLE=%d\n",
                 ENABLE_INA219_SOLAR, ENABLE_MAX17048_BATTERY, ENABLE_INMP441_MICS,
-                ENABLE_LIS3DH_ACCEL);
+                ENABLE_DS18B20_HIVE_TEMP, ENABLE_HOLYIOT_BLE);
   Serial.printf("Wake reason: %s; RTC boot count: %u\n", wakeReasonName(wakeReason).c_str(), rtcBootCount);
   debugLine();
 
@@ -134,8 +134,12 @@ void setup() {
   }
 #endif
 
+#if ENABLE_DS18B20_HIVE_TEMP
   ds18b20.begin();
   Serial.printf("[DS18B20] Device count: %d\n", ds18b20.getDeviceCount());
+#else
+  Serial.println("[DS18B20] Disabled (ENABLE_DS18B20_HIVE_TEMP=0); hive temp from BLE sensor if paired");
+#endif
 
   scale1.begin(HX1_DOUT, HX1_SCK);
   scale2.begin(HX2_DOUT, HX2_SCK);
