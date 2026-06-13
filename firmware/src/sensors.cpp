@@ -180,6 +180,9 @@ String createMeasurementJson() {
     batteryVoltage = batteryGauge.getVoltage();
     batterySoc = batteryGauge.getSOC();
     batteryAlert = batteryGauge.getAlert();
+    // The ALRT bit is sticky — clear it after reading so the chip can
+    // re-assert it on the next internal cycle if SOC is still below threshold.
+    if (batteryAlert) batteryGauge.clearAlert();
   }
 #endif
 #if ENABLE_INMP441_MICS
