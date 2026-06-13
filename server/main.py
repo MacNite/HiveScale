@@ -112,8 +112,12 @@ class MaxBodySizeMiddleware:
 
     @staticmethod
     def _is_exempt(scope) -> bool:
+        if scope.get("method") != "POST":
+            return False
+        path = scope.get("path", "")
         # Firmware binary uploads are large by design and capped by the endpoint.
-        return scope.get("method") == "POST" and scope.get("path", "").endswith("/firmware")
+        # Bulk SD import is authenticated and capped by MEASUREMENT_IMPORT_MAX rows.
+        return path.endswith("/firmware") or path.endswith("/measurements/import")
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or self.max_body_bytes <= 0 or self._is_exempt(scope):
