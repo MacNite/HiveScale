@@ -27,3 +27,4 @@ venv/
 secrets.h
 secrets-*.h
 *.code-workspace
+claude-bundles/
