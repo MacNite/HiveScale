@@ -750,6 +750,16 @@
 		)
 		(uuid "15a63c51-eb2f-4c9a-88a9-314b51c435c2")
 	)
+	(label "Solarpos"
+		(at 92.71 54.61 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "1aedbe81-23ac-4344-9dc5-c0c496d08c5e")
+	)
 	(label "BATpos"
 		(at 129.54 100.33 0)
 		(effects
@@ -910,16 +920,6 @@
 		)
 		(uuid "9d9c6d5c-802d-481a-bdea-5b61b5670369")
 	)
-	(label "Solarpos"
-		(at 92.71 57.15 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "a654e8c3-bff2-4e5e-8825-6467854b5f5b")
-	)
 	(label "GND"
 		(at 198.12 58.42 0)
 		(effects
@@ -949,16 +949,6 @@
 			(justify left bottom)
 		)
 		(uuid "bf3993a8-841b-4fbd-a3c4-88c6a88c0322")
-	)
-	(label "Solarneg"
-		(at 92.71 54.61 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "c47e1e65-191f-4239-8447-4fed97bd8827")
 	)
 	(label "SCL"
 		(at 92.71 49.53 0)
@@ -1125,7 +1115,7 @@
 			(uuid "a541c99e-182f-4c33-a71b-9d5a511a5707")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "J21")
 					(unit 1)
@@ -1207,7 +1197,7 @@
 			(uuid "ec99c5a1-4f8b-4b70-90bf-a9e0f01f4a35")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "TP4056-1")
 					(unit 1)
@@ -1289,7 +1279,7 @@
 			(uuid "e5527364-1903-472f-bd26-9833af4fe7c6")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "J18")
 					(unit 1)
@@ -1382,7 +1372,7 @@
 			(uuid "6479191d-6958-48ad-8a82-b0a829def1c5")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "J16")
 					(unit 1)
@@ -1463,7 +1453,7 @@
 			(uuid "67cb4298-f070-45c9-b72f-bfb68c7c6b31")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "J19")
 					(unit 1)
@@ -1546,7 +1536,7 @@
 			(uuid "50213f06-943e-433d-b6bc-21c069dd4b9d")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "MAX17048")
 					(unit 1)
@@ -1639,7 +1629,7 @@
 			(uuid "5a4d8ac8-32f3-4bab-a24f-122baf94da47")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "J20")
 					(unit 1)
@@ -1720,7 +1710,7 @@
 			(uuid "69aae023-f3f7-4141-8845-7279b940d71f")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "J6")
 					(unit 1)
@@ -1802,7 +1792,7 @@
 			(uuid "b5c50c17-09d0-454f-92bc-662a1a57f262")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "TP4056+1")
 					(unit 1)
@@ -1884,7 +1874,7 @@
 			(uuid "0c73512d-3f64-4bc6-9f3d-a71f7f478cc1")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "J23")
 					(unit 1)
@@ -1970,7 +1960,7 @@
 			(uuid "1b0100a3-76b4-4e93-b011-69d288a69c0f")
 		)
 		(instances
-			(project "_V0_2-Power_Module"
+			(project "_V0_3-Power_Module"
 				(path "/0fd72f3f-0d89-4c92-9f9e-d7a48828e0f6"
 					(reference "J17")
 					(unit 1)
