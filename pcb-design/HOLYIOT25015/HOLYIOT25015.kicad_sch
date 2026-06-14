@@ -3241,51 +3241,47 @@
 		(effects (font (size 1.27 1.27)) (justify right bottom))
 		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000003f")
 	)
-	(label "BUTTON"
+	(label "SDI"
 		(at 116.0300 172.7800 270)
 		(effects (font (size 1.27 1.27)) (justify left bottom))
 		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000040")
 	)
-	(label "CS_LPS22HB"
+	(label "INT2"
 		(at 118.5700 172.7800 270)
 		(effects (font (size 1.27 1.27)) (justify left bottom))
 		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000041")
 	)
-	(label "CS_LIS2DH12"
+	(label "SDO"
 		(at 121.1100 172.7800 270)
 		(effects (font (size 1.27 1.27)) (justify left bottom))
 		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000042")
 	)
-	(label "INT2"
+	(label "CS_LIS2DH12"
 		(at 123.6500 172.7800 270)
 		(effects (font (size 1.27 1.27)) (justify left bottom))
 		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000043")
 	)
-	(label "SDO"
+	(label "CS_LPS22HB"
 		(at 126.1900 172.7800 270)
 		(effects (font (size 1.27 1.27)) (justify left bottom))
 		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000044")
 	)
-	(label "SDI"
+	(label "LED_B"
 		(at 128.7300 172.7800 270)
 		(effects (font (size 1.27 1.27)) (justify left bottom))
 		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000045")
 	)
-	(label "LED_R"
+	(label "INT_DRDY"
 		(at 131.2700 172.7800 270)
 		(effects (font (size 1.27 1.27)) (justify left bottom))
 		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000046")
 	)
-	(label "LED_G"
+	(label "LED_R"
 		(at 133.8100 172.7800 270)
 		(effects (font (size 1.27 1.27)) (justify left bottom))
 		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000047")
 	)
-	(label "LED_B"
-		(at 136.3500 172.7800 270)
-		(effects (font (size 1.27 1.27)) (justify left bottom))
-		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000048")
-	)
+	(no_connect (at 136.3500 172.7800) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000048"))
 	(label "VCC"
 		(at 138.8900 172.7800 270)
 		(effects (font (size 1.27 1.27)) (justify left bottom))
@@ -3354,10 +3350,18 @@
 		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000057")
 	)
 	(no_connect (at 143.9700 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000058"))
-	(no_connect (at 141.4300 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000059"))
+	(label "LED_G"
+		(at 141.4300 137.2200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000059")
+	)
 	(no_connect (at 138.8900 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005a"))
 	(no_connect (at 136.3500 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005b"))
-	(no_connect (at 133.8100 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005c"))
+	(label "BUTTON"
+		(at 133.8100 137.2200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005c")
+	)
 	(no_connect (at 131.2700 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005d"))
 	(label "DECA_NET"
 		(at 128.7300 137.2200 90)
