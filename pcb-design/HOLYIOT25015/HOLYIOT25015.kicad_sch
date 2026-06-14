@@ -1,0 +1,6838 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000001")
+	(paper "A3")
+	(title_block
+		(title "HOLYIOT-25015 nRF54L15 Module")
+		(date "2025-05-19")
+		(rev "V1.0")
+		(company "HOLyiot")
+		(comment 1 "Reconstructed from HOLYIOT25015V1.0 PDF schematic")
+	)
+	(lib_symbols
+			(symbol "nRF54L15"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "U"
+					(at 0 -17.240000000000002 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "nRF54L15"
+					(at 0 17.240000000000002 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "nRF54L15_1_1"
+					(rectangle
+						(start -15.24 -15.24)
+						(end 15.24 15.24)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin bidirectional line
+						(at -17.7800 -13.9700 0)
+						(length 2.54)
+						(name "P1.00/XL1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 -11.4300 0)
+						(length 2.54)
+						(name "P1.01/XL2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 -8.8900 0)
+						(length 2.54)
+						(name "P1.02/NFC1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "3"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 -6.3500 0)
+						(length 2.54)
+						(name "P1.03/NFC2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "4"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 -3.8100 0)
+						(length 2.54)
+						(name "P1.04/AIN0"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "5"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 -1.2700 0)
+						(length 2.54)
+						(name "P1.05/AIN1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "6"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 1.2700 0)
+						(length 2.54)
+						(name "P1.06/AIN2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "7"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 3.8100 0)
+						(length 2.54)
+						(name "P1.07/AIN3"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "8"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 6.3500 0)
+						(length 2.54)
+						(name "P1.08"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "9"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 8.8900 0)
+						(length 2.54)
+						(name "VDD"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "10"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 11.4300 0)
+						(length 2.54)
+						(name "P2.00"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "11"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -17.7800 13.9700 0)
+						(length 2.54)
+						(name "P2.01"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "12"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -13.9700 17.7800 90)
+						(length 2.54)
+						(name "P2.02"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "13"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -11.4300 17.7800 90)
+						(length 2.54)
+						(name "P2.03"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "14"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -8.8900 17.7800 90)
+						(length 2.54)
+						(name "P2.04"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "15"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -6.3500 17.7800 90)
+						(length 2.54)
+						(name "P2.05"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "16"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -3.8100 17.7800 90)
+						(length 2.54)
+						(name "P2.06"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "17"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -1.2700 17.7800 90)
+						(length 2.54)
+						(name "P2.07"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "18"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 1.2700 17.7800 90)
+						(length 2.54)
+						(name "P2.08"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "19"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 3.8100 17.7800 90)
+						(length 2.54)
+						(name "P2.09"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "20"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 6.3500 17.7800 90)
+						(length 2.54)
+						(name "P2.10"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "21"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 8.8900 17.7800 90)
+						(length 2.54)
+						(name "VDD"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "22"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 11.4300 17.7800 90)
+						(length 2.54)
+						(name "P0.00"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "23"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 13.9700 17.7800 90)
+						(length 2.54)
+						(name "P0.01"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "24"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 13.9700 180)
+						(length 2.54)
+						(name "SWDIO"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "25"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 11.4300 180)
+						(length 2.54)
+						(name "SWCLK"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "26"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 8.8900 180)
+						(length 2.54)
+						(name "P0.02"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "27"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 6.3500 180)
+						(length 2.54)
+						(name "P0.03"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "28"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 3.8100 180)
+						(length 2.54)
+						(name "P0.04"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "29"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 1.2700 180)
+						(length 2.54)
+						(name "~/RESET~"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "30"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 -1.2700 180)
+						(length 2.54)
+						(name "ANT"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "31"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 -3.8100 180)
+						(length 2.54)
+						(name "VSS_PA"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "32"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 -6.3500 180)
+						(length 2.54)
+						(name "DECRF"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "33"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 -8.8900 180)
+						(length 2.54)
+						(name "XC1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "34"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 -11.4300 180)
+						(length 2.54)
+						(name "XC2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "35"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 17.7800 -13.9700 180)
+						(length 2.54)
+						(name "VDD"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "36"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 13.9700 -17.7800 270)
+						(length 2.54)
+						(name "P1.09"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "37"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 11.4300 -17.7800 270)
+						(length 2.54)
+						(name "P1.10"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "38"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 8.8900 -17.7800 270)
+						(length 2.54)
+						(name "P1.11/AIN4"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "39"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 6.3500 -17.7800 270)
+						(length 2.54)
+						(name "P1.12/AIN5"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "40"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 3.8100 -17.7800 270)
+						(length 2.54)
+						(name "P1.13/AIN6"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "41"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 1.2700 -17.7800 270)
+						(length 2.54)
+						(name "P1.14/AIN7"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "42"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -1.2700 -17.7800 270)
+						(length 2.54)
+						(name "DECA"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "43"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -3.8100 -17.7800 270)
+						(length 2.54)
+						(name "VSS"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "44"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -6.3500 -17.7800 270)
+						(length 2.54)
+						(name "DECD"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "45"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -8.8900 -17.7800 270)
+						(length 2.54)
+						(name "DCC"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "46"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -11.4300 -17.7800 270)
+						(length 2.54)
+						(name "VDD"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "47"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -13.9700 -17.7800 270)
+						(length 2.54)
+						(name "VDDM"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "48"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin power_in line
+						(at 0.0000 20.3200 90)
+						(length 2.54)
+						(name "GND"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "49"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "LIS2DH12"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "U"
+					(at 0 -9.620000000000001 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "LIS2DH12"
+					(at 0 9.620000000000001 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "LIS2DH12_1_1"
+					(rectangle
+						(start -6.35 -7.62)
+						(end 6.35 7.62)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin bidirectional line
+						(at -8.8900 -6.3500 0)
+						(length 2.54)
+						(name "SCL/SPC"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -8.8900 -3.8100 0)
+						(length 2.54)
+						(name "CS"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -8.8900 -1.2700 0)
+						(length 2.54)
+						(name "SDO/SA0"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "3"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -8.8900 1.2700 0)
+						(length 2.54)
+						(name "SDA/SDI/SDO"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "4"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -8.8900 3.8100 0)
+						(length 2.54)
+						(name "RES"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "5"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -8.8900 6.3500 0)
+						(length 2.54)
+						(name "GND"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "6"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 8.8900 -6.3500 180)
+						(length 2.54)
+						(name "GND"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "7"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 8.8900 -3.8100 180)
+						(length 2.54)
+						(name "GND"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "8"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 8.8900 -1.2700 180)
+						(length 2.54)
+						(name "VDD"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "9"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 8.8900 1.2700 180)
+						(length 2.54)
+						(name "VDD_IO"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "10"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 8.8900 3.8100 180)
+						(length 2.54)
+						(name "INT2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "11"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 8.8900 6.3500 180)
+						(length 2.54)
+						(name "INT1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "12"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "LPS22HB"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "U"
+					(at 0 -8.35 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "LPS22HB"
+					(at 0 8.35 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "LPS22HB_1_1"
+					(rectangle
+						(start -5.08 -6.35)
+						(end 5.08 6.35)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin bidirectional line
+						(at -7.6200 -5.0800 0)
+						(length 2.54)
+						(name "Vdd_IO"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -7.6200 -2.5400 0)
+						(length 2.54)
+						(name "SCL/SPC"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -7.6200 0.0000 0)
+						(length 2.54)
+						(name "RES"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "3"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -7.6200 2.5400 0)
+						(length 2.54)
+						(name "SDA/SDI/SDO"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "4"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -7.6200 5.0800 0)
+						(length 2.54)
+						(name "SDO/SAO"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "5"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 7.6200 -5.0800 180)
+						(length 2.54)
+						(name "CS"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "6"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 7.6200 -2.5400 180)
+						(length 2.54)
+						(name "INT_DRDY"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "7"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 7.6200 0.0000 180)
+						(length 2.54)
+						(name "GND"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "8"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 7.6200 2.5400 180)
+						(length 2.54)
+						(name "GND"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "9"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 7.6200 5.0800 180)
+						(length 2.54)
+						(name "VDD"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "10"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "SHT40-AD1B-R2"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "U"
+					(at 0 -5.8100000000000005 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "SHT40-AD1B-R2"
+					(at 0 5.8100000000000005 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "SHT40-AD1B-R2_1_1"
+					(rectangle
+						(start -3.81 -3.81)
+						(end 3.81 3.81)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin bidirectional line
+						(at -6.3500 0.0000 0)
+						(length 2.54)
+						(name "SDA"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -6.3500 -2.5400 0)
+						(length 2.54)
+						(name "SCL"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at -6.3500 -5.0800 0)
+						(length 2.54)
+						(name "VDD"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "3"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 6.3500 0.0000 180)
+						(length 2.54)
+						(name "VSS"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "4"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin bidirectional line
+						(at 6.3500 -2.5400 180)
+						(length 2.54)
+						(name "EP"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "5"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "SI2301"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "Q"
+					(at 0 -4.54 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "SI2301"
+					(at 0 4.54 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "SI2301_1_1"
+					(rectangle
+						(start -2.54 -2.54)
+						(end 2.54 2.54)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin input line
+						(at -5.0800 0.0000 0)
+						(length 2.54)
+						(name "~G~"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at 5.0800 -1.2700 180)
+						(length 2.54)
+						(name "S"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at 5.0800 1.2700 180)
+						(length 2.54)
+						(name "D"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "3"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "Battery_Cell"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "BAT"
+					(at 0 -4.54 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "Battery_Cell"
+					(at 0 4.54 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "Battery_Cell_1_1"
+					(rectangle
+						(start -2.54 -2.54)
+						(end 2.54 2.54)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin power_out line
+						(at -5.0800 0.6350 0)
+						(length 2.54)
+						(name "+"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin power_in line
+						(at -5.0800 -0.6350 0)
+						(length 2.54)
+						(name "-"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "R_Small"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "R"
+					(at 0 -2.508 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "R_Small"
+					(at 0 2.508 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "R_Small_1_1"
+					(rectangle
+						(start -1.27 -0.508)
+						(end 1.27 0.508)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin passive line
+						(at -3.8100 0.0000 0)
+						(length 2.54)
+						(name "~"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at 3.8100 0.0000 180)
+						(length 2.54)
+						(name "~"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "C_Small"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "C"
+					(at 0 -2.508 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "C_Small"
+					(at 0 2.508 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "C_Small_1_1"
+					(rectangle
+						(start -1.27 -0.508)
+						(end 1.27 0.508)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin passive line
+						(at -3.8100 0.0000 0)
+						(length 2.54)
+						(name "~"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at 3.8100 0.0000 180)
+						(length 2.54)
+						(name "~"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "L_Small"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "L"
+					(at 0 -2.508 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "L_Small"
+					(at 0 2.508 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "L_Small_1_1"
+					(rectangle
+						(start -1.27 -0.508)
+						(end 1.27 0.508)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin passive line
+						(at -3.8100 0.0000 0)
+						(length 2.54)
+						(name "~"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at 3.8100 0.0000 180)
+						(length 2.54)
+						(name "~"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "Ferrite_Bead"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "FB"
+					(at 0 -2.508 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "Ferrite_Bead"
+					(at 0 2.508 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "Ferrite_Bead_1_1"
+					(rectangle
+						(start -1.27 -0.508)
+						(end 1.27 0.508)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin passive line
+						(at -3.8100 0.0000 0)
+						(length 2.54)
+						(name "~"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at 3.8100 0.0000 180)
+						(length 2.54)
+						(name "~"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "LED"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "D"
+					(at 0 -2.635 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "LED"
+					(at 0 2.635 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "LED_1_1"
+					(rectangle
+						(start -1.27 -0.635)
+						(end 1.27 0.635)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin passive line
+						(at -3.8100 0.0000 0)
+						(length 2.54)
+						(name "K"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at 3.8100 0.0000 180)
+						(length 2.54)
+						(name "A"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "RGB_LED"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "LED"
+					(at 0 -5.8100000000000005 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "RGB_LED"
+					(at 0 5.8100000000000005 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "RGB_LED_1_1"
+					(rectangle
+						(start -3.81 -3.81)
+						(end 3.81 3.81)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin passive line
+						(at 6.3500 0.0000 180)
+						(length 2.54)
+						(name "V(+)"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at -6.3500 -2.5400 0)
+						(length 2.54)
+						(name "R(-)"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at -6.3500 0.0000 0)
+						(length 2.54)
+						(name "G(-)"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "4"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at -6.3500 2.5400 0)
+						(length 2.54)
+						(name "B(-)"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "3"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "Crystal"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "Y"
+					(at 0 -2.635 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "Crystal"
+					(at 0 2.635 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "Crystal_1_1"
+					(rectangle
+						(start -1.27 -0.635)
+						(end 1.27 0.635)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin passive line
+						(at -3.8100 0.0000 0)
+						(length 2.54)
+						(name "XIN"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at 3.8100 0.0000 180)
+						(length 2.54)
+						(name "XOUT"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "SW_Push"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "S"
+					(at 0 -2.635 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "SW_Push"
+					(at 0 2.635 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "SW_Push_1_1"
+					(rectangle
+						(start -1.27 -0.635)
+						(end 1.27 0.635)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin passive line
+						(at -3.8100 0.0000 0)
+						(length 2.54)
+						(name "A"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at 3.8100 0.0000 180)
+						(length 2.54)
+						(name "B"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "Conn_01x01"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "J"
+					(at 0 -2.635 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "Conn_01x01"
+					(at 0 2.635 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "Conn_01x01_1_1"
+					(rectangle
+						(start -1.27 -0.635)
+						(end 1.27 0.635)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin passive line
+						(at -3.8100 0.0000 0)
+						(length 2.54)
+						(name "Pin_1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+			(symbol "D3ESD3P1G5BH"
+				(pin_names
+					(offset 1.016)
+				)
+				(exclude_from_sim no)
+				(in_bom yes)
+				(on_board yes)
+				(in_pos_files yes)
+				(duplicate_pin_numbers_are_jumpers no)
+				(property "Reference" "A"
+					(at 0 -2.635 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Value" "D3ESD3P1G5BH"
+					(at 0 2.635 0)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Footprint" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Datasheet" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(property "Description" ""
+					(at 0 0 0)
+					(hide yes)
+					(show_name no)
+					(do_not_autoplace no)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(symbol "D3ESD3P1G5BH_1_1"
+					(rectangle
+						(start -1.27 -0.635)
+						(end 1.27 0.635)
+						(stroke (width 0) (type default))
+						(fill (type background))
+					)
+					(pin passive line
+						(at -3.8100 0.0000 0)
+						(length 2.54)
+						(name "IO"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "1"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+					(pin passive line
+						(at 3.8100 0.0000 180)
+						(length 2.54)
+						(name "GND"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+						(number "2"
+							(effects
+								(font
+									(size 1.27 1.27)
+								)
+							)
+						)
+					)
+				)
+				(embedded_fonts no)
+			)
+	)
+	(symbol
+		(lib_id "nRF54L15")
+		(at 130.0000 155.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000002")
+		(property "Reference" "U3"
+			(at 132.0000 153.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "nRF54L15_SOC1"
+			(at 132.0000 157.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 130.0000 155.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 130.0000 155.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 130.0000 155.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000003")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000004")
+		)
+		(pin "3"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000005")
+		)
+		(pin "4"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000006")
+		)
+		(pin "5"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000007")
+		)
+		(pin "6"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000008")
+		)
+		(pin "7"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000009")
+		)
+		(pin "8"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000000a")
+		)
+		(pin "9"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000000b")
+		)
+		(pin "10"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000000c")
+		)
+		(pin "11"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000000d")
+		)
+		(pin "12"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000000e")
+		)
+		(pin "13"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000000f")
+		)
+		(pin "14"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000010")
+		)
+		(pin "15"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000011")
+		)
+		(pin "16"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000012")
+		)
+		(pin "17"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000013")
+		)
+		(pin "18"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000014")
+		)
+		(pin "19"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000015")
+		)
+		(pin "20"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000016")
+		)
+		(pin "21"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000017")
+		)
+		(pin "22"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000018")
+		)
+		(pin "23"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000019")
+		)
+		(pin "24"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000001a")
+		)
+		(pin "25"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000001b")
+		)
+		(pin "26"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000001c")
+		)
+		(pin "27"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000001d")
+		)
+		(pin "28"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000001e")
+		)
+		(pin "29"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000001f")
+		)
+		(pin "30"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000020")
+		)
+		(pin "31"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000021")
+		)
+		(pin "32"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000022")
+		)
+		(pin "33"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000023")
+		)
+		(pin "34"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000024")
+		)
+		(pin "35"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000025")
+		)
+		(pin "36"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000026")
+		)
+		(pin "37"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000027")
+		)
+		(pin "38"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000028")
+		)
+		(pin "39"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000029")
+		)
+		(pin "40"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000002a")
+		)
+		(pin "41"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000002b")
+		)
+		(pin "42"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000002c")
+		)
+		(pin "43"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000002d")
+		)
+		(pin "44"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000002e")
+		)
+		(pin "45"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000002f")
+		)
+		(pin "46"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000030")
+		)
+		(pin "47"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000031")
+		)
+		(pin "48"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000032")
+		)
+		(pin "49"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000033")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "U3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "XL1"
+		(at 112.2200 141.0300 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000034")
+	)
+	(label "XL2"
+		(at 112.2200 143.5700 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000035")
+	)
+	(no_connect (at 112.2200 146.1100) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000036"))
+	(no_connect (at 112.2200 148.6500) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000037"))
+	(label "TXD"
+		(at 112.2200 151.1900 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000038")
+	)
+	(label "RXD"
+		(at 112.2200 153.7300 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000039")
+	)
+	(no_connect (at 112.2200 156.2700) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000003a"))
+	(no_connect (at 112.2200 158.8100) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000003b"))
+	(no_connect (at 112.2200 161.3500) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000003c"))
+	(label "VCC"
+		(at 112.2200 163.8900 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000003d")
+	)
+	(label "INT1"
+		(at 112.2200 166.4300 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000003e")
+	)
+	(label "SCK"
+		(at 112.2200 168.9700 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000003f")
+	)
+	(label "BUTTON"
+		(at 116.0300 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000040")
+	)
+	(label "CS_LPS22HB"
+		(at 118.5700 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000041")
+	)
+	(label "CS_LIS2DH12"
+		(at 121.1100 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000042")
+	)
+	(label "INT2"
+		(at 123.6500 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000043")
+	)
+	(label "SDO"
+		(at 126.1900 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000044")
+	)
+	(label "SDI"
+		(at 128.7300 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000045")
+	)
+	(label "LED_R"
+		(at 131.2700 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000046")
+	)
+	(label "LED_G"
+		(at 133.8100 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000047")
+	)
+	(label "LED_B"
+		(at 136.3500 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000048")
+	)
+	(label "VCC"
+		(at 138.8900 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000049")
+	)
+	(label "HT_SDA"
+		(at 141.4300 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000004a")
+	)
+	(label "HT_SCL"
+		(at 143.9700 172.7800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000004b")
+	)
+	(label "SWDIO"
+		(at 147.7800 168.9700 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000004c")
+	)
+	(label "SWDCLK"
+		(at 147.7800 166.4300 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000004d")
+	)
+	(label "HT_RESET"
+		(at 147.7800 163.8900 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000004e")
+	)
+	(no_connect (at 147.7800 161.3500) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000004f"))
+	(no_connect (at 147.7800 158.8100) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000050"))
+	(label "nRESET"
+		(at 147.7800 156.2700 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000051")
+	)
+	(label "ANT_RF"
+		(at 147.7800 153.7300 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000052")
+	)
+	(label "GND"
+		(at 147.7800 151.1900 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000053")
+	)
+	(label "DECRF_NET"
+		(at 147.7800 148.6500 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000054")
+	)
+	(label "XC1"
+		(at 147.7800 146.1100 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000055")
+	)
+	(label "XC2"
+		(at 147.7800 143.5700 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000056")
+	)
+	(label "VCC"
+		(at 147.7800 141.0300 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000057")
+	)
+	(no_connect (at 143.9700 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000058"))
+	(no_connect (at 141.4300 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000059"))
+	(no_connect (at 138.8900 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005a"))
+	(no_connect (at 136.3500 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005b"))
+	(no_connect (at 133.8100 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005c"))
+	(no_connect (at 131.2700 137.2200) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005d"))
+	(label "DECA_NET"
+		(at 128.7300 137.2200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005e")
+	)
+	(label "GND"
+		(at 126.1900 137.2200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000005f")
+	)
+	(label "DECD_NET"
+		(at 123.6500 137.2200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000060")
+	)
+	(label "DCC_NET"
+		(at 121.1100 137.2200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000061")
+	)
+	(label "VCC"
+		(at 118.5700 137.2200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000062")
+	)
+	(label "VDDM_NET"
+		(at 116.0300 137.2200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000063")
+	)
+	(label "GND"
+		(at 130.0000 175.3200 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000064")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 157.7800 163.8900 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000065")
+		(property "Reference" "C7"
+			(at 159.7800 161.8900 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100nF"
+			(at 159.7800 165.8900 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 157.7800 163.8900 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 157.7800 163.8900 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 157.7800 163.8900 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000066")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000067")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C7")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "DECRF_NET"
+		(at 153.9700 163.8900 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000068")
+	)
+	(label "GND"
+		(at 161.5900 163.8900 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000069")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 128.7300 127.2200 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000006a")
+		(property "Reference" "C_DECA"
+			(at 130.7300 125.2200 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100nF"
+			(at 130.7300 129.2200 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 128.7300 127.2200 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 128.7300 127.2200 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 128.7300 127.2200 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000006b")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000006c")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C_DECA")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "DECA_NET"
+		(at 124.9200 127.2200 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000006d")
+	)
+	(label "GND"
+		(at 132.5400 127.2200 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000006e")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 121.1100 127.2200 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000006f")
+		(property "Reference" "C_DCC"
+			(at 123.1100 125.2200 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100nF"
+			(at 123.1100 129.2200 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 121.1100 127.2200 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 121.1100 127.2200 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 121.1100 127.2200 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000070")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000071")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C_DCC")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "DCC_NET"
+		(at 117.3000 127.2200 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000072")
+	)
+	(label "GND"
+		(at 124.9200 127.2200 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000073")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 116.0300 127.2200 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000074")
+		(property "Reference" "C_VDDM"
+			(at 118.0300 125.2200 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100nF"
+			(at 118.0300 129.2200 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 116.0300 127.2200 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 116.0300 127.2200 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 116.0300 127.2200 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000075")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000076")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C_VDDM")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VDDM_NET"
+		(at 112.2200 127.2200 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000077")
+	)
+	(label "GND"
+		(at 119.8400 127.2200 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000078")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 98.2200 150.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000079")
+		(property "Reference" "C5"
+			(at 100.2200 148.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "10uF"
+			(at 100.2200 152.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 98.2200 150.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 98.2200 150.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 98.2200 150.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000007a")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000007b")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C5")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 94.4100 150.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000007c")
+	)
+	(label "GND"
+		(at 102.0300 150.0000 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000007d")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 98.2200 157.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000007e")
+		(property "Reference" "C6"
+			(at 100.2200 155.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100nF"
+			(at 100.2200 159.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 98.2200 157.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 98.2200 157.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 98.2200 157.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000007f")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000080")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C6")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 94.4100 157.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000081")
+	)
+	(label "GND"
+		(at 102.0300 157.0000 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000082")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 98.2200 164.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000083")
+		(property "Reference" "C12"
+			(at 100.2200 162.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100nF"
+			(at 100.2200 166.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 98.2200 164.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 98.2200 164.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 98.2200 164.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000084")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000085")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C12")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 94.4100 164.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000086")
+	)
+	(label "GND"
+		(at 102.0300 164.0000 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000087")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 98.2200 171.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000088")
+		(property "Reference" "C16"
+			(at 100.2200 169.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100nF"
+			(at 100.2200 173.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 98.2200 171.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 98.2200 171.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 98.2200 171.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000089")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000008a")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C16")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 94.4100 171.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000008b")
+	)
+	(label "GND"
+		(at 102.0300 171.0000 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000008c")
+	)
+	(symbol
+		(lib_id "Crystal")
+		(at 84.2200 136.0300 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000008d")
+		(property "Reference" "Y1"
+			(at 86.2200 134.0300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "32MHz"
+			(at 86.2200 138.0300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 84.2200 136.0300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 84.2200 136.0300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 84.2200 136.0300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000008e")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000008f")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "Y1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 74.2200 136.0300 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000090")
+		(property "Reference" "C8"
+			(at 76.2200 134.0300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "10nF"
+			(at 76.2200 138.0300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 74.2200 136.0300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 74.2200 136.0300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 74.2200 136.0300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000091")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000092")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C8")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "XL1"
+		(at 80.4100 136.0300 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000093")
+	)
+	(label "XL2"
+		(at 88.0300 136.0300 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000094")
+	)
+	(label "XL1"
+		(at 74.2200 132.2200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000095")
+	)
+	(label "GND"
+		(at 74.2200 139.8400 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000096")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 94.2200 136.0300 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000097")
+		(property "Reference" "C_Y1B"
+			(at 96.2200 134.0300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "10nF"
+			(at 96.2200 138.0300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 94.2200 136.0300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 94.2200 136.0300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 94.2200 136.0300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000098")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000099")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C_Y1B")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "XL2"
+		(at 94.2200 132.2200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000009a")
+	)
+	(label "GND"
+		(at 94.2200 139.8400 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000009b")
+	)
+	(symbol
+		(lib_id "Crystal")
+		(at 175.7800 141.1100 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000009c")
+		(property "Reference" "Y2"
+			(at 177.7800 139.1100 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "32.768kHz"
+			(at 177.7800 143.1100 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 175.7800 141.1100 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 175.7800 141.1100 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 175.7800 141.1100 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000009d")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000009e")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "Y2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "XC1"
+		(at 171.9700 141.1100 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000009f")
+	)
+	(label "XC2"
+		(at 179.5900 141.1100 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000a0")
+	)
+	(symbol
+		(lib_id "L_Small")
+		(at 175.7800 153.7300 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000a1")
+		(property "Reference" "L3"
+			(at 177.7800 151.7300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "3.3nH"
+			(at 177.7800 155.7300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 175.7800 153.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 175.7800 153.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 175.7800 153.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000a2")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000a3")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "L3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "ANT_RF"
+		(at 171.9700 153.7300 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000a4")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 184.5900 158.7300 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000a5")
+		(property "Reference" "C11"
+			(at 186.5900 156.7300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "0.5pF"
+			(at 186.5900 160.7300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 184.5900 158.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 184.5900 158.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 184.5900 158.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000a6")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000a7")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C11")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "ANT_MID"
+		(at 184.5900 154.9200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000a8")
+	)
+	(label "GND"
+		(at 184.5900 162.5400 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000a9")
+	)
+	(symbol
+		(lib_id "L_Small")
+		(at 195.7800 153.7300 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000aa")
+		(property "Reference" "L4"
+			(at 197.7800 151.7300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "2.1nH"
+			(at 197.7800 155.7300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 195.7800 153.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 195.7800 153.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 195.7800 153.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ab")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ac")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "L4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "ANT_MID"
+		(at 191.9700 153.7300 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ad")
+	)
+	(label "ANT_OUT"
+		(at 199.5900 153.7300 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ae")
+	)
+	(label "ANT_MID"
+		(at 179.5900 153.7300 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000af")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 170.7800 158.7300 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000b0")
+		(property "Reference" "C13"
+			(at 172.7800 156.7300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "0.75pF"
+			(at 172.7800 160.7300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 170.7800 158.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 170.7800 158.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 170.7800 158.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000b1")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000b2")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C13")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "ANT_RF"
+		(at 170.7800 154.9200 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000b3")
+	)
+	(label "GND"
+		(at 170.7800 162.5400 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000b4")
+	)
+	(symbol
+		(lib_id "D3ESD3P1G5BH")
+		(at 210.7800 153.7300 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000b5")
+		(property "Reference" "A1"
+			(at 212.7800 151.7300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "D3ESD3P1G5BH"
+			(at 212.7800 155.7300 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 210.7800 153.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 210.7800 153.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 210.7800 153.7300 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000b6")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000b7")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "A1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "ANT_OUT"
+		(at 206.9700 153.7300 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000b8")
+	)
+	(label "GND"
+		(at 214.5900 153.7300 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000b9")
+	)
+	(symbol
+		(lib_id "R_Small")
+		(at 175.7800 156.2700 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ba")
+		(property "Reference" "R1"
+			(at 177.7800 154.2700 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "1K"
+			(at 177.7800 158.2700 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 175.7800 156.2700 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 175.7800 156.2700 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 175.7800 156.2700 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000bb")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000bc")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "R1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 171.9700 156.2700 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000bd")
+	)
+	(label "nRESET"
+		(at 179.5900 156.2700 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000be")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 185.7800 156.2700 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000bf")
+		(property "Reference" "C15"
+			(at 187.7800 154.2700 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "3.9pF"
+			(at 187.7800 158.2700 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 185.7800 156.2700 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 185.7800 156.2700 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 185.7800 156.2700 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000c0")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000c1")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C15")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "nRESET"
+		(at 185.7800 152.4600 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000c2")
+	)
+	(label "GND"
+		(at 185.7800 160.0800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000c3")
+	)
+	(symbol
+		(lib_id "Ferrite_Bead")
+		(at 72.2200 135.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000c4")
+		(property "Reference" "FB1"
+			(at 74.2200 133.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "120R/100MHz"
+			(at 74.2200 137.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 72.2200 135.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 72.2200 135.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 72.2200 135.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000c5")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000c6")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "FB1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 68.4100 135.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000c7")
+	)
+	(label "VCC_FILT"
+		(at 76.0300 135.0000 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000c8")
+	)
+	(symbol
+		(lib_id "L_Small")
+		(at 87.2200 135.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000c9")
+		(property "Reference" "L2"
+			(at 89.2200 133.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "4.7uH"
+			(at 89.2200 137.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 87.2200 135.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 87.2200 135.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 87.2200 135.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ca")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000cb")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "L2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC_FILT"
+		(at 83.4100 135.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000cc")
+	)
+	(label "VCC"
+		(at 91.0300 135.0000 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000cd")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 67.2200 143.0000 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ce")
+		(property "Reference" "C1"
+			(at 69.2200 141.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "2.2uF"
+			(at 69.2200 145.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 67.2200 143.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 67.2200 143.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 67.2200 143.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000cf")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000d0")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC_FILT"
+		(at 67.2200 139.1900 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000d1")
+	)
+	(label "GND"
+		(at 67.2200 146.8100 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000d2")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 75.2200 143.0000 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000d3")
+		(property "Reference" "C2"
+			(at 77.2200 141.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "2.2uF"
+			(at 77.2200 145.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 75.2200 143.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 75.2200 143.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 75.2200 143.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000d4")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000d5")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC_FILT"
+		(at 75.2200 139.1900 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000d6")
+	)
+	(label "GND"
+		(at 75.2200 146.8100 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000d7")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 83.2200 143.0000 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000d8")
+		(property "Reference" "C3"
+			(at 85.2200 141.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "10nF"
+			(at 85.2200 145.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 83.2200 143.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 83.2200 143.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 83.2200 143.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000d9")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000da")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 83.2200 139.1900 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000db")
+	)
+	(label "GND"
+		(at 83.2200 146.8100 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000dc")
+	)
+	(symbol
+		(lib_id "Battery_Cell")
+		(at 30.0000 240.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000dd")
+		(property "Reference" "BAT1"
+			(at 32.0000 238.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "CR2032"
+			(at 32.0000 242.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 30.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 30.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 30.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000de")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000df")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "BAT1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VBAT"
+		(at 26.1900 240.6350 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000e0")
+	)
+	(label "GND"
+		(at 26.1900 239.3650 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000e1")
+	)
+	(symbol
+		(lib_id "SI2301")
+		(at 60.0000 240.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000e2")
+		(property "Reference" "Q2"
+			(at 62.0000 238.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "SI2301"
+			(at 62.0000 242.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 60.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 60.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 60.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000e3")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000e4")
+		)
+		(pin "3"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000e5")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "Q2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "GND"
+		(at 54.9200 240.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000e6")
+	)
+	(label "VBAT"
+		(at 65.0800 238.7300 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000e7")
+	)
+	(label "VCC"
+		(at 65.0800 241.2700 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000e8")
+	)
+	(symbol
+		(lib_id "R_Small")
+		(at 50.0000 248.0000 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000e9")
+		(property "Reference" "R6"
+			(at 52.0000 246.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "1M"
+			(at 52.0000 250.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 50.0000 248.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 50.0000 248.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 50.0000 248.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ea")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000eb")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "R6")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "GND"
+		(at 50.0000 244.1900 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ec")
+	)
+	(label "GND"
+		(at 50.0000 251.8100 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ed")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 75.0000 232.0000 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ee")
+		(property "Reference" "C18"
+			(at 77.0000 230.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "22uF"
+			(at 77.0000 234.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 75.0000 232.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 75.0000 232.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 75.0000 232.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ef")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000f0")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C18")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 75.0000 228.1900 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000f1")
+	)
+	(label "GND"
+		(at 75.0000 235.8100 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000f2")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 83.0000 232.0000 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000f3")
+		(property "Reference" "C19"
+			(at 85.0000 230.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "22uF"
+			(at 85.0000 234.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 83.0000 232.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 83.0000 232.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 83.0000 232.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000f4")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000f5")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C19")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 83.0000 228.1900 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000f6")
+	)
+	(label "GND"
+		(at 83.0000 235.8100 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000f7")
+	)
+	(symbol
+		(lib_id "SW_Push")
+		(at 195.0000 265.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000f8")
+		(property "Reference" "S1"
+			(at 197.0000 263.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "KEY_3X4X2.0mm"
+			(at 197.0000 267.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 195.0000 265.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 195.0000 265.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 195.0000 265.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000f9")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000fa")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "S1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "BUTTON"
+		(at 191.1900 265.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000fb")
+	)
+	(label "GND"
+		(at 198.8100 265.0000 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000fc")
+	)
+	(symbol
+		(lib_id "R_Small")
+		(at 183.0000 257.0000 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000fd")
+		(property "Reference" "R3"
+			(at 185.0000 255.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100K"
+			(at 185.0000 259.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 183.0000 257.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 183.0000 257.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 183.0000 257.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000fe")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-0000000000ff")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "R3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 183.0000 253.1900 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000100")
+	)
+	(label "BUTTON"
+		(at 183.0000 260.8100 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000101")
+	)
+	(symbol
+		(lib_id "RGB_LED")
+		(at 240.0000 265.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000102")
+		(property "Reference" "LED1"
+			(at 242.0000 263.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "RGB_LED"
+			(at 242.0000 267.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 240.0000 265.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 240.0000 265.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 240.0000 265.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000103")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000104")
+		)
+		(pin "3"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000105")
+		)
+		(pin "4"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000106")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "LED1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 246.3500 265.0000 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000107")
+	)
+	(label "LED_R_CAT"
+		(at 233.6500 262.4600 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000108")
+	)
+	(label "LED_G_CAT"
+		(at 233.6500 265.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000109")
+	)
+	(label "LED_B_CAT"
+		(at 233.6500 267.5400 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000010a")
+	)
+	(symbol
+		(lib_id "R_Small")
+		(at 220.0000 262.4600 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000010b")
+		(property "Reference" "R8"
+			(at 222.0000 260.4600 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "1K"
+			(at 222.0000 264.4600 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 220.0000 262.4600 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 220.0000 262.4600 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 220.0000 262.4600 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000010c")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000010d")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "R8")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "LED_R"
+		(at 216.1900 262.4600 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000010e")
+	)
+	(label "LED_R_CAT"
+		(at 223.8100 262.4600 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000010f")
+	)
+	(symbol
+		(lib_id "R_Small")
+		(at 220.0000 265.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000110")
+		(property "Reference" "R9"
+			(at 222.0000 263.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "1K"
+			(at 222.0000 267.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 220.0000 265.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 220.0000 265.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 220.0000 265.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000111")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000112")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "R9")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "LED_G"
+		(at 216.1900 265.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000113")
+	)
+	(label "LED_G_CAT"
+		(at 223.8100 265.0000 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000114")
+	)
+	(symbol
+		(lib_id "R_Small")
+		(at 220.0000 267.5400 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000115")
+		(property "Reference" "R2"
+			(at 222.0000 265.5400 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "1K"
+			(at 222.0000 269.5400 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 220.0000 267.5400 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 220.0000 267.5400 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 220.0000 267.5400 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000116")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000117")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "R2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "LED_B"
+		(at 216.1900 267.5400 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000118")
+	)
+	(label "LED_B_CAT"
+		(at 223.8100 267.5400 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000119")
+	)
+	(symbol
+		(lib_id "Conn_01x01")
+		(at 380.0000 160.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000011a")
+		(property "Reference" "J1"
+			(at 382.0000 158.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "VCC"
+			(at 382.0000 162.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 380.0000 160.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 380.0000 160.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 380.0000 160.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000011b")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "J1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 376.1900 160.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000011c")
+	)
+	(symbol
+		(lib_id "Conn_01x01")
+		(at 380.0000 167.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000011d")
+		(property "Reference" "J2"
+			(at 382.0000 165.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "SWDIO"
+			(at 382.0000 169.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 380.0000 167.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 380.0000 167.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 380.0000 167.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000011e")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "J2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "SWDIO"
+		(at 376.1900 167.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000011f")
+	)
+	(symbol
+		(lib_id "Conn_01x01")
+		(at 380.0000 174.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000120")
+		(property "Reference" "J3"
+			(at 382.0000 172.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "SWDCLK"
+			(at 382.0000 176.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 380.0000 174.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 380.0000 174.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 380.0000 174.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000121")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "J3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "SWDCLK"
+		(at 376.1900 174.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000122")
+	)
+	(symbol
+		(lib_id "Conn_01x01")
+		(at 380.0000 181.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000123")
+		(property "Reference" "J4"
+			(at 382.0000 179.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "GND"
+			(at 382.0000 183.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 380.0000 181.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 380.0000 181.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 380.0000 181.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000124")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "J4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "GND"
+		(at 376.1900 181.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000125")
+	)
+	(symbol
+		(lib_id "LIS2DH12")
+		(at 310.0000 75.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000126")
+		(property "Reference" "U1"
+			(at 312.0000 73.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "LIS2DH12"
+			(at 312.0000 77.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 310.0000 75.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 310.0000 75.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 310.0000 75.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000127")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000128")
+		)
+		(pin "3"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000129")
+		)
+		(pin "4"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000012a")
+		)
+		(pin "5"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000012b")
+		)
+		(pin "6"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000012c")
+		)
+		(pin "7"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000012d")
+		)
+		(pin "8"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000012e")
+		)
+		(pin "9"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000012f")
+		)
+		(pin "10"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000130")
+		)
+		(pin "11"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000131")
+		)
+		(pin "12"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000132")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "U1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "SCK"
+		(at 301.1100 68.6500 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000133")
+	)
+	(label "CS_LIS2DH12"
+		(at 301.1100 71.1900 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000134")
+	)
+	(label "SDO"
+		(at 301.1100 73.7300 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000135")
+	)
+	(label "SDI"
+		(at 301.1100 76.2700 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000136")
+	)
+	(no_connect (at 301.1100 78.8100) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000137"))
+	(label "GND"
+		(at 301.1100 81.3500 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000138")
+	)
+	(no_connect (at 318.8900 68.6500) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000139"))
+	(no_connect (at 318.8900 71.1900) (uuid "aaaaaaaa-bbbb-cccc-dddd-00000000013a"))
+	(label "VCC"
+		(at 318.8900 73.7300 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000013b")
+	)
+	(label "VCC"
+		(at 318.8900 76.2700 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000013c")
+	)
+	(label "INT2"
+		(at 318.8900 78.8100 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000013d")
+	)
+	(label "INT1"
+		(at 318.8900 81.3500 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000013e")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 328.8900 76.2700 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000013f")
+		(property "Reference" "C4"
+			(at 330.8900 74.2700 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100nF"
+			(at 330.8900 78.2700 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 328.8900 76.2700 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 328.8900 76.2700 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 328.8900 76.2700 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000140")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000141")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 328.8900 72.4600 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000142")
+	)
+	(label "GND"
+		(at 328.8900 80.0800 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000143")
+	)
+	(symbol
+		(lib_id "LPS22HB")
+		(at 330.0000 165.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000144")
+		(property "Reference" "U4"
+			(at 332.0000 163.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "LPS22HB"
+			(at 332.0000 167.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 330.0000 165.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 330.0000 165.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 330.0000 165.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000145")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000146")
+		)
+		(pin "3"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000147")
+		)
+		(pin "4"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000148")
+		)
+		(pin "5"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000149")
+		)
+		(pin "6"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000014a")
+		)
+		(pin "7"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000014b")
+		)
+		(pin "8"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000014c")
+		)
+		(pin "9"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000014d")
+		)
+		(pin "10"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000014e")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "U4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 322.3800 159.9200 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000014f")
+	)
+	(label "SCK"
+		(at 322.3800 162.4600 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000150")
+	)
+	(no_connect (at 322.3800 165.0000) (uuid "aaaaaaaa-bbbb-cccc-dddd-000000000151"))
+	(label "SDI"
+		(at 322.3800 167.5400 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000152")
+	)
+	(label "SDO"
+		(at 322.3800 170.0800 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000153")
+	)
+	(label "CS_LPS22HB"
+		(at 337.6200 159.9200 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000154")
+	)
+	(label "INT_DRDY"
+		(at 337.6200 162.4600 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000155")
+	)
+	(label "GND"
+		(at 337.6200 165.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000156")
+	)
+	(label "GND"
+		(at 337.6200 167.5400 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000157")
+	)
+	(label "VCC"
+		(at 337.6200 170.0800 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000158")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 347.6200 170.0800 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000159")
+		(property "Reference" "C14"
+			(at 349.6200 168.0800 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100nF"
+			(at 349.6200 172.0800 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 347.6200 170.0800 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 347.6200 170.0800 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 347.6200 170.0800 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000015a")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000015b")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C14")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 347.6200 166.2700 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000015c")
+	)
+	(label "GND"
+		(at 347.6200 173.8900 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000015d")
+	)
+	(symbol
+		(lib_id "SHT40-AD1B-R2")
+		(at 330.0000 248.0000 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000015e")
+		(property "Reference" "U5"
+			(at 332.0000 246.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "SHT40-AD1B-R2"
+			(at 332.0000 250.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 330.0000 248.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 330.0000 248.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 330.0000 248.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000015f")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000160")
+		)
+		(pin "3"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000161")
+		)
+		(pin "4"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000162")
+		)
+		(pin "5"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000163")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "U5")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "HT_SDA"
+		(at 323.6500 248.0000 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000164")
+	)
+	(label "HT_SCL"
+		(at 323.6500 245.4600 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000165")
+	)
+	(label "VCC"
+		(at 323.6500 242.9200 180)
+		(effects (font (size 1.27 1.27)) (justify right bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000166")
+	)
+	(label "GND"
+		(at 336.3500 248.0000 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000167")
+	)
+	(label "GND"
+		(at 336.3500 245.4600 0)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000168")
+	)
+	(symbol
+		(lib_id "R_Small")
+		(at 305.0000 240.0000 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000169")
+		(property "Reference" "R4"
+			(at 307.0000 238.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "10K"
+			(at 307.0000 242.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 305.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 305.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 305.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000016a")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000016b")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "R4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 305.0000 236.1900 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000016c")
+	)
+	(label "HT_SDA"
+		(at 305.0000 243.8100 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000016d")
+	)
+	(symbol
+		(lib_id "R_Small")
+		(at 312.0000 240.0000 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000016e")
+		(property "Reference" "R5"
+			(at 314.0000 238.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "10K"
+			(at 314.0000 242.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 312.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 312.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 312.0000 240.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000016f")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000170")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "R5")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 312.0000 236.1900 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000171")
+	)
+	(label "HT_SCL"
+		(at 312.0000 243.8100 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000172")
+	)
+	(symbol
+		(lib_id "C_Small")
+		(at 346.3500 248.0000 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000173")
+		(property "Reference" "C17"
+			(at 348.3500 246.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Value" "100nF"
+			(at 348.3500 250.0000 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)) (justify left))
+		)
+		(property "Footprint" ""
+			(at 346.3500 248.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Datasheet" ""
+			(at 346.3500 248.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Description" ""
+			(at 346.3500 248.0000 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects (font (size 1.27 1.27)))
+		)
+		(pin "1"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000174")
+		)
+		(pin "2"
+			(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000175")
+		)
+		(instances
+			(project "HOLYIOT25015"
+				(path "/aaaaaaaa-bbbb-cccc-dddd-000000000001"
+					(reference "C17")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(label "VCC"
+		(at 346.3500 244.1900 90)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000176")
+	)
+	(label "GND"
+		(at 346.3500 251.8100 270)
+		(effects (font (size 1.27 1.27)) (justify left bottom))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000177")
+	)
+	(text "MCU - nRF54L15"
+		(exclude_from_sim no)
+		(at 110.0000 112.2200 0)
+		(effects (font (size 2.0 2.0) (bold yes)))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000178")
+	)
+	(text "3-Axis Accel - LIS2DH12"
+		(exclude_from_sim no)
+		(at 298.0000 57.0000 0)
+		(effects (font (size 1.5 1.5) (bold yes)))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-000000000179")
+	)
+	(text "Pressure - LPS22HB"
+		(exclude_from_sim no)
+		(at 320.0000 147.0000 0)
+		(effects (font (size 1.5 1.5) (bold yes)))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000017a")
+	)
+	(text "Temp/Humidity - SHT40"
+		(exclude_from_sim no)
+		(at 318.0000 230.0000 0)
+		(effects (font (size 1.5 1.5) (bold yes)))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000017b")
+	)
+	(text "Battery"
+		(exclude_from_sim no)
+		(at 27.0000 228.0000 0)
+		(effects (font (size 1.5 1.5) (bold yes)))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000017c")
+	)
+	(text "Button"
+		(exclude_from_sim no)
+		(at 190.0000 253.0000 0)
+		(effects (font (size 1.5 1.5) (bold yes)))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000017d")
+	)
+	(text "RGB LED"
+		(exclude_from_sim no)
+		(at 232.0000 253.0000 0)
+		(effects (font (size 1.5 1.5) (bold yes)))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000017e")
+	)
+	(text "SWD Debug Port"
+		(exclude_from_sim no)
+		(at 375.0000 155.0000 0)
+		(effects (font (size 1.5 1.5) (bold yes)))
+		(uuid "aaaaaaaa-bbbb-cccc-dddd-00000000017f")
+	)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+	(embedded_fonts no)
+)
