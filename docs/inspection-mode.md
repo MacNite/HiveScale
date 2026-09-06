@@ -86,13 +86,23 @@ considering for an apiary the public can reach.
 >   the BOOT button is for. "Hold USER, then press RESET" is a *flash* command,
 >   not an AP-mode command, and no firmware change can make it one.
 >
-> So the USER button is only ever readable while the hub is **awake**. From
-> 0.25.4 the firmware polls it throughout each wake cycle, so a press held while
-> the hub is up opens the AP when that cycle ends. In practice: press and hold
-> it, wait for the next scheduled cycle (the status LED blinks on boot), and the
-> AP comes up. If you would rather not wait, use **Start AP mode** in the
-> dashboard — that is the intended route for a sealed hub, and it needs nobody
-> at the enclosure.
+> So the USER button is only ever readable while the hub is **awake**, and from
+> 0.25.4 the firmware makes the most of that window: it reads the button at the
+> top of `setup()` and again at four points inside every upload cycle.
+>
+> In practice: **press and hold it**, and wait for the next scheduled wake — up
+> to one send interval, so up to 10 minutes on the default cadence. The status
+> LED blinks as the hub boots, and the AP is up about a second after that (a
+> button held across the wake is caught before the measurement cycle starts, so
+> that cycle is skipped). A press that starts mid-cycle is caught by one of the
+> in-cycle polls instead and opens the AP when the cycle ends — but those polls
+> are seconds apart, so a quick tap can fall between them. Hold, don't tap.
+>
+> It is a wait, not a guess. If you would rather not wait at all, use **Start AP
+> mode** in the dashboard — that is the intended route for a sealed hub, and it
+> needs nobody at the enclosure. A physical button that opens the AP *instantly*
+> would have to live on GPIO0–GPIO7; the external inspection button on D2 is the
+> only one of those brought out today.
 
 **The 30-pin ESP32 DevKit is unchanged.** Its only spare button is BOOT on
 GPIO0, a strapping pin whose failure mode is a beekeeper in a bee suit staring

@@ -110,12 +110,23 @@ not apply to this board — do not use them.
 What works on the C6:
 
 1. **Press and hold** the USER button (do **not** cycle power).
-2. Wait for the hub's next scheduled wake — up to one send interval. The status
-   LED blinks when it boots.
-3. The firmware polls the button throughout the cycle, sees it held, and opens
-   the AP when the cycle ends. Holding it longer is safe: a hold that has
-   already opened the portal is spent, so it cannot roll on into the
-   ten-second factory reset — that needs a release and a fresh press.
+2. Wait for the hub's next scheduled wake — up to one send interval, so **up to
+   10 minutes** on the default cadence. The status LED blinks when it boots.
+3. The AP comes up about a second later. The firmware reads the button at the
+   very top of `setup()`, before anything else, so a button held across the wake
+   opens the portal immediately and **skips that cycle's measurement** — the
+   same thing a press on the 30-pin board's setup button does.
+
+Holding it longer is safe: a hold that has already opened the portal is spent,
+so it cannot roll on into the ten-second factory reset — that needs a release
+and a fresh press.
+
+> **Hold it, don't tap it.** The button is also polled four times inside each
+> upload cycle (after the network connect, after the measurement, after the
+> upload, and at the end), and a press caught there opens the AP when that cycle
+> finishes. But those polls sit seconds apart around the cycle's blocking
+> stages, so a quick tap between two of them is simply not seen. Holding is what
+> makes the button deterministic — the boot-time read above cannot miss it.
 
 Or, better, skip the button entirely and use **Start AP mode** in the dashboard
 (below) — no waiting, and no reason to open the enclosure.
