@@ -159,7 +159,7 @@ The table below is the **legacy 30-pin ESP32** map. The recommended **XIAO ESP32
 | SD CS / SCK / MISO / MOSI | 5 / 18 / 23 / 19 | MicroSD over SPI |
 | Setup button | 27 | `INPUT_PULLUP`; short press opens provisioning AP, long press factory resets |
 
-> On the **XIAO ESP32-C6** (firmware 0.25.0+) the setup button is the board's on-board USER/BOOT button, and the external D2 button is the [inspection button](docs/inspection-mode.md). The 30-pin board above is unchanged.
+> On the **XIAO ESP32-C6** (firmware 0.25.0+) the setup button is the board's on-board USER/BOOT button, and the external D2 button is the [inspection button](docs/inspection-mode.md). The 30-pin board above is unchanged. Note that GPIO9 cannot wake the C6 from deep sleep and holding it at power-up enters the serial bootloader, so on that board hold the USER button until the next wake cycle, or use **Start AP mode** in the dashboard — see [docs/ap-mode-sd-download.md](docs/ap-mode-sd-download.md).
 | INMP441 BCLK / WS / SD | 14 / 13 / 34 | I2S, shared by both mics; GPIO34 is input-only (`ENABLE_INMP441_MICS`) |
 
 > See [docs/wiring.md](docs/wiring.md) for detailed wiring and [pcb-design/README.md](pcb-design/README.md) for the KiCad breakout PCB pinout.

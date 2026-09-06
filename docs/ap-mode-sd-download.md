@@ -36,10 +36,16 @@ The setup button is connected to GPIO27 and should pull the pin to GND when pres
 > * A hub sealed in an enclosure no longer has the setup button brought out. Use
 >   the `start_provisioning` command (dashboard or API) to open the portal
 >   remotely instead of opening the box — that is exactly what it is for.
-> * GPIO9 is the ESP32-C6 boot strapping pin, so **holding it across a hardware
->   RESET or a power-up enters the serial bootloader**, not AP mode. Deep-sleep
->   wake does not re-latch strapping, so the "press and hold, wait for the
->   device to wake" flow below works normally.
+> * **The USER button cannot wake the C6 from deep sleep, and holding it at
+>   power-up flashes the chip rather than opening the AP.** GPIO9 is not an
+>   LP-IO pad (only GPIO0–GPIO7 are), so it can never be a deep-sleep wake
+>   source, and it is the boot strapping pin, so holding it across a RESET or a
+>   power-up enters the serial bootloader. Neither is fixable in firmware. What
+>   0.25.4 does fix is everything around it: the invalid wake pin no longer
+>   silently disarms the inspection button on D2 as well, and the firmware now
+>   polls the USER button throughout each wake cycle, so **press and hold it and
+>   the AP opens at the end of the next cycle**. See
+>   [inspection-mode.md](inspection-mode.md#the-button) for the full picture.
 
 ## Entering AP mode
 
@@ -70,7 +76,8 @@ The exact AP SSID and IP address are also printed to the serial monitor when AP 
 
 During deep sleep, the normal firmware loop is not running. That means a normal short press cannot be handled in the same way as when the ESP32 is awake.
 
-However, the firmware configures GPIO27 as an EXT0 wake source:
+**30-pin ESP32 DevKit (GPIO27).** The firmware configures GPIO27 as an EXT0 wake
+source:
 
 ```cpp
 esp_sleep_enable_ext0_wakeup((gpio_num_t)SETUP_BUTTON_PIN, 0);
@@ -94,6 +101,25 @@ http://192.168.4.1
 
 This method is more reliable than a very quick press during deep sleep, because the button is already held when the ESP32 boots and checks the setup button state.
 
+**XIAO ESP32-C6 (GPIO9): the button does not wake it, and the power-up trick
+flashes it instead.** GPIO9 has no LP-IO pad, so it cannot be armed as a
+deep-sleep wake source at all, and it is the boot strapping pin, so holding it
+across a power-up drops the chip into the serial bootloader. The steps above do
+not apply to this board — do not use them.
+
+What works on the C6:
+
+1. **Press and hold** the USER button (do **not** cycle power).
+2. Wait for the hub's next scheduled wake — up to one send interval. The status
+   LED blinks when it boots.
+3. The firmware polls the button throughout the cycle, sees it held, and opens
+   the AP when the cycle ends. Holding it longer is safe: a hold that has
+   already opened the portal is spent, so it cannot roll on into the
+   ten-second factory reset — that needs a release and a fresh press.
+
+Or, better, skip the button entirely and use **Start AP mode** in the dashboard
+(below) — no waiting, and no reason to open the enclosure.
+
 ### Without touching the device
 
 **Device & admin → Configuration → Start AP mode** in the built-in dashboard
@@ -111,6 +137,19 @@ From there it behaves exactly like a button press: the `HiveHub-Setup-XXXX`
 network appears, the device is off WiFi and sending nothing while the portal is
 open, and the portal closes itself on the provisioning timeout if nobody
 connects. So only start it when somebody is at the hive to use it.
+
+**The hub reboots first when it has to.** A BLE scan may only run in the NimBLE
+port lifetime that owns the scanner (see `include/ble_stack.h`), and a hub with
+a sensor already paired has spent that lifetime on the measurement scan by the
+time the cycle ends. Opening the portal in place would therefore give it a
+discovery scan that never runs — the AP comes up, the radio is fine, and the
+pairing dropdowns say "No BLE devices found" next to a sensor advertising a
+metre away. That was the 0.25.3 bug. From 0.25.4 the hub parks the request in
+RTC memory and reboots, so the portal opens **before** the first measurement
+cycle, exactly where a button press opens it, and the scan works. You will see
+one extra reboot in the serial log and the AP appears a few seconds later than
+it used to; nothing else changes, and the command has already been acknowledged
+to the server before the reboot.
 
 ## Important: long hold / factory reset behavior
 
@@ -256,6 +295,9 @@ a move to another server recoverable — see
 | Button short/long press handling | `src/portal.cpp` | `handleButton()` |
 | Remote AP entry (`start_provisioning`) | `src/hivehub_network.cpp` | `requestProvisioningPortal()` in `checkCommands()` |
 | Deferred AP start at the end of a cycle | `src/main.cpp`, `src/portal.cpp` | `startRequestedProvisioningPortal()` |
+| Reboot so the portal's BLE scan can run | `src/portal.cpp`, `src/main.cpp` | `rtcPortalBootMagic`, `consumePortalBootRequest()` |
+| Setup-button poll during a wake cycle | `src/portal.cpp`, `src/main.cpp` | `pollSetupButton()` |
+| "Can a discovery scan run right now?" | `src/ble_sensor.cpp`, `src/ble_stack.cpp` | `blesensor::discoveryAvailable()`, `blestack::scanWouldBeAllowed()` |
 | SD TAR streaming helpers | `src/portal.cpp` | `tarSafeName()`, `writeTarHeader()`, `streamTarDirectory()` |
 | SD download HTTP handler | `src/portal.cpp` | `handleSdDownloadAll()` |
 | AP-mode download button | `src/portal.cpp` | `handleSetupRoot()` |

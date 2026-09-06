@@ -719,6 +719,10 @@ void scanPairedSensors(const String& mac0, const String& mac1,
                 slot1.present, slot1.sample_count, slot2.present, slot2.sample_count);
 }
 
+bool discoveryAvailable() {
+  return blestack::scanWouldBeAllowed();
+}
+
 std::vector<Discovered> discover(uint32_t seconds) {
   std::vector<Discovered> found;
   g_slot.clear();   // discover mode matches against g_discover, not g_slot

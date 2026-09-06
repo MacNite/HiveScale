@@ -194,6 +194,10 @@ extern uint32_t rtcBootCount;
 // See markRelayInFlight()/reportInterruptedRelay() in hivehub_network.cpp.
 extern uint32_t rtcRelayCommandId;
 extern uint32_t rtcRelayMagic;
+// Set when a `start_provisioning` command has to reboot the hub to open the
+// portal, so the BLE discovery scan gets a NimBLE port lifetime it is allowed
+// to scan in. Consumed once, at the top of setup(). See portal.cpp.
+extern uint32_t rtcPortalBootMagic;
 // Previous cycle's HiveTraffic lifetime totals, per hive index, so the night
 // mode traffic gate can difference them into "crossings since the last cycle".
 // In RTC memory because HiveHub deep-sleeps between cycles: in plain RAM there

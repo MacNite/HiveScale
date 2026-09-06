@@ -42,4 +42,26 @@ void handleButton();
 void requestProvisioningPortal();
 // Open the portal if one was requested; a no-op otherwise. Called right after
 // each upload cycle.
+//
+// May not return: when a BLE discovery scan can no longer run in this boot (the
+// normal state once a paired sensor has been measured — see ble_stack.h), the
+// request is parked in RTC memory and the hub reboots, so the portal opens in a
+// port lifetime the scan is actually allowed to use. Without that, the portal
+// pairing dropdowns come up empty on exactly the hubs that have a sensor.
 void startRequestedProvisioningPortal();
+
+// True when this boot exists to open the provisioning portal, because
+// startRequestedProvisioningPortal() rebooted for a clean BLE scan. Consumes
+// the request, so a portal that times out is followed by ordinary cycles.
+bool consumePortalBootRequest();
+
+// Read the setup button from inside a running upload cycle, latching a portal
+// request if it is held. With deep sleep on, loop()/handleButton() never run,
+// and on the XIAO ESP32-C6 the button cannot wake the hub at all (GPIO9 is not
+// an LP-IO pad), so the awake window is the only place a press can be seen.
+void pollSetupButton();
+
+// Record that a setup-button press has already been acted on, so the same
+// unbroken hold cannot ALSO trigger handleButton()'s ten-second factory reset.
+// Called wherever a held button has just opened (or queued) the portal.
+void markSetupButtonHandled();

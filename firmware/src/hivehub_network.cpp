@@ -1336,7 +1336,14 @@ void checkCommands() {
     // in main.cpp), which is the same point a button press reaches it — so a
     // hub sealed in a box behaves exactly as if somebody had pressed setup.
     requestProvisioningPortal();
-    postCommandResult(commandId, true, "Provisioning AP starting at the end of this cycle");
+    // Reported before the AP opens, and deliberately so: the hub may have to
+    // reboot at the end of this cycle to give the portal's BLE discovery scan a
+    // NimBLE port lifetime it is allowed to scan in (see
+    // startRequestedProvisioningPortal), and after a reboot there is no station
+    // connection left to report anything on.
+    postCommandResult(commandId, true,
+                      "Provisioning AP starting at the end of this cycle "
+                      "(the hub may reboot first so BLE pairing can scan)");
   } else if (type == "start_calibration_mode") {
     unsigned long intervalSeconds = payload["interval_seconds"] | (CALIBRATION_MODE_DEFAULT_INTERVAL_MS / 1000UL);
     unsigned long timeoutSeconds = payload["timeout_seconds"] | (CALIBRATION_MODE_DEFAULT_TIMEOUT_MS / 1000UL);
