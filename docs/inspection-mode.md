@@ -1,6 +1,6 @@
 # Inspection mode
 
-*Firmware **0.25.4** · server **0.4.0** · issue [#173](https://github.com/MacNite/HiveHub/issues/173)*
+*Firmware **0.25.5** · server **0.4.0** · issue [#173](https://github.com/MacNite/HiveHub/issues/173)*
 
 While a beekeeper has a hive open, its own sensors stop measuring the colony and
 start measuring the inspection. A scale with two supers lifted off it reads tens

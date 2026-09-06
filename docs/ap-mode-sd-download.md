@@ -176,7 +176,10 @@ a sensor already paired has spent that lifetime on the measurement scan by the
 time the cycle ends. Opening the portal in place would therefore give it a
 discovery scan that never runs — the AP comes up, the radio is fine, and the
 pairing dropdowns say "No BLE devices found" next to a sensor advertising a
-metre away. That was the 0.25.3 bug. From 0.25.4 the hub parks the request in
+metre away. That was the 0.25.3 bug, and 0.25.4 shipped the reboot with a marker that
+could not survive it (`RTC_DATA_ATTR` is restored from the app image by the
+bootloader on any reboot that is not a deep-sleep wake). From 0.25.5 the hub
+parks the request in
 RTC memory and reboots, so the portal opens **before** the first measurement
 cycle, exactly where a button press opens it, and the scan works. You will see
 one extra reboot in the serial log and the AP appears a few seconds later than
