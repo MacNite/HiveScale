@@ -183,20 +183,27 @@ extern unsigned long buttonDownMs;
 extern bool longPressHandled;
 
 // ---- Values that survive deep sleep --------------------------------------
-// The RTC_DATA_ATTR (section) attribute belongs only on the definitions in
-// globals.cpp. Repeating it here would generate a second, auto-numbered RTC
-// section that conflicts with the definition's, which the compiler then
-// discards with a -Wattributes warning. Plain extern declarations are enough.
+// The RTC section attribute belongs only on the definitions in globals.cpp.
+// Repeating it here would generate a second, auto-numbered RTC section that
+// conflicts with the definition's, which the compiler then discards with a
+// -Wattributes warning. Plain extern declarations are enough.
+//
+// Which attribute each one carries is NOT interchangeable, and globals.cpp says
+// why: RTC_DATA_ATTR survives deep sleep only, RTC_NOINIT_ATTR survives a
+// reboot as well. Anything below that has to cross an esp_restart() or a panic
+// is defined with the latter.
 extern uint32_t rtcCyclesUntilOta;
 extern uint32_t rtcBootCount;
 // Set while a firmware relay to a BLE sub-device is running, so the command can
 // be failed explicitly after a reset instead of silently timing out server-side.
+// RTC_NOINIT_ATTR — the reset it reports is the one it must survive.
 // See markRelayInFlight()/reportInterruptedRelay() in hivehub_network.cpp.
 extern uint32_t rtcRelayCommandId;
 extern uint32_t rtcRelayMagic;
 // Set when a `start_provisioning` command has to reboot the hub to open the
 // portal, so the BLE discovery scan gets a NimBLE port lifetime it is allowed
-// to scan in. Consumed once, at the top of setup(). See portal.cpp.
+// to scan in. Consumed once, at the top of setup(). RTC_NOINIT_ATTR, for the
+// same reason. See portal.cpp.
 extern uint32_t rtcPortalBootMagic;
 // Previous cycle's HiveTraffic lifetime totals, per hive index, so the night
 // mode traffic gate can difference them into "crossings since the last cycle".

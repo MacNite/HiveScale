@@ -1283,9 +1283,13 @@ void startProvisioningPortal() {
 static bool provisioningRequested = false;
 
 // Magic written into RTC memory when a request has to survive exactly one
-// reboot (see startRequestedProvisioningPortal). RTC RAM keeps its contents
-// across a software reset and across deep sleep, and is zeroed on power-on, so
-// the magic only has to guard against a stale value from an older firmware.
+// reboot (see startRequestedProvisioningPortal). rtcPortalBootMagic is
+// RTC_NOINIT_ATTR, which is what makes that work: an RTC_DATA_ATTR variable
+// would be written back from the app image by the bootloader on the very
+// reboot it is meant to cross, and the request would vanish before
+// consumePortalBootRequest() ever saw it. See the note in globals.cpp.
+// `.rtc_noinit` is undefined after a power cycle, so the magic is what
+// separates a real request from whatever was in LP RAM at power-up.
 static const uint32_t PORTAL_BOOT_MAGIC = 0x50425431;  // 'PBT1'
 
 void requestProvisioningPortal() { provisioningRequested = true; }

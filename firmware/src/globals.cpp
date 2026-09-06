@@ -102,14 +102,36 @@ bool longPressHandled = false;
 RTC_DATA_ATTR uint32_t rtcCyclesUntilOta = 0;
 RTC_DATA_ATTR uint32_t rtcBootCount = 0;
 
-// A relay in flight, so a reset that kills it can still be reported. RTC memory
-// is the right store: it survives a panic reboot (it is only cleared on a
-// power-on reset), and unlike NVS it costs no flash write on the happy path,
-// which matters because this is set and cleared around every single relay.
-// The magic guards against reading whatever a power-on reset left behind.
-RTC_DATA_ATTR uint32_t rtcRelayCommandId = 0;
-RTC_DATA_ATTR uint32_t rtcRelayMagic = 0;
-RTC_DATA_ATTR uint32_t rtcPortalBootMagic = 0;
+// ── Markers that must survive a RESET, not just a deep sleep ───────────────
+//
+// RTC_NOINIT_ATTR, never RTC_DATA_ATTR, and the difference is the whole point.
+// `.rtc.data` (RTC_DATA_ATTR) is a LOADABLE segment of the app image: the
+// second-stage bootloader writes it back from flash on every boot it loads
+// segments for, and it skips that only on a deep-sleep wake. So an
+// RTC_DATA_ATTR variable keeps its value across deep sleep — which is all
+// esp_attr.h claims for it — and is reset to its initializer by any reboot:
+// esp_restart(), a panic, a brownout, an OTA. `.rtc_noinit` is (NOLOAD) and is
+// never written by the bootloader, so it survives a reboot too and is only
+// undefined after a true power-on.
+//
+// Both markers below hand a fact across a reboot, so both need the second
+// behaviour. Neither may carry an initializer: `.rtc_noinit` is never loaded,
+// so an initializer would be a lie the compiler cannot honour. Whatever a
+// power cycle leaves behind is rejected by the magic each one is checked
+// against.
+//
+// RTC rather than NVS because these cost no flash write on the happy path —
+// the relay marker is set and cleared around every single firmware relay.
+
+// A relay in flight, so a reset that kills it can still be reported against the
+// right command id instead of leaving the row open. See markRelayInFlight() /
+// reportInterruptedRelay() in hivehub_network.cpp.
+RTC_NOINIT_ATTR uint32_t rtcRelayCommandId;
+RTC_NOINIT_ATTR uint32_t rtcRelayMagic;
+
+// A `start_provisioning` request that had to reboot to get a NimBLE port
+// lifetime its BLE scan is allowed to run in. See portal.cpp.
+RTC_NOINIT_ATTR uint32_t rtcPortalBootMagic;
 
 // Previous cycle's HiveTraffic totals per hive, for the night-mode traffic
 // gate. RTC memory because HiveHub deep-sleeps between cycles — in plain RAM
