@@ -128,6 +128,27 @@ and a fresh press.
 > stages, so a quick tap between two of them is simply not seen. Holding is what
 > makes the button deterministic — the boot-time read above cannot miss it.
 
+#### Don't want to wait for the next wake? Use RESET first
+
+The wait above exists only because the hub is asleep. If you can reach the
+board, press **RESET** to make it wake right now:
+
+1. Press and release **RESET**. Do **not** touch BOOT yet.
+2. Now press and **hold BOOT** (the USER button, GPIO9), and keep holding.
+3. If you get there within roughly a second and a half, the boot-time read
+   catches it and the AP opens straight away with the measurement cycle
+   skipped. If you are slower, the in-cycle polls catch it instead and the AP
+   opens when that cycle finishes — **under a minute either way**.
+
+> **The order matters, and getting it wrong flashes the chip.** BOOT is GPIO9,
+> the boot-mode strapping pin, so it must be released *while* RESET is
+> released. Holding BOOT down across the RESET — the usual "hold BOOT, tap
+> RESET" flashing gesture — puts the chip into the serial bootloader and no
+> firmware runs at all. Press RESET first, let go of it, *then* press BOOT.
+
+Both buttons are on the board itself, so this route needs the enclosure open.
+For a sealed hub use **Start AP mode** in the dashboard (below) instead.
+
 Or, better, skip the button entirely and use **Start AP mode** in the dashboard
 (below) — no waiting, and no reason to open the enclosure.
 

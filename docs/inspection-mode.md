@@ -98,7 +98,13 @@ considering for an apiary the public can reach.
 > in-cycle polls instead and opens the AP when the cycle ends — but those polls
 > are seconds apart, so a quick tap can fall between them. Hold, don't tap.
 >
-> It is a wait, not a guess. If you would rather not wait at all, use **Start AP
+> It is a wait, not a guess — and if you can reach the board you can skip it
+> entirely: press **RESET**, release it, *then* press and hold BOOT, and the AP
+> is up in under a minute. Order matters, because holding BOOT across the RESET
+> is the flashing gesture and lands you in the bootloader instead; see
+> [ap-mode-sd-download.md](ap-mode-sd-download.md#dont-want-to-wait-for-the-next-wake-use-reset-first).
+>
+> If you would rather not wait at all, use **Start AP
 > mode** in the dashboard — that is the intended route for a sealed hub, and it
 > needs nobody at the enclosure. A physical button that opens the AP *instantly*
 > would have to live on GPIO0–GPIO7; the external inspection button on D2 is the
