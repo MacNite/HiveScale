@@ -3,7 +3,7 @@
 
 #include <esp_system.h>
 
-const char* const FIRMWARE_VERSION = "0.25.3";
+const char* const FIRMWARE_VERSION = "0.25.4";
 
 #if ENABLE_HX711
 HX711 scale1;
@@ -109,6 +109,7 @@ RTC_DATA_ATTR uint32_t rtcBootCount = 0;
 // The magic guards against reading whatever a power-on reset left behind.
 RTC_DATA_ATTR uint32_t rtcRelayCommandId = 0;
 RTC_DATA_ATTR uint32_t rtcRelayMagic = 0;
+RTC_DATA_ATTR uint32_t rtcPortalBootMagic = 0;
 
 // Previous cycle's HiveTraffic totals per hive, for the night-mode traffic
 // gate. RTC memory because HiveHub deep-sleeps between cycles — in plain RAM

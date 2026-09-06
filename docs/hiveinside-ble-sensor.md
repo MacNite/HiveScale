@@ -38,8 +38,9 @@ lives in `test-data/` (`python3 hiveinside_nrf54_beacon.py`).
    for HolyIot / RuuviTag). The nRF54 node is beacon-only, so no GATT measurement
    flag is needed. (`HIVEINSIDE_OTA_ENABLED`, default 1, compiles in the BLE OTA
    relay described below.)
-2. **Pair from the setup portal.** Open the provisioning portal (short-press the
-   setup button, join the `HiveHub-Setup-XXXX` AP), scan for BLE devices, and
+2. **Pair from the setup portal.** Open the provisioning portal (press the setup
+   button, or use **Start AP mode** in the dashboard, then join the
+   `HiveHub-Setup-XXXX` AP), scan for BLE devices, and
    press **➕ Add BLE in-hive sensor** on the hive. Choose the sensor type
    **HiveInside (nRF54LM20A) — beacon** and enter/copy the node's MAC — picking
    the node from the scan dropdown selects the type for you. This is the hive's
@@ -268,8 +269,16 @@ names are fiction.
 > lifetime, so the remaining callers fail loudly instead of faulting.
 >
 > One consequence worth knowing: the setup portal's **discovery scan** is the
-> one caller that legitimately wants to scan late in a boot. It now declines
-> with a log line instead of crashing. Reboot the hub and open the portal before
-> the first measurement cycle to pair a new sensor.
+> one caller that legitimately wants to scan late in a boot. It declines with a
+> log line instead of crashing — which, in 0.25.3, is what made a remotely
+> opened AP list **no BLE devices at all** on any hub that already had a sensor
+> paired: the AP came up, the radio was fine, and the scan simply never ran.
+>
+> Firmware **0.25.4** closes that: a `start_provisioning` command that would
+> land in a spent port lifetime parks the request in RTC memory and reboots, so
+> the portal opens before the first measurement cycle — where the scan is
+> allowed — exactly as a button press does. Nothing is needed from the user
+> beyond noticing the extra reboot. If a portal ever does come up without a
+> scan, it now says so on the page instead of showing an empty list.
 
 See [api.md](api.md) for the `update-hiveinside` command and payload.

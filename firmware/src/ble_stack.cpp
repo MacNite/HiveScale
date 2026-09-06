@@ -45,6 +45,16 @@ bool scanAllowed() {
   return s_scanGeneration == 0 || s_scanGeneration == s_generation;
 }
 
+bool scanWouldBeAllowed() {
+  // Nothing has scanned yet: whichever lifetime scans first will own the
+  // singleton, so a scan is safe either way.
+  if (s_scanGeneration == 0) return true;
+  // Something has scanned. Only the lifetime that is still up and owns the
+  // singleton may scan again — if the stack is currently released, the next
+  // acquire() starts a new lifetime and the answer becomes no.
+  return s_up && s_scanGeneration == s_generation;
+}
+
 void noteScanStarted() {
   s_scanGeneration = s_generation;
 }

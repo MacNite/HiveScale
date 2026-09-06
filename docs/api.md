@@ -714,7 +714,7 @@ permanent "relaying…". The attempt counter lives in `device_commands.attempts`
 | `check_ota` / `ota_update` | `{}` | Trigger immediate OTA check/update |
 | `update_hiveinside` | `{"slot": 1, "url": "...", "version": "...", "crc32": 123}` | Relay a firmware image to a HiveInside sensor over BLE GATT (normally queued via the `update-hiveinside` helper above) |
 | `update_beecounter` | `{"slot": 1, "url": "...", "version": "...", "crc32": 123}` | Relay a firmware image to a HiveTraffic counter over BLE GATT (normally queued via the `update-beecounter` helper above) |
-| `start_provisioning` | `{}` | Start the provisioning AP — the remote equivalent of a short press on the setup button. The device opens it at the end of the cycle that picked the command up, and closes it again on the portal timeout. Also queued by the dashboard's **Device & admin → Configuration → Start AP mode** button (`POST /api/v1/local/devices/{device_id}/provisioning/start`, admin) |
+| `start_provisioning` | `{}` | Start the provisioning AP — the remote equivalent of a press on the setup button. The device opens it at the end of the cycle that picked the command up, and closes it again on the portal timeout. From firmware 0.25.4 it **reboots first** when the portal's BLE pairing scan would otherwise be unable to run (the usual case once a sensor is paired), so the AP appears a few seconds later and after one extra boot; the command result is posted before the reboot. Also queued by the dashboard's **Device & admin → Configuration → Start AP mode** button (`POST /api/v1/local/devices/{device_id}/provisioning/start`, admin) |
 
 Response:
 

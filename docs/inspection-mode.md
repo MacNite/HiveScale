@@ -1,6 +1,6 @@
 # Inspection mode
 
-*Firmware **0.25.1** · server **0.4.0** · issue [#173](https://github.com/MacNite/HiveHub/issues/173)*
+*Firmware **0.25.4** · server **0.4.0** · issue [#173](https://github.com/MacNite/HiveHub/issues/173)*
 
 While a beekeeper has a hive open, its own sensors stop measuring the colony and
 start measuring the inspection. A scale with two supers lifted off it reads tens
@@ -41,7 +41,7 @@ On the **XIAO ESP32-C6** the buttons changed in firmware 0.25.0:
 | Button | Was | Is now |
 | --- | --- | --- |
 | **D2** (external) | Setup: short press = AP mode, long press = factory reset | **Inspection**: one press toggles it |
-| **GPIO9** (on-board USER/BOOT) | — | **Setup**: short press = AP mode, long press = factory reset |
+| **GPIO9** (on-board USER/BOOT) | — | **Setup**: press during an awake cycle = AP mode, long press = factory reset |
 
 The reasoning is in issue #173: the one external, weatherproofable button on a
 hub sealed in an enclosure should be the thing a beekeeper actually presses at
@@ -55,7 +55,10 @@ considering for an apiary the public can reach.
 
 * One press **toggles** inspection on or off.
 * The press works while the hub is deep-asleep — D2 is a wake source, so the
-  state changes on the press rather than at the next scheduled cycle.
+  state changes on the press rather than at the next scheduled cycle. (Between
+  0.25.0 and 0.25.3 it did **not**: the setup button's GPIO9 was armed in the
+  same call and made the chip reject the whole wake mask, D2 included. 0.25.4
+  arms only the pins the C6 can actually wake on.)
 * Firmware 0.25.1 also checks the live D2 level at boot and safely classifies an
   otherwise unidentifiable C6 GPIO wake as an inspection press. This covers the
   0.25.0 failure where both the latched wake mask was empty and a quick tap had
@@ -66,11 +69,46 @@ considering for an apiary the public can reach.
   up measuring. That is the safe direction to fail — losing an "on" costs one
   visible spike, losing an "off" costs a hive that goes quiet for good.
 
-> **GPIO9 is the ESP32-C6 boot strapping pin.** Holding it down across a
-> hardware RESET or a power-up puts the chip into the serial bootloader — that
-> is what the BOOT button is for. Deep-sleep wake does not re-latch strapping,
-> so a press that wakes the hub runs the firmware normally. Just remember that
-> "hold USER, then press RESET" is a *flash* command, not an AP-mode command.
+> **GPIO9 cannot wake the hub, and holding it at power-up flashes it.** Two
+> separate ESP32-C6 facts, both of which limit what the on-board USER button can
+> do — and firmware up to 0.25.3 respected neither:
+>
+> * Deep-sleep GPIO wakeup on the C6 is an **LP-IO** feature: only GPIO0–GPIO7
+>   have the pad that stays alive through deep sleep. GPIO9 does not, so it can
+>   never be a wake source. Worse, `esp_deep_sleep_enable_gpio_wakeup()` rejects
+>   the *whole* mask when it meets a pin outside that range — and because the
+>   firmware armed both buttons in one call and ignored the return value, GPIO9
+>   silently disarmed **D2** along with itself. That is why neither button
+>   appeared to do anything from deep sleep. Fixed in 0.25.4: the mask is
+>   filtered to the pins the silicon can actually wake on, so D2 works again.
+> * GPIO9 is also the **boot strapping pin**. Holding it down across a hardware
+>   RESET or a power-up puts the chip into the serial bootloader — that is what
+>   the BOOT button is for. "Hold USER, then press RESET" is a *flash* command,
+>   not an AP-mode command, and no firmware change can make it one.
+>
+> So the USER button is only ever readable while the hub is **awake**, and from
+> 0.25.4 the firmware makes the most of that window: it reads the button at the
+> top of `setup()` and again at four points inside every upload cycle.
+>
+> In practice: **press and hold it**, and wait for the next scheduled wake — up
+> to one send interval, so up to 10 minutes on the default cadence. The status
+> LED blinks as the hub boots, and the AP is up about a second after that (a
+> button held across the wake is caught before the measurement cycle starts, so
+> that cycle is skipped). A press that starts mid-cycle is caught by one of the
+> in-cycle polls instead and opens the AP when the cycle ends — but those polls
+> are seconds apart, so a quick tap can fall between them. Hold, don't tap.
+>
+> It is a wait, not a guess — and if you can reach the board you can skip it
+> entirely: press **RESET**, release it, *then* press and hold BOOT, and the AP
+> is up in under a minute. Order matters, because holding BOOT across the RESET
+> is the flashing gesture and lands you in the bootloader instead; see
+> [ap-mode-sd-download.md](ap-mode-sd-download.md#dont-want-to-wait-for-the-next-wake-use-reset-first).
+>
+> If you would rather not wait at all, use **Start AP
+> mode** in the dashboard — that is the intended route for a sealed hub, and it
+> needs nobody at the enclosure. A physical button that opens the AP *instantly*
+> would have to live on GPIO0–GPIO7; the external inspection button on D2 is the
+> only one of those brought out today.
 
 **The 30-pin ESP32 DevKit is unchanged.** Its only spare button is BOOT on
 GPIO0, a strapping pin whose failure mode is a beekeeper in a bee suit staring

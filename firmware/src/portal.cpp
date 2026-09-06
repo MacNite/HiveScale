@@ -321,6 +321,12 @@ void handleSdDownloadAll() {
 // used to throw away every unsaved hive/MAC entry.
 static std::vector<blesensor::Discovered> gPortalBleDevices;
 static bool gPortalBleScanned = false;
+// True when the last portalRunBleScan() could not run a scan at all, rather
+// than running one that saw nothing. The two are indistinguishable from an
+// empty device list, and telling the user "no BLE devices found" when the radio
+// never listened is exactly how a hub with two sensors a metre away looked
+// broken. See blesensor::discoveryAvailable().
+static bool gPortalBleScanUnavailable = false;
 
 // Cap how many discovered devices the setup page embeds: busy environments see
 // dozens of unrelated phones/earbuds and the page is one big String in RAM.
@@ -331,6 +337,19 @@ static const size_t PORTAL_BLE_MAX_LISTED = 30;
 // results so recognised in-hive sensors come first, then named devices, then
 // everything else by signal strength.
 static void portalRunBleScan() {
+  // discover() returns an empty list when it is not allowed to scan in this
+  // NimBLE port lifetime. Ask first, so the page can say which of the two
+  // reasons produced the empty list — and keep whatever a previous scan found
+  // rather than replacing it with a result that was never measured.
+  gPortalBleScanUnavailable = !blesensor::discoveryAvailable();
+  if (gPortalBleScanUnavailable) {
+    Serial.println("[SETUP] BLE discovery unavailable in this boot — the scan "
+                   "singleton belongs to an earlier NimBLE port lifetime "
+                   "(ble_stack.h); restart the hub to pair a sensor");
+    gPortalBleScanned = true;
+    return;
+  }
+
   Serial.printf("[SETUP] BLE discovery scan (%us) for the sensor dropdowns\n",
                 (unsigned)HOLYIOT_BLE_SCAN_SECONDS);
   gPortalBleDevices = blesensor::discover(HOLYIOT_BLE_SCAN_SECONDS);
@@ -387,6 +406,13 @@ static String detectedBleJson() {
 static void handleBleScanJson() {
   sendNoCacheHeaders();
   portalRunBleScan();
+  if (gPortalBleScanUnavailable) {
+    // 503, not an empty 200: the button must not report "0 device(s) found"
+    // for a scan that never listened. The page shows this text verbatim.
+    setupServer.send(503, "text/plain",
+                     "BLE scanning is unavailable until the hub restarts.");
+    return;
+  }
   setupServer.send(200, "application/json", detectedBleJson());
 }
 
@@ -416,7 +442,9 @@ void handleBleScan() {
   html += "</head><body><div class='wrap'><h1>Nearby BLE devices</h1>";
   html += "<p>All nearby BLE devices are listed. HolyIot 25015, RuuviTag and HiveInside sensors show their type in the last column. GATT sensors (HiveHeart, wireless HiveScale) also appear. This scan has updated the sensor dropdowns on the <a href='/'>setup page</a> — but note that opening this page reloads the portal, so use the setup page's own <b>Rescan BLE</b> button if you have unsaved entries there.</p>";
 
-  if (found.empty()) {
+  if (gPortalBleScanUnavailable) {
+    html += "<p><b>No scan was run.</b> The BLE radio scanner can only be started once per boot on this hardware, and this boot already used it for the paired-sensor measurement. Restart the hub &mdash; press RESET, or send <code>start_provisioning</code> again, which now reboots into this portal &mdash; and the scan will run.</p>";
+  } else if (found.empty()) {
     html += "<p>No BLE devices were seen during the scan. Make sure the sensor is powered and in range, then <a href='/ble/scan'>scan again</a>.</p>";
   } else {
     html += "<table><tr><th>MAC</th><th>Name</th><th>RSSI</th><th>Sensor type</th></tr>";
@@ -862,7 +890,9 @@ void handleSetupRoot() {
   html += "Connection-based GATT sensors are read serially and capped at " + String(MAX_GATT_READS_PER_CYCLE) + " per wake cycle.</p>";
 #if ENABLE_BLE_SCAN
   html += "<p><button type='button' class='button' id='blerescan'>&#128260; Rescan BLE sensors</button> <span id='blemsg' class='meta'>";
-  if (gPortalBleScanned) {
+  if (gPortalBleScanUnavailable) {
+    html += "BLE scanning is unavailable in this boot &mdash; restart the hub to pair a new sensor.";
+  } else if (gPortalBleScanned) {
     html += "Startup scan found " + String((unsigned)gPortalBleDevices.size()) + " device(s).";
   }
   html += "</span></p>";
@@ -994,7 +1024,7 @@ return o;});
 document.getElementById("hives_json").value=JSON.stringify(out);});
 var rb=document.getElementById("blerescan");
 if(rb)rb.addEventListener("click",function(){var m=document.getElementById("blemsg");rb.disabled=true;m.textContent="Scanning for "+BLE_SCAN_SECONDS+" s…";
-fetch("/ble/scan.json").then(function(r){return r.json();}).then(function(d){DETECTED_BLE=d;m.textContent=d.length+" device(s) found.";render();}).catch(function(){m.textContent="Scan failed — try again.";}).finally(function(){rb.disabled=false;});});
+fetch("/ble/scan.json").then(function(r){if(!r.ok)return r.text().then(function(t){throw new Error(t||"Scan failed — try again.");});return r.json();}).then(function(d){DETECTED_BLE=d;m.textContent=d.length+" device(s) found.";render();}).catch(function(e){m.textContent=(e&&e.message)?e.message:"Scan failed — try again.";}).finally(function(){rb.disabled=false;});});
 render();
 })();</script>)HVJS";
   html += "</fieldset>";
@@ -1252,13 +1282,109 @@ void startProvisioningPortal() {
 // nobody is standing next to would only drain the battery.
 static bool provisioningRequested = false;
 
+// Magic written into RTC memory when a request has to survive exactly one
+// reboot (see startRequestedProvisioningPortal). RTC RAM keeps its contents
+// across a software reset and across deep sleep, and is zeroed on power-on, so
+// the magic only has to guard against a stale value from an older firmware.
+static const uint32_t PORTAL_BOOT_MAGIC = 0x50425431;  // 'PBT1'
+
 void requestProvisioningPortal() { provisioningRequested = true; }
+
+bool consumePortalBootRequest() {
+  if (rtcPortalBootMagic != PORTAL_BOOT_MAGIC) return false;
+  // Consume it before doing anything with it: if the portal start below faults
+  // or the hub resets for any other reason, the next boot must be an ordinary
+  // measurement cycle, not another portal.
+  rtcPortalBootMagic = 0;
+  return true;
+}
 
 void startRequestedProvisioningPortal() {
   if (!provisioningRequested) return;
   provisioningRequested = false;
+
+#if ENABLE_BLE_SCAN
+  // Pairing a sensor is the portal's main job, and pairing needs the BLE
+  // discovery scan. But by the time a cycle ends, a hub that already has a
+  // sensor paired has run the measurement scan and torn the NimBLE port down
+  // again for the WiFi upload — and a scan is only ever safe in the port
+  // lifetime that constructed the NimBLEScan singleton (ble_stack.h). So the
+  // scan started here never ran: the AP came up, the radio was fine, and the
+  // setup page offered "No BLE devices found" next to a sensor advertising a
+  // metre away. That is the whole of the reported bug, and it hits precisely
+  // the hubs most likely to be opening the portal to add a SECOND sensor.
+  //
+  // The invariant cannot be repaired inside a boot, so take the one route that
+  // restores it: reboot, and open the portal before the first measurement
+  // cycle — exactly where a button press opens it, in port lifetime 1. This
+  // cycle's uploads are already done and the command has already been
+  // acknowledged to the server, so the reboot costs a few seconds and nothing
+  // else.
+  if (!blesensor::discoveryAvailable()) {
+    Serial.println("[SETUP] Provisioning AP requested; rebooting first so the BLE "
+                   "discovery scan gets a NimBLE port lifetime it may scan in");
+    rtcPortalBootMagic = PORTAL_BOOT_MAGIC;
+    Serial.flush();
+    delay(100);
+    ESP.restart();
+    return;  // not reached
+  }
+#endif
+
   Serial.println("[SETUP] Provisioning AP requested by command; starting it now");
   startProvisioningPortal();
+}
+
+void pollSetupButton() {
+  // With deep sleep enabled, loop() — and therefore handleButton() — is never
+  // reached: setup() runs one cycle and sleeps. That left the setup button with
+  // exactly two chances to be noticed, the single digitalRead() at the top of
+  // setup() and the deep-sleep wake, and on the XIAO ESP32-C6 the second of
+  // those cannot be armed at all: the on-board USER button is GPIO9, which is
+  // not an LP-IO pad (see configureButtonWake()). Holding it across a RESET or
+  // a power-up does not help either — GPIO9 is the C6's boot-mode strapping
+  // pin, so that combination is a "enter the serial bootloader" command, not an
+  // "open AP mode" one. The button was, in practice, unusable.
+  //
+  // Polling it through the awake window gives it back the only chance the
+  // hardware can offer: a press held while a cycle is running latches the same
+  // request a `start_provisioning` command sets, and the portal opens where the
+  // cycle ends. One digitalRead per call, so it is cheap to sprinkle through
+  // the cycle's blocking stages.
+  if (provisioningActive) return;
+  if (digitalRead(SETUP_BUTTON_PIN) != LOW) return;
+  // Confirm rather than debounce across calls: consecutive polls sit seconds
+  // apart around blocking stages, which is far too coarse a window to require a
+  // press to span.
+  delay(BUTTON_DEBOUNCE_MS);
+  if (digitalRead(SETUP_BUTTON_PIN) != LOW) return;
+
+  if (!provisioningRequested) {
+    Serial.println("[BUTTON] Setup button pressed during the cycle: the provisioning "
+                   "AP opens when this cycle ends");
+    requestProvisioningPortal();
+  }
+  // Outside the branch on purpose: a button held while a `start_provisioning`
+  // command was already pending has still had its effect, and must still not
+  // roll on into the factory reset.
+  markSetupButtonHandled();
+}
+
+void markSetupButtonHandled() {
+  // handleButton() starts its long-press timer on the first LOW it observes,
+  // and buttonWasDown starts false every boot — so a button that is ALREADY
+  // held when observation begins looks like a press that just started, and ten
+  // seconds later it factory-resets the hub.
+  //
+  // That is a live hazard now that the documented way to reach AP mode on the
+  // XIAO ESP32-C6 is "hold the USER button and wait for the next wake": the
+  // hold can easily outlast the portal opening. Seeding the state as an
+  // already-handled press means the hold is spent, and a factory reset needs a
+  // deliberate release and a fresh ten-second press — which is what a
+  // destructive action should need anyway.
+  buttonWasDown = true;
+  longPressHandled = true;
+  buttonDownMs = millis();
 }
 
 void stopProvisioningPortal() {

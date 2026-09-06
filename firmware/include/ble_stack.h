@@ -71,6 +71,14 @@ void release();
 // NimBLEScan singleton's callout belongs to the previous lifetime.
 bool scanAllowed();
 
+// Same question, asked BEFORE acquire() — "would a scan started right now
+// actually run?". scanAllowed() only answers for the lifetime that is already
+// up, so a caller that has not acquired yet cannot use it: with the stack
+// released, the next acquire() starts a fresh lifetime and invalidates the
+// singleton. Callers that can still choose a different route (the portal, which
+// can reboot into a clean boot instead) ask this one first.
+bool scanWouldBeAllowed();
+
 // Called by the scan helpers just before starting one, so this module knows
 // which port lifetime owns the singleton.
 void noteScanStarted();

@@ -40,6 +40,7 @@ void runUploadCycle() {
   // rssi_dbm reflects the live connection.
   connectNetwork();
   heapdiag::probe("after-network");
+  pollSetupButton();
 
   JsonDocument doc;
   // Assembly runs the BLE scan, which inits and deinits the NimBLE stack. That
@@ -48,6 +49,7 @@ void runUploadCycle() {
   // stage most worth watching.
   buildMeasurementDoc(doc);
   heapdiag::probe("after-measure");
+  pollSetupButton();
 
   // SD.begin() is the reproducible boundary after which ESP32-C6 I2C-NG may
   // reject later transfers. Capture the timestamp before bringing SPI/SD up.
@@ -90,6 +92,7 @@ void runUploadCycle() {
   if (scaleCalibrationReportPending()) reportScaleCalibration();
 
   heapdiag::probe("after-upload");
+  pollSetupButton();
 
   fetchRemoteConfig();
   // checkCommands() is where a firmware relay runs, so this is the last clean
@@ -108,6 +111,7 @@ void runUploadCycle() {
   i2cbus::logDiag();
   scalebus::logDiag();
   heapdiag::probe("cycle-end");
+  pollSetupButton();
 
   Serial.println("[CYCLE] Done");
   debugLine();
@@ -216,8 +220,27 @@ void setup() {
       (wakeReason & BIT(ESP_SLEEP_WAKEUP_EXT0)) != 0;
 #endif
 
-  if (digitalRead(SETUP_BUTTON_PIN) == LOW || setupWake) {
-    Serial.println("[SETUP] Button wake/press detected; starting provisioning portal");
+  // A `start_provisioning` command that could not get a usable BLE scan last
+  // boot rebooted the hub and parked its request here. Consume it before the
+  // button checks below, so it is cleared even if something else opens the
+  // portal first, and open the portal from the same place a button press does:
+  // ahead of the first measurement cycle, where the discovery scan owns the
+  // NimBLE port lifetime.
+  const bool portalBoot = consumePortalBootRequest();
+  const bool setupPinDown = digitalRead(SETUP_BUTTON_PIN) == LOW;
+
+  if (portalBoot || setupPinDown || setupWake) {
+    Serial.println(portalBoot
+                       ? "[SETUP] Rebooted to serve a start_provisioning command; "
+                         "starting provisioning portal"
+                       : "[SETUP] Button wake/press detected; starting provisioning portal");
+    // A button still held here has done its job. Without this, the hold rolls
+    // straight into handleButton()'s long-press timer once loop() starts and
+    // factory-resets the hub ten seconds later — which is exactly what the
+    // "hold USER and wait for the next wake" flow would otherwise do on the
+    // XIAO ESP32-C6, where the button cannot wake the hub and holding is the
+    // only way to be noticed.
+    if (setupPinDown) markSetupButtonHandled();
     initSdCard();
     if (!i2cbus::begin()) {
       Serial.println("[SETUP] I2C bus unusable; portal scans will show no I2C devices");

@@ -6,6 +6,7 @@
 #include <SPI.h>
 #include <WiFi.h>
 #include <driver/gpio.h>
+#include <soc/soc_caps.h>
 #ifndef CONFIG_IDF_TARGET_ESP32C6
 #include <driver/rtc_io.h>
 #endif
@@ -182,21 +183,59 @@ void configureButtonWake() {
   if (!WAKE_BUTTON_FROM_DEEP_SLEEP) return;
 
 #ifdef CONFIG_IDF_TARGET_ESP32C6
-  // ESP32-C6 has no RTC GPIO subsystem. Any GPIO can wake from deep sleep via
-  // esp_deep_sleep_enable_gpio_wakeup(). gpio_hold_en() preserves the pull-up
-  // state across the sleep boundary (C6 does not power-cycle GPIOs in deep sleep).
+  // Deep-sleep GPIO wakeup on the ESP32-C6 is an RTC/LP-IO feature, NOT a
+  // "any GPIO" one: only the pins backed by an LP-IO pad — GPIO0..GPIO7, i.e.
+  // SOC_RTCIO_PIN_COUNT of them — can be armed as a wake source. Everything
+  // else stays powered down through deep sleep and cannot signal anything.
+  //
+  // That matters here because the on-board USER button this board uses for the
+  // setup button is GPIO9, which is NOT one of them, and because
+  // esp_deep_sleep_enable_gpio_wakeup() rejects the WHOLE mask with
+  // ESP_ERR_INVALID_ARG as soon as it meets a pin outside that range. Passing
+  // both buttons in one call therefore did not merely fail to arm GPIO9 — it
+  // took the perfectly wakeable inspection button on D2 down with it, and the
+  // unchecked return value meant nothing said so. Both buttons looked dead.
+  //
+  // So: filter the mask down to the pins the silicon can actually wake on, arm
+  // those, and say plainly which ones were dropped and why. A button that
+  // cannot wake the hub is a documented limitation (docs/inspection-mode.md);
+  // a button that silently disarms another one is a bug.
   gpio_pullup_en((gpio_num_t)SETUP_BUTTON_PIN);
   gpio_hold_en((gpio_num_t)SETUP_BUTTON_PIN);
-  // The external inspection button wakes the hub too, so a press at the hive
-  // stand takes effect immediately instead of at the next scheduled cycle. Both
-  // buttons are active-low and go into ONE call: a second
-  // esp_deep_sleep_enable_gpio_wakeup() may replace the mask rather than extend
-  // it, and a button that silently stopped waking the hub would present as
-  // "inspection mode only works sometimes". main.cpp tells the two apart on the
-  // way back up with esp_sleep_get_gpio_wakeup_status().
   inspection::prepareWakePin();
-  esp_deep_sleep_enable_gpio_wakeup((1ULL << SETUP_BUTTON_PIN) | inspection::wakePinMask(),
-                                    ESP_GPIO_WAKEUP_GPIO_LOW);
+
+  const uint64_t requestedWakeMask =
+      (1ULL << SETUP_BUTTON_PIN) | inspection::wakePinMask();
+  uint64_t armableWakeMask = 0;
+  uint64_t droppedWakeMask = 0;
+  for (int pin = 0; pin < GPIO_NUM_MAX; pin++) {
+    const uint64_t bit = 1ULL << pin;
+    if ((requestedWakeMask & bit) == 0) continue;
+    if (pin < SOC_RTCIO_PIN_COUNT) armableWakeMask |= bit;
+    else droppedWakeMask |= bit;
+  }
+
+  if (droppedWakeMask != 0) {
+    Serial.printf(
+        "[SLEEP] GPIO mask 0x%llX cannot wake this chip (only GPIO0-%d are "
+        "LP-IO pads); arming 0x%llX instead\n",
+        (unsigned long long)droppedWakeMask, SOC_RTCIO_PIN_COUNT - 1,
+        (unsigned long long)armableWakeMask);
+  }
+
+  // One call for every armable pin: a second esp_deep_sleep_enable_gpio_wakeup()
+  // may replace the mask rather than extend it. main.cpp tells the buttons apart
+  // on the way back up with esp_sleep_get_gpio_wakeup_status().
+  if (armableWakeMask != 0) {
+    esp_err_t err = esp_deep_sleep_enable_gpio_wakeup(armableWakeMask,
+                                                      ESP_GPIO_WAKEUP_GPIO_LOW);
+    if (err != ESP_OK) {
+      Serial.printf("[SLEEP] esp_deep_sleep_enable_gpio_wakeup(0x%llX) failed: %s\n",
+                    (unsigned long long)armableWakeMask, esp_err_to_name(err));
+    }
+  } else {
+    Serial.println("[SLEEP] No button can wake this board from deep sleep");
+  }
 #else
   // GPIO27 is an RTC-capable pin on ESP32. The RTC pull-up lets the existing
   // button-to-GND wiring wake the device without an external pull-up. For the

@@ -137,7 +137,20 @@ void scanPairedSensorsMulti(const std::vector<String>& macs,
 
 // Portal helper: scan for all nearby BLE devices so the user can pick which to
 // pair. HolyIot-looking devices are flagged. Used by the provisioning portal.
+//
+// Returns an EMPTY list — not a fault — when a scan cannot safely run in the
+// current NimBLE port lifetime (see ble_stack.h). An empty list therefore has
+// two very different meanings, and "no sensors nearby" is only one of them; ask
+// discoveryAvailable() BEFORE scanning to tell them apart.
 std::vector<Discovered> discover(uint32_t seconds);
+
+// True when discover() would actually run a scan right now. False once the
+// measurement scan has already claimed the NimBLEScan singleton in a port
+// lifetime that has since been torn down — the state every hub with a paired
+// sensor is in by the time an upload cycle ends. The portal checks this before
+// opening the AP: an "unavailable" answer is a reason to reboot into a clean
+// boot, never a reason to show an empty device list as if the air were quiet.
+bool discoveryAvailable();
 
 // Serialize a snapshot into the measurement JSON. Writes the new ble_{slot}_*
 // humidity/pressure/accel-raw/battery fields and mirrors the acceleration into

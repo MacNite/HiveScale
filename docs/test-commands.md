@@ -221,6 +221,23 @@ curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -d '{"command_type": "start_provisioning", "payload": {}}'
 ```
 
+On the serial monitor the hub should log, at the end of the cycle that picks the
+command up:
+
+```text
+[SETUP] Provisioning AP requested; rebooting first so the BLE discovery scan gets a NimBLE port lifetime it may scan in
+...
+[SETUP] Rebooted to serve a start_provisioning command; starting provisioning portal
+[SETUP] BLE discovery scan (Ns) for the sensor dropdowns
+[SETUP] BLE scan found N device(s)
+```
+
+A `[SETUP] BLE discovery unavailable in this boot` line instead means the portal
+opened without a usable scan and the pairing dropdowns will be empty — that is
+the 0.25.3 bug and should no longer happen. A hub with **no** sensor paired
+never ran a measurement scan, so it skips the reboot and logs
+`[SETUP] Provisioning AP requested by command; starting it now`.
+
 ```bash
 curl -X POST http://HOST:31115/api/v1/devices/DEVICE_ID/commands \
   -H "Content-Type: application/json" \

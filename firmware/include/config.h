@@ -762,21 +762,29 @@
 #define SD_MISO         20   // D9 (XIAO MISO label)
 #define SD_MOSI         18   // D10 (XIAO MOSI label)
 // Button map, as of firmware 0.25.0 (see docs/inspection-mode.md):
-//   GPIO9  — the XIAO's own BOOT/USER button. Short press starts the
-//            provisioning AP, long press factory-resets Preferences. It is only
-//            reached during installation and recovery, so it does not need to
-//            be brought out of the enclosure; everything a beekeeper does in
-//            the apiary is a `start_provisioning` command from the dashboard.
+//   GPIO9  — the XIAO's own BOOT/USER button. A press seen while the hub is
+//            awake starts the provisioning AP, a ten-second hold factory-resets
+//            Preferences. It is only reached during installation and recovery,
+//            so it does not need to be brought out of the enclosure; everything
+//            a beekeeper does in the apiary is a `start_provisioning` command
+//            from the dashboard.
 //   D2     — the external inspection button (see INSPECTION_BUTTON_PIN below).
 //            This pin used to be the setup button; the swap frees the one
 //            external, weatherproofable button for the thing a beekeeper
 //            actually presses at the hive stand.
-// Both are button-to-GND with INPUT_PULLUP, and both wake the hub from deep
-// sleep. GPIO9 is the ESP32-C6 boot-mode strapping pin: holding it down across
-// a hardware RESET or a power-up puts the chip in the serial bootloader (that
-// is what the button is for). Deep-sleep wake does not re-latch strapping, so a
-// press that wakes the hub runs the firmware as normal — but "press USER, then
-// press RESET" is a flash command, not an AP-mode command.
+// Both are button-to-GND with INPUT_PULLUP. Only D2 wakes the hub from deep
+// sleep: C6 deep-sleep GPIO wakeup is an LP-IO feature and only GPIO0..GPIO7
+// have that pad, so GPIO9 can never be armed as a wake source (an earlier
+// firmware passed it anyway, which made esp_deep_sleep_enable_gpio_wakeup()
+// reject the whole mask and silently disarmed D2 too — see
+// configureButtonWake()). GPIO9 is also the ESP32-C6 boot-mode strapping pin:
+// holding it down across a hardware RESET or a power-up puts the chip in the
+// serial bootloader, which is what the button is for — "press USER, then press
+// RESET" is a flash command, not an AP-mode command.
+//
+// So the USER button is only readable while the hub is awake, which is why
+// pollSetupButton() reads it throughout each wake cycle: hold it, and the AP
+// opens at the end of the next cycle. See docs/inspection-mode.md.
 #define SETUP_BUTTON_PIN 9   // on-board BOOT/USER button
 
 // External inspection button — momentary, button-to-GND, INPUT_PULLUP. Each
