@@ -274,7 +274,8 @@ names are fiction.
 > opened AP list **no BLE devices at all** on any hub that already had a sensor
 > paired: the AP came up, the radio was fine, and the scan simply never ran.
 >
-> Firmware **0.25.4** closes that: a `start_provisioning` command that would
+> Firmware **0.25.5** closes that (0.25.4 tried, but parked the request in a
+> `RTC_DATA_ATTR` variable the bootloader wipes on the way back up): a `start_provisioning` command that would
 > land in a spent port lifetime parks the request in RTC memory and reboots, so
 > the portal opens before the first measurement cycle — where the scan is
 > allowed — exactly as a button press does. Nothing is needed from the user
