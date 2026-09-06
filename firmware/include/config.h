@@ -782,9 +782,13 @@
 // serial bootloader, which is what the button is for — "press USER, then press
 // RESET" is a flash command, not an AP-mode command.
 //
-// So the USER button is only readable while the hub is awake, which is why
-// pollSetupButton() reads it throughout each wake cycle: hold it, and the AP
-// opens at the end of the next cycle. See docs/inspection-mode.md.
+// So the USER button is only readable while the hub is awake. It is read at the
+// top of setup() and, by pollSetupButton(), at four points inside each upload
+// cycle: a button held across a wake is caught by the first of those and opens
+// the AP immediately, skipping that cycle; a press that starts mid-cycle is
+// caught by one of the others and opens it when the cycle ends. Either way,
+// hold it — the in-cycle polls are seconds apart and a tap falls between them.
+// See docs/inspection-mode.md.
 #define SETUP_BUTTON_PIN 9   // on-board BOOT/USER button
 
 // External inspection button — momentary, button-to-GND, INPUT_PULLUP. Each
