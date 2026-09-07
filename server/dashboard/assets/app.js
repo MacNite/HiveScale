@@ -166,6 +166,33 @@ async function deleteDevice(deviceId, payload) {
   return res;
 }
 
+// Re-seed a device to HivePal from the admin panel: register the device_id and
+// claim code server-side, then make sure the hive picker knows about it. A
+// re-seed can create a device row that has never uploaded (one that was deleted
+// here as well as in the app), and only a refetched list can carry that device
+// into the picker.
+//
+// Deliberately repaints the picker chrome but NOT the content area: a full
+// render() replaces the very panel the result is being reported in, so the
+// admin would watch their "what happened" note vanish as they read it. The
+// exception is a server that had no active device at all — there the seeded
+// device becomes the active one and the empty state has to give way.
+async function reseedDevice(deviceId, payload) {
+  const res = await api.reseedDevice(deviceId, payload);
+  if ((state.devices || []).some((d) => d.device_id === deviceId)) return res;
+  const hadActive = !!state.activeDeviceId;
+  state.devices = await api.listDevices();
+  try { const r = await api.latest(deviceId, 1); state.deviceLatest[deviceId] = (r && r[0]) || null; }
+  catch (_) { state.deviceLatest[deviceId] = null; }
+  if (!state.selection.length) resetSelectionToFirstDevice();
+  normalizeActiveDevice();
+  renderPicker();
+  renderSelectionStrip();
+  renderActiveDeviceField();
+  if (!hadActive && state.activeDeviceId) await loadData();
+  return res;
+}
+
 // ── toast ────────────────────────────────────────────────────────────────────
 let toastTimer = null;
 function toast(msg, kind = "") {
@@ -402,6 +429,9 @@ function buildState() {
       // Erase a device outright (admin): drops it from state and repaints so the
       // picker cannot keep pointing at a device the server no longer has.
       deleteDevice: (deviceId, p) => deleteDevice(deviceId, p),
+      // Re-seed a device to HivePal (admin): re-register a device_id + claim
+      // code so a HiveHub removed in the app can be claimed again.
+      reseedDevice: (deviceId, p) => reseedDevice(deviceId, p),
       // Dashboard account management (auth API). User-management calls require
       // the admin role server-side.
       listUsers: () => auth.listUsers(),

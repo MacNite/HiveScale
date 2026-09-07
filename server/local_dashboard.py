@@ -111,6 +111,7 @@ from schemas import (
     DeviceDeleteIn,
     DeviceInspection,
     DeviceInspectionStatus,
+    DeviceReseedIn,
     DeviceVisibilityUpdateIn,
     InspectionStartIn,
     InspectionStopIn,
@@ -956,6 +957,106 @@ def local_delete_device(device_id: str, body: DeviceDeleteIn):
         "status": "deleted",
         "device_id": device_id,
         "measurements_deleted": measurements_deleted,
+    }
+
+
+@router.post(
+    "/api/v1/local/devices/{device_id}/reseed",
+    dependencies=LOCAL_DASHBOARD_ADMIN_DEP,
+)
+def local_reseed_device(device_id: str, body: DeviceReseedIn):
+    """Re-register a device under its claim code so HivePal can pair it (admin).
+
+    Does by hand exactly what a brand-new device's first upload does: create the
+    `devices` / `device_configs` rows and store the claim code (hash for
+    matching, normalized value so the dashboard can show it again), leaving the
+    device unclaimed and therefore claimable in HivePal.
+
+    Removing a HiveHub in HivePal only drops the pairing here, so re-entering the
+    claim code in the app normally brings it straight back. It is the cases
+    where this server no longer holds the code that were painful, and they are
+    not rare:
+
+      * the device was deleted on this server too, so there is no row to match;
+      * the row was recreated by an upload from firmware that had already
+        latched "claim registered" and stopped sending the code, leaving
+        `claim_code_hash` NULL;
+      * the device was re-flashed with a different claim code, which
+        `ensure_device_config` will not write over the stale one it already has.
+
+    All three end as "404 No unclaimed device found with that claim code" in the
+    app, with a factory reset or a trip to the setup portal as the only way out.
+    The submitted code therefore *replaces* whatever is on record rather than
+    filling in a gap — re-run it with the right code if a typo left the device
+    unclaimable (the firmware will not correct it by itself: the config
+    endpoint's `claim_code_required` recovery flag only fires while the stored
+    code is NULL).
+
+    A device that is still claimed by somebody is refused: it is already visible
+    in HivePal, and silently unclaiming it would take it away from its members
+    without them noticing. One left claimed by *nobody* — the pre-migration-022
+    orphan, and what a half-finished removal in the app leaves behind — is
+    released, since that state is exactly what blocks a re-claim.
+
+    Measurements, config, hive names and the device's API key are untouched, so
+    a device that is still running keeps uploading throughout and its history
+    survives the round trip.
+    """
+    # This is the one endpoint that creates a device row from a typed-in id, so
+    # it is also the only one where a blank or absurd id would leave junk behind.
+    if not device_id.strip() or len(device_id) > 128:
+        raise HTTPException(status_code=400, detail="device_id must be 1-128 characters")
+    code = body.claim_code.strip().upper()
+    claim_hash = hash_claim_code(code)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT claim_code_hash, claimed_at FROM devices WHERE device_id = %s;",
+                (device_id,),
+            )
+            row = cur.fetchone()
+            created = row is None
+            released = False
+            replaced_claim_code = bool(row and row[0] and row[0] != claim_hash)
+            if row is not None and row[1] is not None:
+                cur.execute(
+                    "SELECT count(*) FROM device_members WHERE device_id = %s;",
+                    (device_id,),
+                )
+                if cur.fetchone()[0] > 0:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "This device is still claimed in HivePal. Remove it "
+                            "in the app first (its owner can release it for "
+                            "everyone), then re-seed it."
+                        ),
+                    )
+                released = True
+            cur.execute(
+                """
+                INSERT INTO devices (device_id, claim_code_hash, claim_code)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (device_id) DO UPDATE
+                    SET claim_code_hash = EXCLUDED.claim_code_hash,
+                        claim_code = EXCLUDED.claim_code,
+                        claimed_at = NULL;
+                """,
+                (device_id, claim_hash, code),
+            )
+            cur.execute(
+                "INSERT INTO device_configs (device_id) VALUES (%s) "
+                "ON CONFLICT (device_id) DO NOTHING;",
+                (device_id,),
+            )
+            conn.commit()
+    return {
+        "status": "seeded",
+        "device_id": device_id,
+        "claim_code": code,
+        "created": created,
+        "released": released,
+        "replaced_claim_code": replaced_claim_code,
     }
 
 

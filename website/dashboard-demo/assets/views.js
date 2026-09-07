@@ -2581,8 +2581,8 @@ function renderDevice(root, state) {
   const adminCards = [accountCard(state), notificationsCard(state)];
   if (isAdmin) {
     adminCards.push(usersCard(state), visibleDevicesCard(state),
-                    downloadBackupCard(state), deleteMeasurementsCard(state),
-                    deleteDeviceCard(state));
+                    reseedDeviceCard(state), downloadBackupCard(state),
+                    deleteMeasurementsCard(state), deleteDeviceCard(state));
   }
 
   node.append(
@@ -2848,6 +2848,98 @@ function visibleDevicesCard(state) {
       "Its readings are kept and it can be shown again at any time. " +
       "To erase a device for good, use “Delete device” below."),
     listEl);
+}
+
+// "Re-seed to HivePal" (admin only): register a device_id + claim code the way
+// a brand-new device's first upload does, so a HiveHub that was removed in
+// HivePal can be claimed there again.
+//
+// Removing a device in the app normally just drops the pairing, and re-entering
+// the claim code brings it back. The painful cases are the ones where this
+// server no longer holds the code — the device was deleted here too, its row
+// was recreated by firmware that had already stopped sending the code, or it
+// was re-flashed with a new one — and they all surface in HivePal as "no
+// unclaimed device found with that claim code", with a factory reset or a trip
+// to the setup portal as the only way out. This is that way out (see
+// local_reseed_device).
+function reseedDeviceCard(state) {
+  const devices = state.devices || [];
+  // The claim code of the device on screen is already shown under Device &
+  // admin → Configuration, so pre-fill it for that device; any other device's
+  // code is typed in (it is printed on the device and shown in the setup portal).
+  const activeId = state.device?.device_id || null;
+  const activeCode = state.config?.claim_code || "";
+
+  const idInput = el("input", {
+    type: "text", autocomplete: "off", placeholder: "e.g. hive_scale_dual_01",
+    value: activeId || (devices[0] ? devices[0].device_id : ""),
+  });
+  const codeInput = el("input", {
+    type: "text", autocomplete: "off", placeholder: "e.g. ABCD-1234",
+    value: idInput.value && idInput.value === activeId ? activeCode : "",
+  });
+
+  // Convenience filler for the ID field — the field itself stays editable so a
+  // device this server no longer has can be seeded by typing its ID.
+  const select = el("select", {});
+  select.append(el("option", { value: "" }, "Pick a device…"));
+  for (const d of devices) {
+    select.append(el("option", { value: d.device_id },
+      d.display_name ? `${d.display_name} · ${d.device_id}` : d.device_id));
+  }
+  select.addEventListener("change", () => {
+    if (!select.value) return;
+    idInput.value = select.value;
+    codeInput.value = select.value === activeId ? activeCode : "";
+    select.value = "";
+  });
+
+  const out = el("p", { class: "note", hidden: true });
+  const btn = el("button", { class: "btn", type: "submit" }, "Re-seed to HivePal");
+  const form = el("form", {},
+    devices.length ? el("div", { class: "form-row" }, el("label", {}, "Device on this server"), select) : null,
+    el("div", { class: "form-row" }, el("label", {}, "Device ID"), idInput),
+    el("div", { class: "form-row" }, el("label", {}, "Claim code"), codeInput),
+    el("div", { class: "form-actions" }, btn),
+    out);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const deviceId = idInput.value.trim();
+    const claimCode = codeInput.value.trim();
+    if (!deviceId) { state.toast("Enter the device ID to re-seed", "error"); return; }
+    if (claimCode.length < 4) { state.toast("Enter the device's claim code", "error"); return; }
+    btn.disabled = true;
+    try {
+      const res = await state.actions.reseedDevice(deviceId, { claim_code: claimCode });
+      const code = res?.claim_code || claimCode.toUpperCase();
+      const notes = [
+        res?.created
+          ? `Seeded “${deviceId}” with claim code ${code}.`
+          : `Re-seeded “${deviceId}” with claim code ${code}.`,
+      ];
+      if (res?.released) notes.push("It was left claimed by nobody; that pairing has been cleared.");
+      if (res?.replaced_claim_code) notes.push("The claim code this server had on record was replaced.");
+      notes.push("In HivePal, add a device and enter the claim code.");
+      out.hidden = false;
+      out.textContent = notes.join(" ");
+      state.toast(`${deviceId} is claimable again`, "success");
+    } catch (err) { state.toast(err.message, "error"); }
+    finally { btn.disabled = false; }
+  });
+
+  return el("div", { class: "card" }, el("h2", {}, "Re-seed to HivePal"),
+    el("p", { class: "note" },
+      "Makes a HiveHub claimable in HivePal again after it was removed there — " +
+      "it registers the device ID and claim code exactly as a newly flashed " +
+      "device does on its first upload, instead of a factory reset or a trip to " +
+      "the setup portal. The claim code is the one shown under Configuration, " +
+      "printed on the device and offered in its setup portal."),
+    el("p", { class: "note" },
+      "Readings, configuration and hive names are kept, and a running device " +
+      "keeps uploading throughout. A device this server no longer has can be " +
+      "seeded by typing its ID. A device still claimed in HivePal is refused: " +
+      "remove it in the app first."),
+    form);
 }
 
 // "Delete device" (admin only): erase a device and everything belonging to it.

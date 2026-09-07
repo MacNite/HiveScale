@@ -775,7 +775,7 @@ All app endpoints require both `X-HivePal-Service-Key` and an `Authorization: Be
 
 ### `POST /api/v1/app/devices/claim`
 
-Claims an unclaimed device by claim code. The device must have sent at least one measurement containing that claim code.
+Claims an unclaimed device by claim code. The device must have sent at least one measurement containing that claim code — or have been re-seeded by hand from the local dashboard (**Device & admin → Admin → Re-seed to HivePal**, `POST /api/v1/local/devices/{device_id}/reseed`), which registers a device_id and claim code exactly as a first upload does.
 
 ```json
 {
@@ -790,7 +790,7 @@ Failure modes are reported separately, because they need different fixes:
 
 | Status | Meaning |
 |---|---|
-| `404` | No device on this server has ever sent that claim code. Check the code, and check the device has uploaded at least once. |
+| `404` | No device on this server has ever sent that claim code. Check the code, and check the device has uploaded at least once. A device whose row was deleted here, whose firmware stopped sending the code before the server had it, or that was re-flashed with a new code will keep answering `404` until it is re-seeded from the dashboard (see above). |
 | `409` | The code matches a device that is already claimed. If you are already a member it is in your device list; otherwise its owner must release it first (see below). |
 
 ### `GET /api/v1/app/devices`

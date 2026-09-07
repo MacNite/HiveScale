@@ -500,6 +500,7 @@ endpoints power the built-in `/dashboard` UI; see
 | `POST` | `/api/v1/local/devices/{id}/measurements/import` | Import an SD-card backup or a downloaded one (`.ndjson` / `.tar`, admin; `route_by_device=true` restores a multi-device backup) |
 | `POST` | `/api/v1/local/devices/{id}/measurements/delete` | Delete readings in a time range (admin + device claim code) |
 | `POST` | `/api/v1/local/devices/{id}/delete` | Erase a device and all of its rows (admin + device claim code + typed `confirm_device_id`; power the device down first or it re-registers) |
+| `POST` | `/api/v1/local/devices/{id}/reseed` | Re-register a device under a claim code so HivePal can claim it again (admin; creates the device row if it is gone, releases one left claimed by nobody, refuses one still claimed in the app) |
 | `GET`/`PATCH` | `/api/v1/local/devices/{id}/config` | Read / update device config (interval, scale offsets/factors, temp comp) |
 | `GET`/`PATCH` | `/api/v1/local/devices/{id}/channels` | Read / rename the hive display names |
 | `GET` | `/api/v1/local/devices/{id}/insights/summary` · `/history` | Highest-severity insight summary / persisted alert history |
@@ -561,6 +562,7 @@ The pairing is fully reversible, from either end:
 - **The device notices** on its next upload (firmware 0.24.9+): the server answers `"claimed": false`, the firmware drops its local "claim registered" latch, and the claim code starts flowing again automatically. No reflash, no factory reset.
 - **Re-submitting the claim code in the setup portal** also clears that latch (0.24.9+), which is how a device that latched under older firmware is brought back without a factory reset.
 - **Older firmware** (≤ 0.24.8) never clears the latch by itself, so a device that already stopped sending its claim code needs one of: the portal route above after an OTA to 0.24.9+, a `CLAIM_CODE_REVISION` bump plus re-flash, or a factory reset.
+- **Re-seeding from the dashboard** covers the cases where the server itself no longer holds the claim code and the app can only answer "no unclaimed device found": the device row was deleted here as well, the row was re-created by firmware that had already stopped sending the code, or the device was re-flashed with a new code that never replaced the stored one. **Device & admin → Admin → Re-seed to HivePal** (admin) takes the device ID and claim code and registers them exactly as a newly flashed device's first upload does, leaving the device unclaimed and claimable — no factory reset, no trip to the setup portal. It refuses a device that is still claimed in the app; remove it there first.
 - **Readings survive** an un-pair, so re-claiming restores the history. To erase a device for good, use the local dashboard's **Delete device** (admin + claim code + typed device ID).
 
 Databases that predate this behaviour may hold devices left claimed with no members — claimed by nobody, visible to nobody, and un-claimable. Run [`server/migrations/022_release_orphaned_devices.sql`](server/migrations/022_release_orphaned_devices.sql) once to release them; it only touches devices with zero members and changes no readings.
