@@ -61,6 +61,16 @@ export const api = {
       body: JSON.stringify(payload || {}),
     }),
 
+  // Re-seed a device to HivePal (admin): register the device_id + claim code
+  // the way a brand-new device's first upload does, so the app can claim it
+  // again — payload carries { claim_code }.
+  reseedDevice: (deviceId, payload) =>
+    req(`/devices/${encodeURIComponent(deviceId)}/reseed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    }),
+
   measurements: (deviceId, { start, end, limit } = {}) => {
     const q = new URLSearchParams();
     if (start) q.set("start_at", start);

@@ -347,6 +347,9 @@ function buildState() {
       setDeviceVisibility: (deviceId, hidden) => setDeviceVisibility(deviceId, hidden),
       // Delete a device's readings in a time range, authed by its claim code.
       deleteMeasurements: (deviceId, p) => api.deleteMeasurements(deviceId, p),
+      // Device lifecycle (erase / re-seed to HivePal): read-only in the demo.
+      deleteDevice: (deviceId, p) => api.deleteDevice(deviceId, p),
+      reseedDevice: (deviceId, p) => api.reseedDevice(deviceId, p),
       // Account management is auth-backed in the real dashboard; disabled here.
       listUsers: () => api.listUsers(),
       createUser: (u, p, r, email) => api.createUser(u, p, r, email),

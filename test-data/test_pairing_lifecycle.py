@@ -31,7 +31,7 @@ REQUIRE_DB = "--require-db" in sys.argv
 
 from fastapi import HTTPException  # noqa: E402
 
-from db import db_pool, get_conn, init_db  # noqa: E402
+from db import db_pool, get_conn, hash_claim_code, init_db  # noqa: E402
 
 try:
     db_pool.open()
@@ -47,7 +47,7 @@ except Exception as exc:  # pragma: no cover - environment dependent
 import app_api  # noqa: E402
 import local_dashboard  # noqa: E402
 from devices import ensure_device_config  # noqa: E402
-from schemas import ClaimDeviceIn, DeviceDeleteIn, ShareDeviceIn  # noqa: E402
+from schemas import ClaimDeviceIn, DeviceDeleteIn, DeviceReseedIn, ShareDeviceIn  # noqa: E402
 
 FAILURES = []
 MIGRATION = os.path.join(
@@ -99,6 +99,18 @@ def claimed_at(device_id):
 def upload(device_id="hive_01", code="ABCD-1234"):
     """One measurement upload. Returns what the device is told about its claim."""
     return ensure_device_config(device_id, code, "0.24.9", "k" * 32, touch_last_seen=True)
+
+
+def claim_code_hash(device_id):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT claim_code_hash FROM devices WHERE device_id = %s;", (device_id,))
+            row = cur.fetchone()
+            return row[0] if row else "NO ROW"
+
+
+def reseed(device_id, code):
+    return local_dashboard.local_reseed_device(device_id, DeviceReseedIn(claim_code=code))
 
 
 def run_migration():
@@ -239,6 +251,83 @@ with get_conn() as conn:
                       "device_configs", "device_members", "device_channels"):
             cur.execute(f"SELECT count(*) FROM {table} WHERE device_id = 'doomed';")
             check(f"{table} emptied", cur.fetchone()[0], 0)
+
+print("\n=== re-seed: a device deleted here as well is seeded from scratch ===")
+reset()
+# Nothing on this server at all — the row went with the device delete, so there
+# is nothing for the app's claim code to match.
+expect_http("nothing to claim beforehand",
+            lambda: app_api.claim_device(ClaimDeviceIn(claim_code="GONE-0001"), user_id="u1"), 404)
+result = reseed("gone", "gone-0001")
+check("reports a fresh seed", result["created"], True)
+check("claim code normalized", result["claim_code"], "GONE-0001")
+check("nothing was released", result["released"], False)
+check("device left unclaimed", claimed_at("gone"), None)
+check("claimable in the app now",
+      app_api.claim_device(ClaimDeviceIn(claim_code="GONE-0001"), user_id="u1")["status"],
+      "claimed")
+with get_conn() as conn:
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM device_configs WHERE device_id = 'gone';")
+        check("config row seeded too", cur.fetchone()[0], 1)
+
+print("\n=== re-seed: a row whose claim code was never uploaded ===")
+reset()
+# Firmware that latched "claim registered" re-creates the row on its next upload
+# without the code, so the device is online and still unclaimable.
+ensure_device_config("mute", None, "0.24.9", "k" * 32, touch_last_seen=True)
+check("no claim code on record", claim_code_hash("mute"), None)
+expect_http("app cannot find it",
+            lambda: app_api.claim_device(ClaimDeviceIn(claim_code="MUTE-0001"), user_id="u1"), 404)
+result = reseed("mute", "MUTE-0001")
+check("row was already there", result["created"], False)
+check("no stale code to replace", result["replaced_claim_code"], False)
+check("claimable in the app now",
+      app_api.claim_device(ClaimDeviceIn(claim_code="MUTE-0001"), user_id="u1")["status"],
+      "claimed")
+
+print("\n=== re-seed: a stale code from before a re-flash is replaced ===")
+reset()
+upload("reflashed", "OLD-0001")
+# ensure_device_config only ever fills an empty claim code slot, so the code the
+# re-flashed device now carries never reaches the row by itself.
+upload("reflashed", "NEW-0002")
+check("upload left the old code in place", claim_code_hash("reflashed"),
+      hash_claim_code("OLD-0001"))
+result = reseed("reflashed", "NEW-0002")
+check("replacement reported", result["replaced_claim_code"], True)
+expect_http("old code no longer claims it",
+            lambda: app_api.claim_device(ClaimDeviceIn(claim_code="OLD-0001"), user_id="u1"), 404)
+check("new code claims it",
+      app_api.claim_device(ClaimDeviceIn(claim_code="NEW-0002"), user_id="u1")["status"],
+      "claimed")
+
+print("\n=== re-seed: a device left claimed by nobody is released ===")
+reset()
+upload("orphan2", "ORPH-0002")
+app_api.claim_device(ClaimDeviceIn(claim_code="ORPH-0002"), user_id="u1")
+with get_conn() as conn:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM device_members WHERE device_id = 'orphan2';")
+        conn.commit()
+expect_http("orphan is unclaimable beforehand",
+            lambda: app_api.claim_device(ClaimDeviceIn(claim_code="ORPH-0002"), user_id="u2"), 409)
+result = reseed("orphan2", "ORPH-0002")
+check("release reported", result["released"], True)
+check("claimed_at cleared", claimed_at("orphan2"), None)
+check("claimable again",
+      app_api.claim_device(ClaimDeviceIn(claim_code="ORPH-0002"), user_id="u2")["status"],
+      "claimed")
+
+print("\n=== re-seed: a device still claimed in the app is refused ===")
+reset()
+upload("inuse", "USED-0001")
+app_api.claim_device(ClaimDeviceIn(claim_code="USED-0001"), user_id="owner")
+exc = expect_http("still-claimed device refused", lambda: reseed("inuse", "MINE-9999"), 409)
+check("message points at the app", "in the app" in (exc.detail if exc else ""), True)
+check("pairing untouched", claimed_at("inuse") is not None, True)
+check("claim code untouched", claim_code_hash("inuse"),
+      hash_claim_code("USED-0001"))
 
 reset()
 print()

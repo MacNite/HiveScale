@@ -818,6 +818,21 @@ class DeviceDeleteIn(BaseModel):
     confirm_device_id: str = Field(..., min_length=1, max_length=128)
 
 
+class DeviceReseedIn(BaseModel):
+    """Re-register a device under its claim code so HivePal can pair it again.
+
+    The counterpart to DeviceDeleteIn: where that erases a device, this puts one
+    back into the unclaimed pool. A device removed in HivePal is only claimable
+    again if this server still holds its claim code hash — which it does not
+    when the device row was deleted here as well, or when the row was recreated
+    by an upload from firmware that had already latched "claim registered" and
+    so no longer sends the code. Recovering from that meant a factory reset or a
+    trip to the setup portal; this carries the code the dashboard shows under
+    Configuration instead.
+    """
+    claim_code: str = Field(..., min_length=4, max_length=128)
+
+
 class DeviceChannelsUpdateIn(BaseModel):
     # Legacy two-channel fields, kept so the HivePal app endpoints keep working.
     scale_1_display_name: Optional[str] = None

@@ -260,6 +260,12 @@ export const api = {
   updateConfig: demoErr,
   updateChannels: demoErr,
   deleteMeasurements: demoErr,
+  // Device lifecycle: erasing a device and re-seeding one to HivePal both need a
+  // real server (and a real claim code), so they surface the read-only notice.
+  deleteDevice: () =>
+    Promise.reject(new Error("This is a read-only demo — deleting a device needs a HiveHub server.")),
+  reseedDevice: () =>
+    Promise.reject(new Error("This is a read-only demo — re-seeding a device to HivePal needs a HiveHub server.")),
   // account management is auth-backed in the real dashboard; disabled here
   createUser: demoErr,
   deleteUser: demoErr,

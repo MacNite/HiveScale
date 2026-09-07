@@ -107,6 +107,14 @@ Related settings (all optional, see `server/.env.example`):
   revoked at any time. The panel is only shown when the server has publishing
   enabled (`ENABLE_PUBLIC_EMBEDS`). See
   [../../docs/publish-embed.md](../../docs/publish-embed.md).
+- **Re-seed to HivePal (admin):** **Admin → Re-seed to HivePal** makes a HiveHub
+  claimable in the app again after it was removed there. It registers a device ID
+  and claim code exactly as a newly flashed device does on its first upload, which
+  is what recovers the cases the app can only report as "no unclaimed device found
+  with that claim code": the device row was deleted here too, it was re-created by
+  firmware that had already stopped sending its code, or the device was re-flashed
+  with a new code. Readings, configuration and hive names are kept and a running
+  device keeps uploading throughout; a device still claimed in the app is refused.
 - **Backup & restore (admin):** **Admin → Download / backup data** saves the
   selected readings (any devices, hives and period — everything by default) as an
   `.ndjson` file in the same format the scale writes to its SD card, and **Import
