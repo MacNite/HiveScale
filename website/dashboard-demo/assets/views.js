@@ -654,6 +654,162 @@ function latestCoalesce(measurements, keys) {
   return null;
 }
 
+// ── Last known sensor readings ───────────────────────────────────────────────
+// A snapshot card answers "what is this hive doing?", so it has to show the
+// newest value the sensor actually reported — not merely whatever landed in the
+// hub's newest upload. Connection-based sensors miss cycles: one failed GATT
+// connect and a HiveHeart's whole block drops out of that single upload
+// (firmware/src/beehive_gatt.cpp), taking the hive temperature and humidity it
+// is the last-resort source for with it (firmware/src/sensors.cpp). The card
+// then flashed to an em dash and back while the sensor was perfectly fine.
+//
+// Charts keep their gaps — a hole in a trace is a useful diagnostic — but the
+// cards read the history back, under three rules that keep them honest:
+//
+//   * Stop at an inspection. Readings taken with the hive open come back with
+//     their hive fields blanked on purpose (server/inspections.py); reaching
+//     past them would show a pre-inspection weight as if it were live, which is
+//     the very thing the "Inspection in progress" badge exists to deny.
+//   * Expire. A value is carried forward for a few upload cycles only. A sensor
+//     silent for longer is a fault, and a fault has to read as a dash rather
+//     than as a plausible number.
+//   * Show its age. Anything older than the newest upload is muted and tagged
+//     with its age, so a last known value can never pass for a live one. The
+//     tag always refers to the card's headline value.
+
+// Upload cycles a missing value may be carried forward for.
+const STALE_CYCLES = 3;
+// Bounds on that allowance. The floor keeps a hub on a fast test loop from
+// expiring a value almost immediately. The ceiling matters because a wide range
+// comes back down-sampled (server/local_dashboard.py thins to ~max_points),
+// which inflates the apparent cycle — without it, changing the range picker
+// could change how old a displayed value is allowed to be.
+const MIN_STALE_MS = 15 * 60000;
+const MAX_STALE_MS = 24 * 3600000;
+// Assumed cycle when the history is too short to measure one (a device with a
+// single reading so far).
+const DEFAULT_CYCLE_MS = 60 * 60000;
+
+function rowTime(m) {
+  const t = m && m.measured_at ? new Date(m.measured_at).getTime() : NaN;
+  return Number.isFinite(t) ? t : null;
+}
+
+// The device's observed upload interval: the median gap between its newest rows.
+// Median rather than mean so one long sleep, a reboot or a backfilled SD import
+// cannot stretch it.
+function uploadIntervalMs(measurements) {
+  const times = [];
+  for (const m of measurements || []) {
+    const t = rowTime(m);
+    if (t != null) times.push(t);
+    if (times.length >= 6) break;
+  }
+  const gaps = [];
+  for (let i = 1; i < times.length; i++) {
+    const gap = times[i - 1] - times[i];
+    if (gap > 0) gaps.push(gap);
+  }
+  if (!gaps.length) return DEFAULT_CYCLE_MS;
+  gaps.sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)];
+}
+
+// True when this row's hive fields were blanked by an inspection rather than
+// simply not reported. `inspection_hives` scopes a window to specific hives; an
+// absent or empty list means the whole device.
+function inspectionMasked(m, hive) {
+  if (!m || !m.inspection) return false;
+  const hives = m.inspection_hives;
+  if (!Array.isArray(hives) || !hives.length) return true;
+  return hives.some((h) => Number(h) === Number(hive));
+}
+
+// The newest reading for a ref, with `pick(row)` choosing the value out of each
+// row: the standalone latest reading first, then the loaded history newest →
+// oldest. Returns { value, at, stale } — `at` is the reading's own timestamp and
+// `stale` says it did not come from the newest upload — or null when nothing
+// reported it recently enough to still be meaningful.
+function refReadingBy(ref, pick) {
+  const rows = [ref.latest, ...(ref.measurements || [])].filter(Boolean);
+  if (!rows.length) return null;
+  const newest = rows.reduce((t, m) => Math.max(t, rowTime(m) ?? -Infinity), -Infinity);
+  const limit = Math.min(Math.max(STALE_CYCLES * uploadIntervalMs(ref.measurements), MIN_STALE_MS), MAX_STALE_MS);
+  for (const m of rows) {
+    const v = pick(m);
+    if (v != null) {
+      const at = rowTime(m);
+      if (at == null || !Number.isFinite(newest)) return { value: v, at: m.measured_at || null, stale: false };
+      if (newest - at > limit) return null;
+      return { value: v, at: m.measured_at || null, stale: at < newest };
+    }
+    // A blanked row is a deliberate silence, not a missed cycle: stop rather
+    // than reach around the inspection for an older value.
+    if (inspectionMasked(m, ref.hive)) return null;
+  }
+  return null;
+}
+
+// The newest reading for the first of `keys` a row carries (most specific first,
+// the way micKeys builds them).
+function refReading(ref, keyOrKeys) {
+  const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+  return refReadingBy(ref, (m) => {
+    for (const k of keys) if (m[k] != null) return m[k];
+    return null;
+  });
+}
+
+// Same, for weight: the column is decided per row, because the temperature-
+// compensated one exists only where compensation actually ran. The chosen `key`
+// comes back with the value so a card's 24h delta is computed on the same column
+// the card displays, instead of the two disagreeing.
+function refWeightReading(ref) {
+  let key = null;
+  const reading = refReadingBy(ref, (m) => {
+    key = weightKey(m, ref.hive);
+    return m[key];
+  });
+  return reading ? { ...reading, key } : null;
+}
+
+// A reading rendered as a card value: muted and tagged with its age when it is a
+// last known value rather than a live one.
+function readingValue(reading, digits) {
+  if (!reading) return DASH;
+  const text = fmt(reading.value, digits);
+  if (!reading.stale) return text;
+  return el("span", { class: "stale-value", title: `Last reported ${relAge(reading.at)}` }, text);
+}
+
+// The age note a stale reading adds to a card, or null when it is live (or
+// missing) so sub-lines stay exactly as they were in the normal case.
+function readingAge(reading) {
+  return reading && reading.stale ? relAge(reading.at) : null;
+}
+
+// A card's sub-line with the headline reading's age appended.
+function withAge(sub, reading) {
+  const age = readingAge(reading);
+  if (!age) return sub;
+  return sub ? `${sub} · ${age}` : age;
+}
+
+// The same for a per-hive card's shared footer, but only while a single hive is
+// on show: with several, each row carries its own age annotation and repeating
+// one in the shared footer would not say which hive it belongs to.
+function footerWithAge(refs, readings, footer) {
+  if (refs.length !== 1) return footer;
+  return withAge(footer, readings.get(refs[0].key));
+}
+
+// Join the optional annotations on a per-hive row — its 24h delta, the age of a
+// last known value — into the single small slot the row has for them.
+function joinBits(...bits) {
+  const kept = bits.filter(Boolean);
+  return kept.length ? kept.join(" · ") : null;
+}
+
 function seriesCoalesce(measurements, keys, label, color) {
   const merged = measurements.map((m) => {
     const copy = { measured_at: m.measured_at };
@@ -685,14 +841,20 @@ function signed(v, digits, unit) {
 function renderOverview(root, state) {
   const refs = selectedRefs(state);
   const m = state.latest || {};   // active device — for the device-level cards
+  // One reading per hive, resolved once: the tiles, the apiary total and the 24h
+  // deltas all have to agree on which column and which row they came from.
+  const weights = new Map(refs.map((ref) => [ref.key, refWeightReading(ref)]));
   let totalWeight = 0, anyWeight = false;
   for (const ref of refs) {
-    const v = ref.latest ? ref.latest[weightKey(ref.latest, ref.hive)] : null;
+    const v = weights.get(ref.key)?.value;
     if (isNum(v)) { totalWeight += v; anyWeight = true; }
   }
   // per-hive 24h weight deltas; total delta only when every hive has one, so a
-  // hive with a data gap can't silently skew the apiary-wide number
-  const deltas = new Map(refs.map((ref) => [ref.key, changeOver(ref.measurements, weightKey(ref.latest || {}, ref.hive), 24)]));
+  // hive with a data gap can't silently skew the apiary-wide number. Each delta
+  // reads the same column its tile shows — compensated where compensation ran,
+  // raw where it did not — so a number and its change can't disagree.
+  const deltas = new Map(refs.map((ref) =>
+    [ref.key, changeOver(ref.measurements, weights.get(ref.key)?.key || weightKey(ref.latest || {}, ref.hive), 24)]));
   const w24 = refs.length ? deltas.get(refs[0].key) : null;
   const total24 = refs.length && refs.every((ref) => deltas.get(ref.key) != null)
     ? refs.reduce((sum, ref) => sum + deltas.get(ref.key), 0)
@@ -703,27 +865,37 @@ function renderOverview(root, state) {
   const sevBadge = el("span", { class: `badge ${sevClass(sev)}` },
     el("span", { class: `dot ${sevClass(sev)}` }), sev ? sev : "OK");
 
-  const hiveTemp = (ref) => (ref.latest ? fmt(ref.latest[`hive_${ref.hive}_temp_c`], 1) : DASH);
-  const hiveHum = (ref) => (ref.latest ? fmt(ref.latest[`hive_${ref.hive}_humidity_percent`], 0) : DASH);
+  const temps = new Map(refs.map((ref) => [ref.key, refReading(ref, `hive_${ref.hive}_temp_c`)]));
+  const hums = new Map(refs.map((ref) => [ref.key, refReading(ref, `hive_${ref.hive}_humidity_percent`)]));
+  const hiveTemp = (ref) => readingValue(temps.get(ref.key), 1);
+  const hiveHum = (ref) => readingValue(hums.get(ref.key), 0);
   const cards = [
     refs.length > 1
       ? perHiveCard(state, "Weight", refs, "kg",
-          (ref) => (ref.latest ? fmt(ref.latest[weightKey(ref.latest, ref.hive)], 2) : DASH),
+          (ref) => readingValue(weights.get(ref.key), 2),
           anyWeight
             ? `Total ${fmt(totalWeight, 2)} kg${total24 != null ? ` · 24h ${signed(total24, 2, "kg")}` : ""}`
             : "Total of active scales",
-          (ref) => (deltas.get(ref.key) != null ? signed(deltas.get(ref.key), 2) : null))
-      : metricCard("Weight", anyWeight ? fmt(totalWeight, 2) : DASH, "kg",
+          (ref) => joinBits(deltas.get(ref.key) != null ? signed(deltas.get(ref.key), 2) : null,
+                            readingAge(weights.get(ref.key))))
+      : metricCard("Weight", refs.length ? readingValue(weights.get(refs[0].key), 2) : DASH, "kg",
           refs.length === 0
             ? "No hives selected"
-            : w24 != null ? `24h ${signed(w24, 2, "kg")}` : "Total of active scales"),
+            : footerWithAge(refs, weights, w24 != null ? `24h ${signed(w24, 2, "kg")}` : "Total of active scales")),
     perHiveCard(state, "Hive temperature", refs, "°C", hiveTemp,
-      isNum(m.ambient_temp_c) ? `Ambient ${fmt(m.ambient_temp_c, 1)} °C${state.multiDevice ? ` (${state.device?.display_name || state.device?.device_id})` : ""}` : "Brood zone"),
+      footerWithAge(refs, temps,
+        isNum(m.ambient_temp_c) ? `Ambient ${fmt(m.ambient_temp_c, 1)} °C${state.multiDevice ? ` (${state.device?.display_name || state.device?.device_id})` : ""}` : "Brood zone"),
+      (ref) => readingAge(temps.get(ref.key))),
     refs.length > 1
       ? perHiveCard(state, "In-hive humidity", refs, "%", hiveHum,
-          isNum(m.ambient_humidity_percent) ? `Ambient ${fmt(m.ambient_humidity_percent, 1)} %` : "Brood area")
+          isNum(m.ambient_humidity_percent) ? `Ambient ${fmt(m.ambient_humidity_percent, 1)} %` : "Brood area",
+          (ref) => readingAge(hums.get(ref.key)))
+      // The in-hive figure follows the selected hive rather than a hard-coded
+      // hive 1, so watching hive 5 alone no longer reports hive 1's humidity.
       : metricCard("Humidity", fmt(m.ambient_humidity_percent, 1), "%",
-          isNum(m.hive_1_humidity_percent) ? `In-hive ${fmt(m.hive_1_humidity_percent, 0)} %` : "Ambient"),
+          refs.length && isNum(hums.get(refs[0].key)?.value)
+            ? withAge(`In-hive ${fmt(hums.get(refs[0].key).value, 0)} %`, hums.get(refs[0].key))
+            : "Ambient"),
     metricCard("Battery", isNum(m.battery_soc_percent) ? fmt(m.battery_soc_percent, 0) : DASH, "%",
       isNum(m.battery_voltage) ? `${fmt(m.battery_voltage, 2)} V` : "State of charge"),
     metricCard("Signal", fmt(m.rssi_dbm, 0), "dBm",
@@ -794,10 +966,10 @@ function renderTemperature(root, state) {
   const refs = selectedRefs(state);
   const m = state.latest || {};   // active device (for the ambient reference)
   const cards = refs.map((ref) => {
-    const t = ref.latest ? ref.latest[`hive_${ref.hive}_temp_c`] : null;
-    const h = ref.latest ? ref.latest[`hive_${ref.hive}_humidity_percent`] : null;
-    return metricCard(`${refLabel(state, ref)} temp`, fmt(t, 1), "°C",
-      isNum(h) ? `Humidity ${fmt(h, 0)} %` : "In-hive");
+    const t = refReading(ref, `hive_${ref.hive}_temp_c`);
+    const h = refReading(ref, `hive_${ref.hive}_humidity_percent`);
+    return metricCard(`${refLabel(state, ref)} temp`, readingValue(t, 1), "°C",
+      withAge(isNum(h?.value) ? `Humidity ${fmt(h.value, 0)} %` : "In-hive", t));
   });
   cards.push(metricCard("Ambient", fmt(m.ambient_temp_c, 1), "°C",
     state.multiDevice ? `${state.device?.display_name || state.device?.device_id}` : "Outside the hive"));
@@ -817,10 +989,11 @@ function renderTemperature(root, state) {
 function renderWeight(root, state) {
   const refs = selectedRefs(state);
   const cards = refs.map((ref) => {
-    const key = weightKey(ref.latest || {}, ref.hive);
-    const c24 = changeOver(ref.measurements, key, 24);
-    return metricCard(`${refLabel(state, ref)} weight`, fmt(ref.latest ? ref.latest[key] : null, 2), "kg",
-      c24 != null ? `24h ${signed(c24, 2, "kg")}` : "Compensated");
+    const w = refWeightReading(ref);
+    // Delta on the same column the card shows (see renderOverview).
+    const c24 = changeOver(ref.measurements, w?.key || weightKey(ref.latest || {}, ref.hive), 24);
+    return metricCard(`${refLabel(state, ref)} weight`, readingValue(w, 2), "kg",
+      withAge(c24 != null ? `24h ${signed(c24, 2, "kg")}` : "Compensated", w));
   });
   const series = refs.map((ref, i) =>
     seriesFrom(ref.measurements, weightKey(ref.latest || {}, ref.hive), refLabel(state, ref), paletteColor(i)));
@@ -838,11 +1011,14 @@ function renderEnvironment(root, state) {
   const refs = selectedRefs(state);
   const m = state.latest || {};   // active device — ambient humidity + pressure
   const pressureKeys = ["ble_1_pressure_hpa", "ble_2_pressure_hpa", "hivescale_1_pressure_hpa", "hivescale_2_pressure_hpa"];
+  const hums = new Map(refs.map((ref) => [ref.key, refReading(ref, `hive_${ref.hive}_humidity_percent`)]));
   const cards = [
     metricCard("Ambient humidity", fmt(m.ambient_humidity_percent, 1), "%",
       state.multiDevice ? `${state.device?.display_name || state.device?.device_id}` : "Outside the hive"),
     perHiveCard(state, "In-hive humidity", refs, "%",
-      (ref) => fmt(ref.latest ? ref.latest[`hive_${ref.hive}_humidity_percent`] : null, 1), "Brood area"),
+      (ref) => readingValue(hums.get(ref.key), 1),
+      footerWithAge(refs, hums, "Brood area"),
+      (ref) => readingAge(hums.get(ref.key))),
     metricCard("Pressure", fmt(latestCoalesce([m], pressureKeys), 0), "hPa", "Barometric"),
   ];
   const charts = [
@@ -879,10 +1055,10 @@ function renderAudio(root, state) {
   const m = state.latest || {};   // active device — for the sample-rate card
   const refs = selectedRefs(state);
   const cards = refs.map((ref) => {
-    const rms = ref.latest ? latestCoalesce([ref.latest], micKeys(ref.hive, "rms_dbfs")) : null;
-    const peak = ref.latest ? latestCoalesce([ref.latest], micKeys(ref.hive, "peak_dbfs")) : null;
-    return metricCard(`${refLabel(state, ref)} RMS`, fmt(rms, 1), "dBFS",
-      isNum(peak) ? `Peak ${fmt(peak, 1)}` : "Sound level");
+    const rms = refReading(ref, micKeys(ref.hive, "rms_dbfs"));
+    const peak = refReading(ref, micKeys(ref.hive, "peak_dbfs"));
+    return metricCard(`${refLabel(state, ref)} RMS`, readingValue(rms, 1), "dBFS",
+      withAge(isNum(peak?.value) ? `Peak ${fmt(peak.value, 1)}` : "Sound level", rms));
   });
   cards.push(metricCard("Sample rate", fmtInt(m.mic_sample_rate_hz), "Hz",
     isNum(m.mic_sample_frames) ? `${fmtInt(m.mic_sample_frames)} frames` : "Microphone"));
@@ -1012,13 +1188,12 @@ function hiveheartSemanticSpans() {
 // the independent frequency_hz value, drawn as a marker on the spectrum.
 function latestHiveheartFreq(ref) {
   const key = `hiveheart_${ref.hive}_frequency_hz`;
-  const rows = ref.latest ? [ref.latest, ...ref.measurements] : ref.measurements;
-  for (const m of rows) {
-    if (m == null || m[key] == null || m[key] === "") continue;
+  const reading = refReadingBy(ref, (m) => {
+    if (m[key] == null || m[key] === "") return null;
     const y = Number(m[key]);
-    if (Number.isFinite(y)) return y;
-  }
-  return null;
+    return Number.isFinite(y) ? y : null;
+  });
+  return reading ? reading.value : null;
 }
 
 // Coerce a measurement's decoded HiveHeart fft_bins into a 16-number array, or

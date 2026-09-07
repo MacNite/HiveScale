@@ -351,6 +351,12 @@ select:disabled { opacity: .7; cursor: not-allowed; }
 .metric .unit { font-size: 1rem; font-weight: 600; color: var(--ink-soft); }
 .metric .sub { font-size: .8rem; color: var(--ink-soft); }
 
+/* A last known reading: the sensor missed the newest upload but reported this
+   value recently enough for it to still mean something. Muted so it never reads
+   as a live number — the card's sub-line carries its age, so the signal is not
+   colour alone. */
+.stale-value { color: var(--ink-soft); font-weight: 700; }
+
 /* Per-hive breakdown inside a metric panel: one compact, name-tagged row per
    hive so several selected hives stay visible (and identifiable) at once. */
 .metric .hive-rows { display: flex; flex-direction: column; gap: .15rem; margin: .1rem 0 .1rem; }
