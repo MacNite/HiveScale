@@ -30,6 +30,12 @@ set — a failed on-board sensor is reported as *absent*, never as `0.0`):
 A [sample frame + reference decoder](../test-data/hiveinside_nrf54_beacon.py)
 lives in `test-data/` (`python3 hiveinside_nrf54_beacon.py`).
 
+Beyond the beacon, a HiveInside is the only device on a hub with a microphone
+you can actually listen to: node firmware 0.6.2+ and hub firmware 0.30.0+ can
+record 10–60 seconds from inside the hive on request and relay it here. That is
+a connected, authenticated session rather than a passive scan, so it is covered
+separately in [Listening to a hive](audio-recording.md).
+
 ---
 
 ## Pairing

@@ -10,6 +10,7 @@ This guide covers deploying the HiveHub backend on any Linux system with Docker 
 - [Docker Engine](https://docs.docker.com/engine/install/) ≥ 24
 - [Docker Compose](https://docs.docker.com/compose/install/) ≥ 2 (usually bundled as `docker compose`)
 - A directory for persistent database storage (e.g. `/opt/hivescale/db`)
+- If you use [hive audio](audio-recording.md), a directory for recordings (e.g. `/opt/hivescale/recordings`) — roughly 1.9 MB per recorded minute, kept until you delete it
 
 ---
 
@@ -18,6 +19,7 @@ This guide covers deploying the HiveHub backend on any Linux system with Docker 
 ```bash
 sudo mkdir -p /opt/hivescale/db
 sudo mkdir -p /opt/hivescale/firmware   # optional: for OTA binary hosting
+sudo mkdir -p /opt/hivescale/recordings # optional: for hive audio recordings
 ```
 
 ---
@@ -93,6 +95,7 @@ services:
       DATABASE_URL: postgresql://hivescale:${POSTGRES_PASSWORD}@hivescale-db:5432/hivescale
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       FIRMWARE_DIR: /app/firmware
+      RECORDINGS_DIR: /app/recordings
       TZ: ${TZ}
       # Abuse/DoS protection (optional — defaults applied if omitted)
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
@@ -109,6 +112,11 @@ services:
       - "127.0.0.1:31115:8000"
     volumes:
       - /opt/hivescale/firmware:/app/firmware
+      # Hive audio. Recordings are files on disk, and the database rows that
+      # describe them survive a container recreation — so without this mount a
+      # redeploy leaves a list of sessions whose audio is gone. There is no
+      # retention sweep either: budget ~1.9 MB per minute of recording.
+      - /opt/hivescale/recordings:/app/recordings
     restart: unless-stopped
 
   hivescale-db:

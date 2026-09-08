@@ -1,21 +1,32 @@
 # Listening to a hive
 
-*Firmware **0.30.0** · server **0.5.0** · HiveInside **0.6.0** · issue [#71](https://github.com/MacNite/HiveInside/issues/71)*
+*Firmware **0.30.0** · server **0.5.1** · HiveInside **0.6.2** · issue [#71](https://github.com/MacNite/HiveInside/issues/71)*
 
-A HiveInside node (firmware 0.6.0 or later) can be asked to record from inside
+A HiveInside node can be asked to record from inside
 the hive. The hub relays the audio to the backend as it is captured, and the
 dashboard plays it back when it arrives.
 
 ```
 HiveInside                    HiveHub                     backend        browser
 PDM mic → PCM16 → 32 KiB ring → BLE notify → 32 KiB ring → chunked POST → PCM/WAV
-   16 kHz, 32 kB/s              137 kB/s measured          raw on disk    live or <audio>
+   16 kHz, 32 kB/s              137 kB/s measured          raw on disk    <audio>
 ```
+
+> **Use HiveInside 0.6.2 or later.** The protocol works on 0.6.0 and 0.6.1, but
+> a measurement cycle could drop the microphone's power rail underneath a
+> running session: those builds return a full-length recording whose first ~50 ms
+> carry sound and whose remainder is the noise floor of an unpowered mic. Nothing
+> flags it — the byte count and checksum are perfect, because every byte the node
+> sent did arrive. If a recording plays for a moment and then goes silent, check
+> the node's version before anything else. HiveInside's
+> `docs/audio-over-ble.md` has the mechanism.
 
 This is the firmware-over-BLE relay in reverse, and deliberately so: the same
 locate-scan, the same NimBLE client shape, the same crash-safe command
-reporting. See [`ota-over-ble.md`](ota-over-ble.md) for the other direction and
-HiveInside's `docs/audio-over-ble.md` for the wire protocol.
+reporting. See [the OTA relay](hiveinside-ble-sensor.md#firmware-updates-ota-relay)
+for the other direction, and HiveInside's
+[`docs/audio-over-ble.md`](https://github.com/MacNite/HiveInside/blob/main/docs/audio-over-ble.md)
+for the wire protocol.
 
 ## Why raw PCM, and why streaming
 
@@ -93,7 +104,7 @@ that any BLE device in range can switch on.
 ### 4. Flash both
 
 HiveHub with `HIVEINSIDE_AUDIO_ENABLED` (default on wherever `ENABLE_BLE_SCAN`
-is), HiveInside with 0.6.0 or later.
+is), HiveInside with 0.6.2 or later.
 
 > **`FORCE_RESEED` is not needed.** That flag only re-seeds the *claim code*
 > from `secrets.h` into NVS preferences (see `device_prefs.cpp`). The audio key
@@ -124,9 +135,16 @@ seconds), press **Record**. Then the part that surprises people:
 > not seconds. The panel says "Waiting for the hub to wake" for exactly this
 > reason.
 
-The panel then follows the request through its three states — *waiting for the
-hub*, *the hive is being recorded*, and done — and the finished audio appears in
-the dropdown below, newest first, playing as an ordinary WAV.
+The panel is split: the request controls sit in the left rail above the list of
+sessions, newest first, and selecting one fills the right-hand side with its
+player, its quality figures and a download button. A request follows its three
+states in place — *waiting for the hub*, *being recorded*, done — and the
+finished audio plays as an ordinary WAV.
+
+The coloured dot beside each session is the same verdict the *Checksum* figure
+spells out (see [How sure we are](#how-sure-we-are-confirmation)); the figures
+are shown for every recording, not just broken ones, because a spliced recording
+sounds perfectly continuous.
 
 Only hives with a HiveInside are offered. Nothing else on a hub has a
 microphone, and a request against a HolyIot or RuuviTag could only fail a wake
