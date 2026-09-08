@@ -14,11 +14,29 @@ recording as complete would produce a confident, wrong acoustic judgement and
 leave no trace of why.
 """
 
+import os
 import struct
 import sys
 from datetime import datetime, timezone
 
-from recordings import SAMPLE_RATE, _path_for, _row_to_dict, wav_header
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
+
+# recordings.py pulls in auth -> config, which reads these at import time. No
+# database, network or disk is touched: everything checked below is a pure
+# function of its arguments. RECORDINGS_DIR is pinned too, so the path
+# assertions describe the code rather than whatever the deployment default
+# happens to be.
+os.environ.setdefault("DATABASE_URL", "postgresql://localhost/test")
+os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
+os.environ.setdefault("RECORDINGS_DIR", "/tmp/hivehub-test-recordings")
+
+from recordings import (  # noqa: E402
+    SAMPLE_RATE,
+    _path_for,
+    _row_to_dict,
+    wav_header,
+)
 
 NOW = datetime(2026, 9, 8, 14, 3, tzinfo=timezone.utc)
 
