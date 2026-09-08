@@ -197,12 +197,12 @@ const DEMO_RECORDINGS = [
   {
     id: 9001, file: "hive-clean.mp3", hive_index: 1, minutesAgo: 42,
     seconds: 12.0, dropped_bytes: 0, gaps: 0, clipped_pct: 1, complete: true,
-    crc_ok: true, requested_by: "demo",
+    crc_ok: true, confirmation: "verified", requested_by: "demo",
   },
   {
     id: 9002, file: "hive-incomplete.mp3", hive_index: 1, minutesAgo: 190,
     seconds: 9.4, dropped_bytes: 3840, gaps: 2, clipped_pct: 7, complete: false,
-    crc_ok: false, requested_by: "demo",
+    crc_ok: false, confirmation: "reported", requested_by: "demo",
   },
 ];
 
@@ -231,8 +231,8 @@ function recordingRow(r) {
     requested_duration_s: 0, gain_db: 0, sample_rate: AUDIO_RATE,
     bytes: Math.round(r.seconds * AUDIO_RATE * 2), seconds: r.seconds,
     dropped_bytes: r.dropped_bytes, gaps: r.gaps, clipped_pct: r.clipped_pct,
-    complete: r.complete, crc_ok: r.crc_ok, error: null,
-    requested_by: r.requested_by,
+    complete: r.complete, crc_ok: r.crc_ok, confirmation: r.confirmation,
+    error: null, hub_message: null, requested_by: r.requested_by,
   };
 }
 
@@ -261,7 +261,8 @@ function pendingRow() {
     bytes: ready ? Math.round(pending.durationS * AUDIO_RATE * 2) : 0,
     seconds: ready ? pending.durationS : 0,
     dropped_bytes: 0, gaps: 0, clipped_pct: 0,
-    complete: ready, crc_ok: ready, error: null, requested_by: "demo",
+    complete: ready, crc_ok: ready, confirmation: ready ? "verified" : "unknown",
+    error: null, hub_message: null, requested_by: "demo",
   };
 }
 

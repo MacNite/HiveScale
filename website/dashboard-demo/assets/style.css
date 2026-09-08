@@ -261,6 +261,7 @@ select:disabled { opacity: .7; cursor: not-allowed; }
   padding: .55rem 1rem; border-radius: 999px; font-weight: 700; font-size: .9rem;
   cursor: pointer; border: 1px solid transparent; background: var(--honey); color: var(--on-accent);
   transition: background .15s ease, box-shadow .15s ease, transform .05s ease;
+  text-decoration: none;  /* a download link styled as a button is still a link */
 }
 .btn:hover { background: var(--honey-dark); box-shadow: var(--shadow); }
 .btn:active { transform: translateY(1px); }
@@ -600,17 +601,56 @@ select:focus-visible, input:focus-visible, canvas:focus-visible {
   padding: .4rem .55rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
 }
 
-/* ── Hive audio player (issue #71) ────────────────────────────────────────
-   The <audio> element is the browser's own control strip; it only needs to fill
-   the card and pick up the card's rhythm. The session <select> above it can be
-   long ("2026-09-08 14:03 · hive 2 · 58.4s"), so it wraps rather than clipping
-   a timestamp somebody is trying to identify a recording by. */
-.card > audio {
-  width: 100%;
-  margin-top: 0.75rem;
-  display: block;
-}
 
-.card > select.full + audio {
-  margin-top: 0.5rem;
+/* ── Hive audio panel: split layout ───────────────────────────────────────
+   Requesting a recording and listening to one are two different jobs, and they
+   were fighting over the same narrow column: the player, the quality figures
+   and the buttons all stacked under a dropdown, so the thing you actually came
+   to inspect got the least room. Splitting them gives the request controls a
+   fixed rail on the left and hands the whole remaining width to whichever
+   recording is selected. Below 760px the grid collapses to one column and the
+   rail becomes a header — the rail is 260px of dropdowns, which is exactly the
+   width a phone does not have to spare. */
+.audio-split { display: grid; grid-template-columns: 260px 1fr; gap: 1.1rem; }
+.audio-side { border-right: 1px solid var(--line); padding-right: 1.1rem; }
+@media (max-width: 760px) {
+  .audio-split { grid-template-columns: 1fr; }
+  .audio-side { border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 1rem; }
 }
+.audio-field { margin-bottom: .7rem; }
+.audio-field label {
+  display: block; font-size: .78rem; font-weight: 700;
+  color: var(--ink-soft); margin-bottom: .2rem;
+}
+.audio-field select { width: 100%; }
+.audio-side .btn { width: 100%; justify-content: center; }
+
+/* The recording list. Capped in height and scrolled rather than allowed to
+   grow: recordings are never deleted automatically, so this list only ever
+   gets longer, and an unbounded one would push the player off the screen. */
+.audio-pick { list-style: none; margin: .8rem 0 0; padding: 0; max-height: 190px; overflow: auto; }
+.audio-pick li {
+  padding: .42rem .55rem; border-radius: 8px; cursor: pointer;
+  display: flex; gap: .5rem; align-items: center; font-size: .87rem;
+}
+.audio-pick li:hover { background: var(--bg); }
+.audio-pick li.sel { background: var(--comb); font-weight: 600; }
+.audio-pick .pick-when { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.audio-pick .pick-len { color: var(--ink-faint); font-size: .8rem; font-variant-numeric: tabular-nums; }
+
+.audio-detail h4 { margin: 0 0 .1rem; font-size: 1rem; }
+.audio-detail > audio { width: 100%; margin: .6rem 0 0; display: block; }
+
+/* Quality figures. A spliced recording sounds continuous, so these are shown
+   for every recording rather than only when something is wrong — you cannot
+   tell by listening, and the absence of a warning is easy to miss. */
+.audio-qual {
+  display: flex; gap: 1.2rem; flex-wrap: wrap;
+  font-size: .83rem; color: var(--ink-soft); margin: .8rem 0 0;
+}
+.audio-qual b {
+  display: block; font-size: .95rem; color: var(--ink);
+  font-variant-numeric: tabular-nums; font-weight: 700;
+}
+.audio-qual b.good { color: var(--good); }
+.audio-qual b.warn { color: var(--warn); }

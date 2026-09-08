@@ -93,26 +93,42 @@ def _path_for(device_id: str, recording_id: int) -> Path:
 def _row_to_dict(r) -> dict:
     """One recording row as the API presents it.
 
-    `complete` is computed rather than stored: it is the single question a
-    listener actually has — is what I am about to hear the whole thing? — and it
-    depends on three separate columns agreeing.
+    `confirmation` is the honest answer to the only question a listener really
+    has — can I trust what I am about to hear? Three states, because there are
+    genuinely three:
+
+      "verified"  the hub sent its detailed report and the checksum matched
+      "reported"  the detailed report arrived but the checksum did not match,
+                  or the hub sent no checksum at all
+      "confirmed" the hub reported the session succeeded, but the detailed
+                  report never arrived, so nothing verified the bytes
+      "unknown"   nothing came back at all; the audio is whatever landed
+
+    Collapsing the middle case into either neighbour is what made this panel
+    shout at a recording that was almost certainly fine.
     """
     (rec_id, device_id, hive_index, status, requested_at, started_at,
      completed_at, duration_ds, gain_db, sample_rate, num_bytes, crc32,
      device_bytes, device_crc32, dropped_bytes, gaps, clipped_pct, error,
-     requested_by) = r
+     requested_by, command_status, command_message) = r
     seconds = (num_bytes or 0) / float(sample_rate * BYTES_PER_SAMPLE) if sample_rate else 0.0
-    # "Complete" is a claim about the whole session, so it needs the hub's own
-    # account of it — device_bytes is NULL exactly when /finalize never arrived.
-    # Without that report the audio may be perfectly fine and may equally be
-    # missing its last ten seconds, and there is no way to tell from here.
-    # Saying so is the difference between an honest gap and a quiet lie.
+    both_crcs = crc32 is not None and device_crc32 is not None
+    crc_ok = both_crcs and crc32 == device_crc32
+    crc_mismatch = both_crcs and crc32 != device_crc32
+    if device_bytes is not None:
+        confirmation = "verified" if crc_ok else "reported"
+    elif command_status == "done":
+        confirmation = "confirmed"
+    else:
+        confirmation = "unknown"
+    # Absent checksums are not evidence of damage — older hubs simply do not
+    # send them — so only a checksum that actually disagrees breaks `complete`.
     complete = (
         status == "ready"
-        and device_bytes is not None
+        and confirmation != "unknown"
+        and not crc_mismatch
         and not dropped_bytes
         and not gaps
-        and (device_crc32 is None or crc32 is None or device_crc32 == crc32)
     )
     return {
         "id": rec_id,
@@ -131,19 +147,31 @@ def _row_to_dict(r) -> dict:
         "gaps": gaps,
         "clipped_pct": clipped_pct,
         "complete": complete,
-        "crc_ok": (crc32 is not None and device_crc32 is not None
-                   and crc32 == device_crc32),
+        "crc_ok": crc_ok,
+        "confirmation": confirmation,
+        # What the hub itself said about the session. Worth surfacing verbatim:
+        # when something goes wrong it is usually more specific than anything
+        # this side can infer.
+        "hub_message": command_message,
         "error": error,
         "requested_by": requested_by,
     }
 
 
+# The command row is joined in because it is a second, independent account of
+# how a session went — and a more reliable one. /finalize is a single
+# fire-and-forget POST that a reset or a lost packet takes with it, while the
+# command result has retries, a stale sweep and a crash-safe marker behind it.
+# Reading both means a recording can say "the hub confirmed this" even when the
+# detailed report never arrived, instead of implying the audio is suspect.
 _SELECT = """
-    SELECT id, device_id, hive_index, status, requested_at, started_at,
-           completed_at, duration_ds, gain_db, sample_rate, bytes, crc32,
-           device_bytes, device_crc32, dropped_bytes, gaps, clipped_pct, error,
-           requested_by
-    FROM hive_recordings
+    SELECT r.id, r.device_id, r.hive_index, r.status, r.requested_at,
+           r.started_at, r.completed_at, r.duration_ds, r.gain_db,
+           r.sample_rate, r.bytes, r.crc32, r.device_bytes, r.device_crc32,
+           r.dropped_bytes, r.gaps, r.clipped_pct, r.error, r.requested_by,
+           c.status, c.result->>'message'
+    FROM hive_recordings r
+    LEFT JOIN device_commands c ON c.id = r.command_id
 """
 
 
@@ -170,8 +198,7 @@ def expire_stale_recordings() -> None:
                 SET status = 'ready',
                     completed_at = now(),
                     error = COALESCE(error,
-                        'the hub never reported how this session ended; the audio '
-                        'here is what arrived before contact was lost')
+                        'the hub did not send its report for this session')
                 WHERE status = 'streaming'
                   AND bytes > 0
                   AND requested_at < now() - (%s || ' minutes')::interval;
@@ -207,11 +234,58 @@ def expire_stale_recordings() -> None:
             conn.commit()
 
 
+def finalize_from_command_result(device_id: str, command_id: int,
+                                 success: bool,
+                                 message: Optional[str] = None) -> None:
+    """Resolve a recording from its command result.
+
+    The hub reports on a session twice: once through ``/finalize`` with the byte
+    count, CRC and quality counters, and once through the ordinary command
+    result. Only the second one is dependable — it is retried, swept when it
+    goes stale, and written under the same crash-safe marker as every other
+    command — while ``/finalize`` is a single fire-and-forget POST that a reset
+    or a dropped packet takes with it.
+
+    So the command result closes the row, and a later ``/finalize`` only adds
+    detail to it. A recording that reaches here without its detailed report is
+    "confirmed" rather than "verified": the hub said the session succeeded,
+    nothing checked the bytes. That is worth saying plainly, and it is much
+    closer to the truth than leaving the row streaming until a sweep declares
+    contact lost.
+
+    Only touches rows still in flight, so a `/finalize` that already landed
+    keeps its more specific verdict.
+    """
+    failed_msg = (message or "").strip() or "the hub reported this session failed"
+    empty_msg = "the hub reported success but no audio arrived"
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE hive_recordings
+                SET status = CASE WHEN %s AND bytes > 0 THEN 'ready'
+                                  ELSE 'failed' END,
+                    completed_at = now(),
+                    error = CASE WHEN %s AND bytes > 0 THEN error
+                                 WHEN %s THEN COALESCE(error, %s)
+                                 ELSE COALESCE(error, %s) END
+                WHERE command_id = %s AND device_id = %s
+                  AND status IN ('requested', 'streaming');
+                """,
+                (success, success, success, empty_msg, failed_msg,
+                 command_id, device_id),
+            )
+            if cur.rowcount:
+                logger.info("recording for command %s closed by command result "
+                            "(success=%s)", command_id, success)
+            conn.commit()
+
+
 def get_recording(recording_id: int) -> dict:
     expire_stale_recordings()
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(_SELECT + " WHERE id = %s;", (recording_id,))
+            cur.execute(_SELECT + " WHERE r.id = %s;", (recording_id,))
             r = cur.fetchone()
     if not r:
         raise HTTPException(status_code=404, detail="recording not found")
@@ -221,12 +295,14 @@ def get_recording(recording_id: int) -> dict:
 def list_recordings(device_id: str, hive_index: Optional[int] = None,
                     limit: int = 50) -> list[dict]:
     expire_stale_recordings()
-    sql = _SELECT + " WHERE device_id = %s"
+    # Every column is qualified: device_commands carries id, device_id and
+    # status of its own, so an unqualified name here is ambiguous SQL.
+    sql = _SELECT + " WHERE r.device_id = %s"
     params: list = [device_id]
     if hive_index is not None:
-        sql += " AND hive_index = %s"
+        sql += " AND r.hive_index = %s"
         params.append(hive_index)
-    sql += " ORDER BY requested_at DESC LIMIT %s;"
+    sql += " ORDER BY r.requested_at DESC LIMIT %s;"
     params.append(max(1, min(limit, 500)))
     with get_conn() as conn:
         with conn.cursor() as cur:

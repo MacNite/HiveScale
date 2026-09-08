@@ -160,13 +160,33 @@ judgement made on a splice is wrong in a way nothing later reveals.
 
 | Flag | Meaning |
 |---|---|
-| No hub report | `/finalize` never arrived, so nothing is known about the session beyond the bytes that landed. The audio plays; it is not called complete, because the missing report is exactly what would have said whether the tail is there |
 | `dropped_bytes` | The node's own ring overran — audio never left the hive |
 | `gaps` | Sequence jumps on the air, or the hub's ring overran |
 | CRC mismatch | What arrived is not what the node computed: corruption in transit |
 | `clipped_pct` | Samples hit the rail; lower the gain |
 
 Audio either side of a gap is real. The join is not.
+
+### How sure we are: `confirmation`
+
+The hub reports on a session **twice**, and either report can go missing, so
+"was this recording whole?" has more than two answers. `confirmation` is the one
+the dashboard shows as the *Checksum* figure.
+
+| Value | Shown as | What happened |
+|---|---|---|
+| `verified` | verified | The detailed `/finalize` report arrived and its CRC matched what the server computed over the bytes on disk |
+| `reported` | unverified | `/finalize` arrived, but the CRCs disagree or the hub sent none. Only a CRC that actually disagrees marks the recording incomplete — an absent one is not evidence of damage |
+| `confirmed` | hub confirmed | `/finalize` never arrived, but the hub's **command result** said the session succeeded. Nothing checked the bytes, but the hub did say it finished |
+| `unknown` | not confirmed | Neither report arrived. The audio on disk plays; nothing corroborates it |
+
+The middle two exist because `/finalize` is a single fire-and-forget POST that a
+reset or a dropped packet takes with it, while the command result is retried,
+swept when it goes stale, and written under the same crash-safe marker as every
+other device command. Reading both is why a recording that is almost certainly
+fine no longer gets told it lost contact with its hub. It is also why the
+command result *closes* the row (`recordings.finalize_from_command_result`) and
+a later `/finalize` only adds detail to it.
 
 ## Storage
 
@@ -224,7 +244,7 @@ in-hive microphone in a garden can pick up human speech.
 | "HiveInside not found in scan" | Out of range, flat battery, or busy with an OTA |
 | Stuck at "Waiting for the hub to wake" | Normal for up to one reporting interval; longer means the hub is offline |
 | A recording stays at "requested" forever | The command never reached the queue. Check the server log for `could not queue record_audio`; the row is marked failed with the reason from 0.30.0 on |
-| A recording sits at "streaming" | The hub never sent its `/finalize` report — a reset mid-session, or a lost last request. The audio is on disk and plays anyway; after five minutes the row resolves to ready and says the outcome is unknown. `SELECT result->>'message' FROM device_commands WHERE command_type = 'record_audio' ORDER BY id DESC LIMIT 1;` is the hub's own account of what happened |
+| A recording sits at "streaming" | Neither the command result nor `/finalize` arrived — a reset mid-session, or a hub that went offline before its next wake. The audio is on disk and plays anyway; after five minutes the row resolves to ready with `confirmation: unknown`. `SELECT result->>'message' FROM device_commands WHERE command_type = 'record_audio' ORDER BY id DESC LIMIT 1;` is the hub's own account of what happened |
 | Audio is loud for a moment then near-silence | The microphone lost power mid-session. On HiveInside before the sensor-rail fix, a measurement cycle already running when the session started would switch LDO1 off underneath it |
 | "node busy" | An OTA or another session holds the node's single connection |
 | Recording marked incomplete | See the quality flags above |

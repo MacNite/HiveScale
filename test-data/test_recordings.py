@@ -60,6 +60,7 @@ def row(**over):
         duration_ds=0, gain_db=0, sample_rate=SAMPLE_RATE,
         num_bytes=32000, crc32=123456, device_bytes=32000, device_crc32=123456,
         dropped_bytes=0, gaps=0, clipped_pct=0, error=None, requested_by="max",
+        command_status="done", command_message=None,
     )
     base.update(over)
     return tuple(base.values())
@@ -138,23 +139,46 @@ check("a failure reason is passed through",
       _row_to_dict(row(status="failed", error="node busy"))["error"] == "node busy")
 
 # Missing CRCs must not read as "verified".
-unknown = _row_to_dict(row(crc32=None, device_crc32=None))
+no_crc = _row_to_dict(row(crc32=None, device_crc32=None))
 check("an unverifiable recording is not claimed to be checksum-verified",
-      unknown["crc_ok"] is False)
+      no_crc["crc_ok"] is False)
 check("a recording with no CRCs but a hub report is still complete",
-      unknown["complete"] is True)
+      no_crc["complete"] is True)
 
-# A session the hub never reported on: expire_stale_recordings() marks it ready
-# because the audio is real and playable, but device_bytes stays NULL. Claiming
-# such a recording is complete would be a quiet lie — the missing report is
-# exactly the thing that would have said whether the tail is there.
+# ── how sure we are about a recording ────────────────────────────────────────
+#
+# Three states, because the hub reports twice and either report can go missing:
+# the detailed /finalize POST carries the CRC, the command result only says the
+# session succeeded. Treating a missing /finalize as "contact lost" is what made
+# the panel shout at recordings that were fine.
+
+check("a checksummed recording is verified", d["confirmation"] == "verified")
+check("a mismatched checksum is reported, not verified",
+      _row_to_dict(row(device_crc32=999))["confirmation"] == "reported")
+
+confirmed = _row_to_dict(row(device_bytes=None, device_crc32=None, crc32=None))
+check("no detailed report but a succeeded command reads as confirmed",
+      confirmed["confirmation"] == "confirmed")
+check("a confirmed recording is complete", confirmed["complete"] is True)
+
+# A session the hub never reported on at all: expire_stale_recordings() marks it
+# ready because the audio is real and playable, but nothing ever confirmed it.
+# Claiming such a recording is complete would be a quiet lie — the missing
+# report is exactly the thing that would have said whether the tail is there.
 abandoned = _row_to_dict(row(device_bytes=None, device_crc32=None, crc32=None,
-                             error="the hub never reported how this session ended"))
+                             command_status="claimed",
+                             error="the hub did not send its report for this session"))
+check("a recording with no report at all is unknown",
+      abandoned["confirmation"] == "unknown")
 check("a recording the hub never reported on is not called complete",
       abandoned["complete"] is False)
 check("...but it still plays: status ready and bytes present",
       abandoned["status"] == "ready" and abandoned["bytes"] > 0)
-check("...and it carries the reason", "never reported" in (abandoned["error"] or ""))
+check("...and it carries the reason", "did not send" in (abandoned["error"] or ""))
+
+check("the hub's own account of the session is surfaced",
+      _row_to_dict(row(command_message="node refused: busy"))["hub_message"]
+      == "node refused: busy")
 
 # A live session is requested with duration 0; the UI shows what was asked for.
 check("an open-ended request reports zero requested duration",
