@@ -415,6 +415,16 @@ function buildState() {
       updateConfig: (p) => api.updateConfig(activeId, p),
       updateChannels: (p) => api.updateChannels(activeId, p),
       insightsHistory: (opts) => api.insightsHistory(activeId, opts),
+      // Hive audio (issue #71): request a session, list/play/delete recordings.
+      // requestRecording returns as soon as the command is queued — the hub
+      // deep-sleeps and only collects it on its next wake — so the caller polls
+      // `recording` until the row leaves "requested".
+      requestRecording: (opts) => api.requestRecording(activeId, opts),
+      listRecordings: (hive) => api.listRecordings(activeId, hive),
+      recording: (id) => api.recording(id),
+      recordingPcm: (id, offset) => api.recordingPcm(id, offset),
+      recordingWavUrl: (id) => api.recordingWavUrl(id),
+      deleteRecording: (id) => api.deleteRecording(id),
       // Publish data: the server-side metric registry plus the publication list
       // and its lifecycle (see views.js renderPublish).
       publishMetrics: () => api.publishMetrics(),

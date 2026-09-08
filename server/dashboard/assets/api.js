@@ -135,6 +135,72 @@ export const api = {
       body: formData,
     }),
 
+  // ── Hive audio (issue #71) ───────────────────────────────────────────────
+  // Requesting a recording turns a microphone on inside a hive, so the server
+  // gates it on the admin role; listing, playing and polling need a session.
+  //
+  // A request returns as soon as the command is queued. The hub deep-sleeps and
+  // only picks it up on its next wake, so the caller polls the returned id
+  // until it leaves "requested" — there is no way to make that instant, and the
+  // UI says so rather than looking frozen.
+
+  requestRecording: (deviceId, { hive, durationS = 0, gainDb = 0 } = {}) => {
+    const q = new URLSearchParams({
+      hive: String(hive),
+      duration: String(durationS),
+      gain_db: String(gainDb),
+    });
+    return req(`/devices/${encodeURIComponent(deviceId)}/recordings?${q}`, {
+      method: "POST",
+    });
+  },
+
+  listRecordings: (deviceId, hive) => {
+    const q = new URLSearchParams();
+    if (hive != null) q.set("hive", String(hive));
+    const qs = q.toString();
+    return req(`/devices/${encodeURIComponent(deviceId)}/recordings${qs ? "?" + qs : ""}`);
+  },
+
+  recording: (id) => req(`/recordings/${id}`),
+
+  deleteRecording: (id) => req(`/recordings/${id}`, { method: "DELETE" }),
+
+  // A finished recording as a WAV the <audio> element can play directly. The
+  // session cookie authenticates it like any other same-origin request.
+  recordingWavUrl: (id) => `${BASE}/recordings/${id}/audio.wav`,
+
+  // Raw PCM from a byte offset, for following a session that is still running.
+  // Returns { done, bytes, nextOffset, status } — `bytes` is null when the
+  // server answered 204 ("nothing new yet"), which is the common case while
+  // polling and is not an error.
+  recordingPcm: async (id, offset) => {
+    const res = await fetch(`${BASE}/recordings/${id}/pcm?offset=${offset}`, {
+      credentials: "same-origin",
+    });
+    if (res.status === 204) {
+      return {
+        bytes: null,
+        nextOffset: offset,
+        status: res.headers.get("X-Recording-Status") || "",
+      };
+    }
+    if (!res.ok) {
+      if (res.status === 401) {
+        window.dispatchEvent(new CustomEvent("dashboard-unauthorized"));
+      }
+      const err = new Error(res.statusText);
+      err.status = res.status;
+      throw err;
+    }
+    const buf = await res.arrayBuffer();
+    return {
+      bytes: buf,
+      nextOffset: Number(res.headers.get("X-Recording-Next-Offset") || offset + buf.byteLength),
+      status: res.headers.get("X-Recording-Status") || "",
+    };
+  },
+
   // ── Download / backup ────────────────────────────────────────────────────
   // Query string shared by the export summary and the download itself:
   // repeated device_id / hive params plus an optional time range.

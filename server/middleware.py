@@ -8,7 +8,17 @@ from config import TRUST_PROXY_HEADERS
 
 
 # Paths whose responses must never be compressed. See SelectiveGZipMiddleware.
-NO_COMPRESS_PREFIXES = ("/firmware/",)
+# Audio joins firmware here for the same reason and one more of its own. PCM is
+# not meaningfully compressible, the WAV endpoint sets an explicit
+# Content-Length that gzip would invalidate, and the live player reads exact
+# byte offsets out of the PCM endpoint — a re-framed body would misalign every
+# sample after the first poll.
+NO_COMPRESS_PREFIXES = (
+    "/firmware/",
+    "/api/v1/recordings/",
+    "/api/v1/local/recordings/",
+    "/api/v1/app/recordings/",
+)
 
 
 class SelectiveGZipMiddleware:
@@ -63,7 +73,13 @@ class MaxBodySizeMiddleware:
         path = scope.get("path", "")
         # Firmware binary uploads are large by design and capped by the endpoint.
         # Bulk SD import is authenticated and capped by MEASUREMENT_IMPORT_MAX rows.
-        return path.endswith("/firmware") or path.endswith("/measurements/import")
+        # An audio stream arrives with Transfer-Encoding: chunked and no length
+        # at all — a live session's size is unknown until it ends — so buffering
+        # it here to measure it would defeat the point of streaming it to disk.
+        # It is authenticated and capped by MAX_RECORDING_BYTES as it is written.
+        return (path.endswith("/firmware")
+                or path.endswith("/measurements/import")
+                or path.endswith("/stream"))
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or self.max_body_bytes <= 0 or self._is_exempt(scope):

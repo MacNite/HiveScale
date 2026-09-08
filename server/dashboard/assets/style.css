@@ -593,3 +593,18 @@ select:focus-visible, input:focus-visible, canvas:focus-visible {
   flex: 1 1 12rem; min-width: 0; font: 500 .74rem var(--mono); color: var(--ink-soft);
   padding: .4rem .55rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
 }
+
+/* ── Hive audio player (issue #71) ────────────────────────────────────────
+   The <audio> element is the browser's own control strip; it only needs to fill
+   the card and pick up the card's rhythm. The session <select> above it can be
+   long ("2026-09-08 14:03 · hive 2 · 58.4s"), so it wraps rather than clipping
+   a timestamp somebody is trying to identify a recording by. */
+.card > audio {
+  width: 100%;
+  margin-top: 0.75rem;
+  display: block;
+}
+
+.card > select.full + audio {
+  margin-top: 0.5rem;
+}

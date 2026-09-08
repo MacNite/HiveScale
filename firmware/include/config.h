@@ -522,6 +522,71 @@
 #define HIVEINSIDE_GATT_CLIENT (HIVEINSIDE_OTA_ENABLED)
 
 // ==============================
+// HIVEINSIDE AUDIO (on-request microphone stream)
+// ==============================
+// HiveInside 0.6.0 and later can be asked for live audio: an authenticated
+// START makes it capture 16 kHz PCM16 and push it out as GATT notifications,
+// which this hub relays straight to the backend. See gatt_audio.h and
+// HiveInside docs/audio-over-ble.md.
+//
+// Needs ENABLE_BLE_SCAN, for the same reason the HiveInside OTA relay does: a
+// beacon node is never connected to otherwise, so a short scan is what
+// establishes its address type before a connect can succeed.
+#ifndef HIVEINSIDE_AUDIO_ENABLED
+#define HIVEINSIDE_AUDIO_ENABLED ENABLE_BLE_SCAN
+#endif
+
+// PCM staging ring, in bytes, between the NimBLE host task and the TLS upload
+// loop. The node emits 32000 B/s and never waits for us, so this is really
+// "how long a TLS write may stall before audio is lost" — 32 KiB is one full
+// second. Overruns are counted and reported, never hidden: a silent drop makes
+// a recording with an inaudible seam and no way to explain it.
+//
+// This is malloc'd for the duration of a session, not held statically, because
+// the hub also has WiFi and TLS up at that moment and this is the largest
+// single allocation on that path.
+// The pre-shared key normally comes from the gitignored secrets.h (see
+// secrets.example.h). Defaulting it to empty here keeps a fresh clone building:
+// the relay then refuses every session with a message naming the missing key,
+// which is the correct behaviour for a microphone with no access control.
+#ifndef HIVEINSIDE_AUDIO_PSK_HEX
+#define HIVEINSIDE_AUDIO_PSK_HEX ""
+#endif
+
+#ifndef HIVEINSIDE_AUDIO_RING_BYTES
+#define HIVEINSIDE_AUDIO_RING_BYTES 32768
+#endif
+
+// Bytes pulled from the ring per TLS write. One notification carries 240 B, so
+// this batches roughly seventeen of them per socket write.
+#ifndef HIVEINSIDE_AUDIO_UPLOAD_CHUNK
+#define HIVEINSIDE_AUDIO_UPLOAD_CHUNK 4096
+#endif
+
+// Hard ceiling on one relayed session, independent of what the backend asked
+// for. The node enforces its own 60 s cap; this is the hub's guard against a
+// command that asks for more, or a node that never sends its final packet.
+#ifndef HIVEINSIDE_AUDIO_MAX_SECONDS
+#define HIVEINSIDE_AUDIO_MAX_SECONDS 60
+#endif
+
+// How long the hub stays awake polling for another command after a live audio
+// session ends. Without this, "continue listening" in the dashboard would wait
+// for the next wake cycle — minutes — and the feature would not feel live at
+// all. It only applies after an audio session, so it costs nothing on a hub
+// nobody is listening to.
+#ifndef HIVEINSIDE_AUDIO_FOLLOWUP_MS
+#define HIVEINSIDE_AUDIO_FOLLOWUP_MS 25000
+#endif
+
+// Seconds without a single PCM byte before the relay abandons a session. The
+// node's own stall timeout is five seconds, so this only fires when the node
+// has gone away without saying so.
+#ifndef HIVEINSIDE_AUDIO_STALL_S
+#define HIVEINSIDE_AUDIO_STALL_S 8
+#endif
+
+// ==============================
 // BEECOUNTER FIRMWARE-OVER-BLE (OTA relay)
 // ==============================
 // The HiveTraffic counter exposes the same OTA framing as HiveInside (BEGIN /

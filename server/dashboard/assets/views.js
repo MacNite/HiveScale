@@ -958,6 +958,329 @@ function renderAudio(root, state) {
     chartCard("Peak level", "Per-hive microphone peak", peak, { unit: "dBFS", yDigits: 0 }),
   ];
   root.append(tsView("Audio", "Hive sound levels", state, { cards, charts }));
+  root.append(liveAudioPanel(state));
+}
+
+// ── Live hive audio (issue #71) ────────────────────────────────────────────
+//
+// Two things share one panel: listening to a hive right now, and playing back
+// sessions somebody recorded earlier. They are the same recordings — a live
+// session is simply one that is still being written — which is why the dropdown
+// lists everything and the player switches between raw PCM (in flight) and a
+// WAV (finished).
+//
+// The shape of the feature is dictated by two facts that cannot be designed
+// away. The hub deep-sleeps and only collects commands on its next wake, so
+// pressing Listen cannot be instant and the UI must say what it is waiting for.
+// And the node caps every session at 60 seconds, so "keep listening" is not a
+// longer session but another one — which is exactly why the hub holds its cycle
+// open briefly after each (see HIVEINSIDE_AUDIO_FOLLOWUP_MS).
+const AUDIO_SAMPLE_RATE = 16000;
+const AUDIO_POLL_MS = 250;
+// Ask before the node's own cap, so the next session is queued while the hub is
+// still awake in its follow-up window rather than after it has gone back to sleep.
+const AUDIO_CONTINUE_PROMPT_S = 50;
+
+const liveAudio = {
+  recordingId: null,
+  hive: null,
+  deviceId: null,
+  offset: 0,
+  ctx: null,
+  nextStart: 0,
+  timer: null,
+  status: "",
+  startedAt: 0,
+  carry: null,       // odd trailing byte held back so samples stay aligned
+  error: "",
+  promptShown: false,
+  onChange: null,
+};
+
+function audioStopLive(message = "") {
+  if (liveAudio.timer) { clearTimeout(liveAudio.timer); liveAudio.timer = null; }
+  if (liveAudio.ctx) {
+    // close() rather than suspend(): a live session is over, and holding an
+    // AudioContext open keeps the tab's audio hardware awake for nothing.
+    try { liveAudio.ctx.close(); } catch (_) { /* already closed */ }
+    liveAudio.ctx = null;
+  }
+  liveAudio.recordingId = null;
+  liveAudio.offset = 0;
+  liveAudio.carry = null;
+  liveAudio.promptShown = false;
+  liveAudio.status = message;
+  if (liveAudio.onChange) liveAudio.onChange();
+}
+
+// Queue one PCM slice for playback. Buffers are scheduled back to back off a
+// running clock rather than played on arrival, because arrival is bursty (one
+// poll can carry a second of audio) and playing them "now" would overlap them.
+function audioPlaySlice(buf) {
+  if (!liveAudio.ctx || !buf || !buf.byteLength) return;
+  let bytes = new Uint8Array(buf);
+  if (liveAudio.carry) {
+    const joined = new Uint8Array(liveAudio.carry.length + bytes.length);
+    joined.set(liveAudio.carry, 0);
+    joined.set(bytes, liveAudio.carry.length);
+    bytes = joined;
+    liveAudio.carry = null;
+  }
+  // A slice can end mid-sample; carrying the odd byte to the next poll keeps
+  // every frame aligned. Dropping it instead would shift the whole rest of the
+  // stream by one byte and turn the audio into noise.
+  if (bytes.length % 2) {
+    liveAudio.carry = bytes.slice(bytes.length - 1);
+    bytes = bytes.slice(0, bytes.length - 1);
+  }
+  if (!bytes.length) return;
+
+  const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
+  const audioBuf = liveAudio.ctx.createBuffer(1, pcm.length, AUDIO_SAMPLE_RATE);
+  const channel = audioBuf.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+
+  const src = liveAudio.ctx.createBufferSource();
+  src.buffer = audioBuf;
+  src.connect(liveAudio.ctx.destination);
+  const now = liveAudio.ctx.currentTime;
+  // Re-seed the clock after a stall: without this, audio that arrived late
+  // would be scheduled in the past and dropped silently.
+  if (liveAudio.nextStart < now + 0.05) liveAudio.nextStart = now + 0.15;
+  src.start(liveAudio.nextStart);
+  liveAudio.nextStart += audioBuf.duration;
+}
+
+async function audioPoll(state, repaint) {
+  if (!liveAudio.recordingId) return;
+  const id = liveAudio.recordingId;
+  try {
+    const rec = await state.actions.recording(id);
+    liveAudio.status = rec.status;
+    if (rec.status === "failed") {
+      audioStopLive(rec.error || "the hive could not be recorded");
+      liveAudio.error = rec.error || "recording failed";
+      repaint();
+      return;
+    }
+    if (rec.status !== "requested") {
+      const slice = await state.actions.recordingPcm(id, liveAudio.offset);
+      if (slice.bytes) {
+        if (!liveAudio.startedAt) liveAudio.startedAt = Date.now();
+        audioPlaySlice(slice.bytes);
+        liveAudio.offset = slice.nextOffset;
+      }
+      if (rec.status === "ready" && liveAudio.offset >= (rec.bytes || 0)) {
+        // Everything recorded has been queued for playback; the session itself
+        // ended some seconds ago.
+        audioStopLive("");
+        repaint();
+        return;
+      }
+    }
+  } catch (err) {
+    audioStopLive(err.message || "lost contact with the server");
+    liveAudio.error = err.message || "lost contact with the server";
+    repaint();
+    return;
+  }
+  repaint();
+  liveAudio.timer = setTimeout(() => audioPoll(state, repaint), AUDIO_POLL_MS);
+}
+
+function audioElapsedS() {
+  return liveAudio.startedAt ? Math.round((Date.now() - liveAudio.startedAt) / 1000) : 0;
+}
+
+function recordingOptionLabel(rec) {
+  const when = fmtDateTime(rec.requested_at);
+  const secs = rec.seconds ? `${rec.seconds.toFixed(1)}s` : "—";
+  const flag = rec.status === "ready" ? (rec.complete ? "" : " ⚠") : ` · ${rec.status}`;
+  return `${when} · hive ${rec.hive_index} · ${secs}${flag}`;
+}
+
+function liveAudioPanel(state) {
+  const body = el("div", {});
+  const panel = collapsible("Listen to a hive", false, body);
+  const isAdmin = state.authUser?.role === "admin";
+  const deviceId = state.deviceId;
+  const hives = availableHives(state);
+  let recordings = [];
+  let selectedId = null;
+  let loading = true;
+
+  const paint = () => {
+    const kids = [];
+    kids.push(el("p", { class: "note" },
+      "Ask a hive's HiveInside node for live audio, or play a session recorded "
+      + "earlier. Requests reach the hub on its next wake, so listening starts "
+      + "within one reporting interval rather than immediately."));
+
+    if (liveAudio.error) {
+      kids.push(el("div", { class: "card" },
+        el("h2", {}, "Audio unavailable"), el("p", { class: "note" }, liveAudio.error)));
+    }
+
+    // ── Live controls ─────────────────────────────────────────────────────
+    const controls = el("div", { class: "row" });
+    const hiveSel = el("select", { class: "full" },
+      ...hives.map((h) => el("option", { value: String(h) }, hiveLabel(state, h))));
+    if (liveAudio.hive) hiveSel.value = String(liveAudio.hive);
+
+    const listening = !!liveAudio.recordingId;
+    const listenBtn = el("button", {
+      class: listening ? "btn danger" : "btn",
+      disabled: (!isAdmin || !hives.length) ? "disabled" : null,
+      onclick: async () => {
+        if (listening) { audioStopLive(""); paint(); return; }
+        liveAudio.error = "";
+        try {
+          const hive = Number(hiveSel.value);
+          // The AudioContext must be created inside the click: browsers refuse
+          // to start audio that no user gesture asked for.
+          liveAudio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          liveAudio.nextStart = 0;
+          const rec = await state.actions.requestRecording({ hive, durationS: 0 });
+          liveAudio.recordingId = rec.id;
+          liveAudio.deviceId = deviceId;
+          liveAudio.hive = hive;
+          liveAudio.offset = 0;
+          liveAudio.startedAt = 0;
+          liveAudio.status = "requested";
+          liveAudio.promptShown = false;
+          paint();
+          audioPoll(state, paint);
+        } catch (err) {
+          audioStopLive("");
+          liveAudio.error = err.message || "could not request audio";
+          paint();
+        }
+      },
+    }, listening ? "Stop listening" : "🎧 Listen live");
+
+    controls.append(hiveSel, listenBtn);
+    if (!isAdmin) {
+      controls.append(el("span", { class: "note" },
+        "An administrator can start a recording."));
+    }
+
+    let statusLine = "";
+    if (listening) {
+      statusLine = liveAudio.status === "requested"
+        ? "Waiting for the hub to wake and pick up the request…"
+        : `Listening · ${audioElapsedS()}s of up to 60s`;
+    }
+    const liveCard = el("div", { class: "card" },
+      el("h2", {}, "Live"),
+      controls,
+      statusLine ? el("p", { class: "note" }, statusLine) : null);
+    kids.push(liveCard);
+
+    // The node stops itself at 60 s. Ask before that so the next session is
+    // queued while the hub is still awake in its follow-up window — after it
+    // sleeps, continuing would cost a whole reporting interval again.
+    if (listening && !liveAudio.promptShown && audioElapsedS() >= AUDIO_CONTINUE_PROMPT_S) {
+      liveAudio.promptShown = true;
+      setTimeout(() => {
+        if (!liveAudio.recordingId) return;
+        if (window.confirm("This session stops at 60 seconds. Keep listening?")) {
+          const hive = liveAudio.hive;
+          state.actions.requestRecording({ hive, durationS: 0 })
+            .then((rec) => {
+              // Same context, new recording: playback continues seamlessly
+              // across the session boundary.
+              liveAudio.recordingId = rec.id;
+              liveAudio.offset = 0;
+              liveAudio.startedAt = Date.now();
+              liveAudio.promptShown = false;
+              paint();
+            })
+            .catch((err) => {
+              liveAudio.error = err.message || "could not continue listening";
+              audioStopLive("");
+              paint();
+            });
+        } else {
+          audioStopLive("");
+          paint();
+        }
+      }, 0);
+    }
+
+    // ── Earlier sessions ──────────────────────────────────────────────────
+    const histCard = el("div", { class: "card" }, el("h2", {}, "Earlier sessions"));
+    if (loading) {
+      histCard.append(el("p", { class: "muted-text" }, "Loading…"));
+    } else if (!recordings.length) {
+      histCard.append(el("p", { class: "note" }, "No recordings yet."));
+    } else {
+      const sel = el("select", { class: "full", onchange: (e) => {
+        selectedId = Number(e.target.value); paint();
+      } }, ...recordings.map((r) =>
+        el("option", { value: String(r.id) }, recordingOptionLabel(r))));
+      if (selectedId == null) selectedId = recordings[0].id;
+      sel.value = String(selectedId);
+      histCard.append(sel);
+
+      const rec = recordings.find((r) => r.id === selectedId);
+      if (rec && rec.status === "ready" && rec.bytes > 0) {
+        histCard.append(el("audio", { controls: "controls", preload: "none",
+                                      src: state.actions.recordingWavUrl(rec.id) }));
+        if (!rec.complete) {
+          // Said plainly rather than left to be noticed: a spliced recording
+          // sounds continuous, and an acoustic judgement made on one is wrong
+          // in a way nothing later reveals.
+          const why = [];
+          if (rec.dropped_bytes) why.push(`${rec.dropped_bytes} B dropped by the node`);
+          if (rec.gaps) why.push(`${rec.gaps} gap(s) in transit`);
+          if (!rec.crc_ok) why.push("checksum mismatch");
+          histCard.append(el("p", { class: "note warn" },
+            `Incomplete recording — ${why.join(", ") || "audio is missing"}. `
+            + "Audio either side of a gap is real, but the join is not."));
+        }
+        if (rec.clipped_pct >= 5) {
+          histCard.append(el("p", { class: "note" },
+            `${rec.clipped_pct}% of samples clipped — lower the gain for a cleaner recording.`));
+        }
+      } else if (rec) {
+        histCard.append(el("p", { class: "note" },
+          rec.status === "failed" ? (rec.error || "This recording failed.")
+                                  : `Status: ${rec.status}`));
+      }
+
+      if (rec && isAdmin) {
+        histCard.append(el("button", {
+          class: "btn danger",
+          onclick: async () => {
+            if (!window.confirm("Delete this recording? Nothing else ever will — "
+                                + "there is no automatic clean-up.")) return;
+            try {
+              await state.actions.deleteRecording(rec.id);
+              recordings = recordings.filter((r) => r.id !== rec.id);
+              selectedId = recordings.length ? recordings[0].id : null;
+              paint();
+            } catch (err) {
+              liveAudio.error = err.message || "could not delete the recording";
+              paint();
+            }
+          },
+        }, "Delete"));
+      }
+    }
+    kids.push(histCard);
+
+    body.replaceChildren(...kids.filter(Boolean));
+  };
+
+  paint();
+  state.actions.listRecordings()
+    .then((res) => { recordings = res.recordings || []; loading = false; paint(); })
+    .catch((err) => {
+      loading = false;
+      liveAudio.error = err.message || "could not list recordings";
+      paint();
+    });
+  return panel;
 }
 
 // The five microphone FFT bands, low → high. This is an ORDERED scale, not a set

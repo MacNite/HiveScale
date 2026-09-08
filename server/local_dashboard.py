@@ -36,6 +36,15 @@ from auth import (
     verify_password,
     _public_dashboard_user,
 )
+from recordings import (
+    MAX_PCM_SLICE,
+    delete_recording,
+    get_recording,
+    list_recordings,
+    recording_pcm,
+    recording_wav,
+    request_recording,
+)
 from commands import (
     create_command,
     latest_beecounter_relays,
@@ -1132,6 +1141,71 @@ def local_insights_history(
     history the reconciler builds — including resolved warnings — newest first.
     """
     return build_insight_history(device_id, status, category, since, limit)
+
+
+# ── Hive audio ──────────────────────────────────────────────────────────────
+#
+# Requesting audio is an admin action: it turns a microphone on inside somebody's
+# hive, which is a different kind of act from reading a temperature. Listening to
+# what has already been recorded needs only a session, and so does the live
+# polling that follows a session the same admin just started.
+
+
+@router.post("/api/v1/local/devices/{device_id}/recordings",
+             dependencies=LOCAL_DASHBOARD_ADMIN_DEP)
+def local_request_recording(device_id: str, hive: int = Query(1),
+                            duration: float = Query(0.0),
+                            gain_db: int = Query(0),
+                            user=Depends(require_dashboard_admin)):
+    """Ask a hive for audio. ``duration=0`` is live (the node stops at 60 s).
+
+    Returns as soon as the command is queued — the hub deep-sleeps and only
+    picks it up on its next wake, so the caller polls the returned recording
+    until it leaves ``requested``.
+    """
+    return request_recording(device_id, hive, duration, gain_db,
+                             requested_by=user.get("username"))
+
+
+@router.get("/api/v1/local/devices/{device_id}/recordings",
+            dependencies=LOCAL_DASHBOARD_DEP)
+def local_list_recordings(device_id: str, hive: Optional[int] = Query(None),
+                          limit: int = Query(50)):
+    return {"recordings": list_recordings(device_id, hive, limit)}
+
+
+@router.get("/api/v1/local/recordings/{recording_id}", dependencies=LOCAL_DASHBOARD_DEP)
+def local_read_recording(recording_id: int):
+    return get_recording(recording_id)
+
+
+@router.get("/api/v1/local/recordings/{recording_id}/pcm",
+            dependencies=LOCAL_DASHBOARD_DEP)
+def local_recording_pcm(recording_id: int, offset: int = Query(0),
+                        limit: int = Query(MAX_PCM_SLICE)):
+    """Raw PCM from ``offset`` — how the live player follows a session in flight.
+
+    204 means "nothing new yet", which is the common answer while polling, not
+    an error.
+    """
+    return recording_pcm(recording_id, offset, limit)
+
+
+@router.get("/api/v1/local/recordings/{recording_id}/audio.wav",
+            dependencies=LOCAL_DASHBOARD_DEP)
+def local_recording_wav(recording_id: int):
+    return recording_wav(recording_id)
+
+
+@router.delete("/api/v1/local/recordings/{recording_id}",
+               dependencies=LOCAL_DASHBOARD_ADMIN_DEP)
+def local_delete_recording(recording_id: int):
+    """Delete a recording and its audio.
+
+    Nothing else ever does: there is no retention sweep, deliberately, so this
+    is the only thing standing between a self-hosted disk and a season of audio.
+    """
+    return delete_recording(recording_id)
 
 
 @router.get("/api/v1/local/devices/{device_id}/firmware/status", dependencies=LOCAL_DASHBOARD_DEP)

@@ -34,10 +34,12 @@ import inspections
 import local_dashboard
 import measurements
 import publish
+import recordings
 from auth import require_api_key
 from config import (
     ENABLE_LOCAL_DASHBOARD,
     FIRMWARE_DIR,
+    RECORDINGS_DIR,
     MAX_BODY_BYTES,
     RATE_LIMIT_DEFAULT,
     RATE_LIMIT_ENABLED,
@@ -93,6 +95,7 @@ app.add_middleware(SelectiveGZipMiddleware, minimum_size=1024)
 def startup():
     db_pool.open()
     FIRMWARE_DIR.mkdir(parents=True, exist_ok=True)
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
     start_notification_worker()
     start_insight_reconciler()
@@ -132,6 +135,7 @@ app.include_router(app_api.router)
 app.include_router(insights_api.router)
 app.include_router(local_dashboard.router)
 app.include_router(publish.router)
+app.include_router(recordings.router)
 
 # Serve the static dashboard at /dashboard only when local mode is enabled. The
 # files live in server/dashboard/ and ship in the Docker image (Dockerfile does

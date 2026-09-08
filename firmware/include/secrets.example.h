@@ -226,6 +226,18 @@
 // MAX_HIVES), or seed the legacy WBEECNT_n_MAC below for hives 1-2. A hive
 // without a paired MAC reports no bee-counter data. The firmware uses the
 // shared BEECOUNTER_GATT_* UUIDs.
+// ── HiveInside audio pre-shared key ────────────────────────────────────────
+// HiveInside will not record without an authenticated request: START carries an
+// HMAC-SHA256 over a nonce the node issues, and an unauthenticated microphone
+// in a garden is not something to ship. Provision the SAME 32-byte random key
+// here and in the node's gitignored firmware-nrf54lm20a/src/audio_secret.h.
+//
+//   openssl rand -hex 32
+//
+// 64 hex characters, no 0x prefix. Left empty (or all zero) the hub refuses to
+// start a session and says so; the node fails closed independently.
+#define HIVEINSIDE_AUDIO_PSK_HEX ""
+
 #define ENABLE_WIRELESS_BEECOUNTER   0
 //#define WBEECNT_1_MAC                "AA:BB:CC:DD:EE:FF"   // HiveTraffic counter 1
 //#define WBEECNT_2_MAC                "AA:BB:CC:DD:EE:00"   // HiveTraffic counter 2

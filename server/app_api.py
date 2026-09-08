@@ -7,6 +7,15 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
 from auth import require_device_role, require_hivepal_service_key, require_user_id
+from recordings import (
+    MAX_PCM_SLICE,
+    delete_recording,
+    get_recording,
+    list_recordings,
+    recording_pcm,
+    recording_wav,
+    request_recording,
+)
 from commands import check_relay_slot, create_command, queue_relay_firmware_update
 from db import get_conn, hash_claim_code
 from devices import (
@@ -430,6 +439,84 @@ async def upload_firmware_from_app(
     return await store_firmware_upload(
         device_id, file, version, target, active, board, owner_user_id
     )
+
+
+# ── Hive audio (issue #71) ─────────────────────────────────────────────────
+#
+# Same three-surface shape as everything else here: the master key drives
+# /api/v1/devices/*, the dashboard session drives /api/v1/local/*, and HivePal
+# users reach the same functions through their per-device role.
+#
+# Requesting audio needs owner or admin — it switches a microphone on inside a
+# hive. Listening to and deleting what is already there follows the usual roles.
+
+
+@router.post(
+    "/api/v1/app/devices/{device_id}/recordings",
+    dependencies=[Depends(require_hivepal_service_key)],
+)
+def app_request_recording(device_id: str, hive: int = Query(1),
+                          duration: float = Query(0.0), gain_db: int = Query(0),
+                          user_id: str = Depends(require_user_id)):
+    """Ask a hive for audio. ``duration=0`` is live; the node stops at 60 s."""
+    require_device_role(user_id, device_id, ["owner", "admin"])
+    return request_recording(device_id, hive, duration, gain_db,
+                             requested_by=user_id)
+
+
+@router.get(
+    "/api/v1/app/devices/{device_id}/recordings",
+    dependencies=[Depends(require_hivepal_service_key)],
+)
+def app_list_recordings(device_id: str, hive: Optional[int] = Query(None),
+                        limit: int = Query(50),
+                        user_id: str = Depends(require_user_id)):
+    require_device_role(user_id, device_id, ["owner", "admin", "viewer"])
+    return {"recordings": list_recordings(device_id, hive, limit)}
+
+
+@router.get(
+    "/api/v1/app/recordings/{recording_id}",
+    dependencies=[Depends(require_hivepal_service_key)],
+)
+def app_read_recording(recording_id: int, user_id: str = Depends(require_user_id)):
+    rec = get_recording(recording_id)
+    require_device_role(user_id, rec["device_id"], ["owner", "admin", "viewer"])
+    return rec
+
+
+@router.get(
+    "/api/v1/app/recordings/{recording_id}/pcm",
+    dependencies=[Depends(require_hivepal_service_key)],
+)
+def app_recording_pcm(recording_id: int, offset: int = Query(0),
+                      limit: int = Query(MAX_PCM_SLICE),
+                      user_id: str = Depends(require_user_id)):
+    """Raw PCM from ``offset`` — how a live session is followed while in flight."""
+    rec = get_recording(recording_id)
+    require_device_role(user_id, rec["device_id"], ["owner", "admin", "viewer"])
+    return recording_pcm(recording_id, offset, limit)
+
+
+@router.get(
+    "/api/v1/app/recordings/{recording_id}/audio.wav",
+    dependencies=[Depends(require_hivepal_service_key)],
+)
+def app_recording_wav(recording_id: int, user_id: str = Depends(require_user_id)):
+    rec = get_recording(recording_id)
+    require_device_role(user_id, rec["device_id"], ["owner", "admin", "viewer"])
+    return recording_wav(recording_id)
+
+
+@router.delete(
+    "/api/v1/app/recordings/{recording_id}",
+    dependencies=[Depends(require_hivepal_service_key)],
+)
+def app_delete_recording(recording_id: int, user_id: str = Depends(require_user_id)):
+    """Delete a recording and its audio — the only thing that ever does."""
+    rec = get_recording(recording_id)
+    require_device_role(user_id, rec["device_id"], ["owner", "admin"])
+    return delete_recording(recording_id)
 
 
 @router.get(
