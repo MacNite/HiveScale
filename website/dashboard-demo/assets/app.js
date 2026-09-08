@@ -340,6 +340,16 @@ function buildState() {
       startCalibration: (p) => api.startCalibration(activeId, p),
       stopCalibration: () => api.stopCalibration(activeId),
       fitTempComp: (p) => api.fitTempCompensation(activeId, p),
+      // Hive audio (issue #71). Live listening is SIMULATED here — api.js decodes
+      // a sample file and serves it back through the same offset/PCM protocol the
+      // real panel drives, so views.js stays a verbatim copy and never learns it
+      // is running without a hub. See website/dashboard-demo/assets/audio/README.md.
+      requestRecording: (opts) => api.requestRecording(activeId, opts),
+      listRecordings: (hive) => api.listRecordings(activeId, hive),
+      recording: (id) => api.recording(id),
+      recordingPcm: (id, offset) => api.recordingPcm(id, offset),
+      recordingWavUrl: (id) => api.recordingWavUrl(id),
+      deleteRecording: (id) => api.deleteRecording(id),
       updateConfig: (p) => api.updateConfig(activeId, p),
       updateChannels: (p) => api.updateChannels(activeId, p),
       insightsHistory: (opts) => api.insightsHistory(activeId, opts),

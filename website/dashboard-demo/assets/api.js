@@ -150,6 +150,115 @@ function series(deviceId, startIso) {
   return out;
 }
 
+// ── Hive audio (issue #71) ─────────────────────────────────────────────────
+//
+// The demo has no hub and no backend, so everything the audio panel asks for is
+// answered from static files in assets/audio/ plus a clock. All of the pretence
+// lives here on purpose: views.js is a verbatim copy of the real dashboard, so
+// it must not learn that it is running in a demo.
+//
+// Two things are faked, differently:
+//
+//   * **Stored sessions** are honest. The files really are played by the same
+//     <audio> element the real dashboard uses; only the metadata around them is
+//     invented. The list is filtered to the files that actually exist, so an
+//     empty assets/audio/ degrades to "No recordings yet" rather than a row of
+//     broken players.
+//   * **Live listening** is a simulation. A real session streams PCM off a hive
+//     over BLE; here a sample file is decoded once and served back in
+//     real-time-sized slices through exactly the protocol the panel expects
+//     (offset in, PCM out, 204 for "nothing yet"). It looks like the real thing
+//     because it goes through the real code path — which is also why the panel
+//     below is labelled as a simulation in the demo README.
+
+const AUDIO_DIR = "assets/audio/";
+const AUDIO_RATE = 16000;   // what the real node records at; slices are sized for it
+
+// The sample recordings the demo offers. `file` names what you drop into
+// assets/audio/ — see the README there. Entries whose file is absent are hidden,
+// so this list is a menu of what the demo *can* show, not a promise that it will.
+//
+// The second entry deliberately carries damage. A recording with a hole in it
+// plays as perfectly continuous sound, and the warning the dashboard puts above
+// it is the only thing that tells a listener not to trust the join — so the demo
+// shows that state rather than pretending every session is clean.
+const DEMO_RECORDINGS = [
+  {
+    id: 9001, file: "hive-clean.mp3", hive_index: 1, minutesAgo: 42,
+    seconds: 12.0, dropped_bytes: 0, gaps: 0, clipped_pct: 1, complete: true,
+    crc_ok: true, requested_by: "demo",
+  },
+  {
+    id: 9002, file: "hive-incomplete.mp3", hive_index: 2, minutesAgo: 190,
+    seconds: 9.4, dropped_bytes: 3840, gaps: 2, clipped_pct: 7, complete: false,
+    crc_ok: false, requested_by: "demo",
+  },
+];
+
+// Which sample files are actually present. Resolved once, lazily: a HEAD per
+// candidate on first use, cached thereafter.
+let audioPresence = null;
+async function presentRecordings() {
+  if (!audioPresence) {
+    audioPresence = Promise.all(DEMO_RECORDINGS.map(async (r) => {
+      try {
+        const res = await fetch(AUDIO_DIR + r.file, { method: "HEAD" });
+        return res.ok ? r : null;
+      } catch (_) {
+        return null;  // file:// origins reject HEAD; treat as absent
+      }
+    })).then((rows) => rows.filter(Boolean));
+  }
+  return audioPresence;
+}
+
+function recordingRow(r) {
+  const at = new Date(Date.now() - r.minutesAgo * 60000).toISOString();
+  return {
+    id: r.id, device_id: "demo", hive_index: r.hive_index, status: "ready",
+    requested_at: at, started_at: at, completed_at: at,
+    requested_duration_s: 0, gain_db: 0, sample_rate: AUDIO_RATE,
+    bytes: Math.round(r.seconds * AUDIO_RATE * 2), seconds: r.seconds,
+    dropped_bytes: r.dropped_bytes, gaps: r.gaps, clipped_pct: r.clipped_pct,
+    complete: r.complete, crc_ok: r.crc_ok, error: null,
+    requested_by: r.requested_by,
+  };
+}
+
+// ── The simulated live session ─────────────────────────────────────────────
+//
+// Decode a sample file to 16-bit PCM once, then hand it back at the rate the
+// node would have produced it. The panel polls by byte offset and stops when
+// the recording reports "ready" with nothing left, so honouring those two
+// signals is all it takes to drive the real UI end to end.
+let livePcm = null;      // Int16Array of the decoded sample
+let liveSession = null;  // { id, startedAt }
+
+async function decodeSample() {
+  if (livePcm) return livePcm;
+  const rows = await presentRecordings();
+  if (!rows.length) return null;
+  const res = await fetch(AUDIO_DIR + rows[0].file);
+  if (!res.ok) return null;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const buf = await new Ctx().decodeAudioData(await res.arrayBuffer());
+  const src = buf.getChannelData(0);
+  const out = new Int16Array(src.length);
+  for (let i = 0; i < src.length; i++) {
+    const v = Math.max(-1, Math.min(1, src[i]));
+    out[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+  }
+  livePcm = out;
+  return livePcm;
+}
+
+// How many PCM bytes "exist" this many ms into the simulated session. The
+// sample loops, so a 12-second file still supports the full 60-second cap the
+// real node enforces.
+function liveBytesAt(ms) {
+  return Math.floor((ms / 1000) * AUDIO_RATE) * 2;
+}
+
 const demoErr = () =>
   Promise.reject(new Error("This is a read-only demo — firmware and calibration actions are disabled."));
 
@@ -302,4 +411,79 @@ export const api = {
     Promise.reject(new Error("This is a read-only demo — publishing needs a HiveHub server.")),
   updatePublishedChart: demoErr,
   deletePublishedChart: demoErr,
+
+  // ── Hive audio ───────────────────────────────────────────────────────────
+
+  // Shaped exactly like the server's: { recordings: [...] }. The panel reads
+  // res.recordings, so a bare array here would read as "no recordings" forever.
+  listRecordings: async () => ({
+    recordings: (await presentRecordings()).map(recordingRow),
+  }),
+
+  recording: async (id) => {
+    if (liveSession && id === liveSession.id) {
+      const elapsed = Date.now() - liveSession.startedAt;
+      // The real node stops itself at 60 s; the simulation ends at the same
+      // point, so the "keep listening?" prompt fires exactly as it would.
+      const done = elapsed >= 60000;
+      return {
+        id, device_id: "demo", hive_index: liveSession.hive, status: done ? "ready" : "streaming",
+        requested_at: new Date(liveSession.startedAt).toISOString(),
+        requested_duration_s: 0, gain_db: 0, sample_rate: AUDIO_RATE,
+        bytes: liveBytesAt(Math.min(elapsed, 60000)), seconds: Math.min(elapsed, 60000) / 1000,
+        dropped_bytes: 0, gaps: 0, clipped_pct: 0, complete: done, crc_ok: true,
+        error: null, requested_by: "demo",
+      };
+    }
+    const rows = await presentRecordings();
+    const row = rows.find((r) => r.id === id);
+    if (!row) throw new Error("recording not found");
+    return recordingRow(row);
+  },
+
+  requestRecording: async () => {
+    const pcm = await decodeSample();
+    if (!pcm) {
+      // Honest refusal rather than a session that plays nothing: the demo needs
+      // a sample file before it can pretend to hear a hive.
+      throw new Error(
+        "This demo has no sample audio yet — add a file to "
+        + "website/dashboard-demo/assets/audio/ (see the README there).");
+    }
+    liveSession = { id: 9100 + (Date.now() % 800), startedAt: Date.now(), hive: 1 };
+    return { id: liveSession.id, status: "requested", hive_index: 1, duration_s: 0 };
+  },
+
+  recordingPcm: async (id, offset) => {
+    if (!liveSession || id !== liveSession.id) {
+      return { bytes: null, nextOffset: offset, status: "ready" };
+    }
+    const pcm = await decodeSample();
+    const elapsed = Math.min(Date.now() - liveSession.startedAt, 60000);
+    const available = liveBytesAt(elapsed);
+    if (!pcm || offset >= available) {
+      // 204 in the real API: nothing new yet, which is the common answer while
+      // polling and is not an error.
+      return { bytes: null, nextOffset: offset, status: "streaming" };
+    }
+    const out = new Int16Array((available - offset) / 2);
+    const total = pcm.length;
+    for (let i = 0; i < out.length; i++) {
+      out[i] = pcm[(offset / 2 + i) % total];  // loop the sample past its end
+    }
+    return {
+      bytes: out.buffer,
+      nextOffset: available,
+      status: elapsed >= 60000 ? "ready" : "streaming",
+    };
+  },
+
+  recordingWavUrl: (id) => {
+    const row = DEMO_RECORDINGS.find((r) => r.id === id);
+    return row ? AUDIO_DIR + row.file : "";
+  },
+
+  deleteRecording: () =>
+    Promise.reject(new Error(
+      "This is a read-only demo — deleting a recording needs a HiveHub server.")),
 };

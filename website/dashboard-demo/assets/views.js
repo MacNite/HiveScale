@@ -3,7 +3,7 @@
 // the admin action callbacks (see app.js buildState()).
 
 import { el, fmt, fmtInt, isNum, relAge, latestOf, sevClass, fmtDateTime, DASH } from "./format.js";
-import { drawLineChart, drawSpectrumChart, seriesFrom, dailyMaxSeries, valueAt, PALETTE, withAlpha } from "./charts.js";
+import { drawLineChart, drawSpectrumChart, seriesFrom, dailyMaxSeries, valueAt, PALETTE, bandColor, CONTEXT_COLOR, withAlpha } from "./charts.js";
 import { isSupported as pushSupported, isSubscribed as pushIsSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from "./push.js";
 
 // Pull the firmware version out of a build artifact's filename so the upload
@@ -98,12 +98,45 @@ let cursorBandByGroup = Object.create(null);
 let sendIntervalMs = null;
 const DEFAULT_SEND_INTERVAL_S = 600;
 
+// Inspection windows shaded behind every line chart on the current view, as
+// { start, end } epoch millis (end null = still open). See drawInspectionBands.
+//
+// Only populated while ONE device is charted. A comparison spanning several
+// hubs would have to shade each hub's windows across a plot whose series come
+// from all of them, and a band that means "hive 3 on the other hub was open"
+// drawn under this hub's weight trace is worse than no band at all — it invites
+// exactly the wrong conclusion about the step it sits next to.
+let chartInspections = [];
+
 // Called by app.js before rendering a view so charts know the active device's
-// send interval (see the "Send interval (s)" field on the device/admin page).
+// send interval (see the "Send interval (s)" field on the device/admin page)
+// and which stretches of the range were inspections.
 export function configureCharts(state) {
   const raw = Number(state?.config?.send_interval_seconds);
   const seconds = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_SEND_INTERVAL_S;
   sendIntervalMs = seconds * 1000;
+  chartInspections = state?.multiDevice ? [] : inspectionWindows(state?.inspections);
+}
+
+// Map the API's inspection records onto the { start, end } pairs the chart
+// draws. Unparseable timestamps are dropped rather than drawn at the epoch,
+// where they would shade the entire chart.
+export function inspectionWindows(rows) {
+  if (!Array.isArray(rows)) return [];
+  const out = [];
+  for (const r of rows) {
+    const start = Date.parse(r?.started_at);
+    if (!Number.isFinite(start)) continue;
+    const end = r?.ended_at ? Date.parse(r.ended_at) : null;
+    out.push({
+      start,
+      end: Number.isFinite(end) ? end : null,
+      id: r?.id ?? null,
+      note: r?.note || "",
+      hives: Array.isArray(r?.hives) ? r.hives : null,
+    });
+  }
+  return out;
 }
 
 export function clearCharts() { activeCharts = []; }
@@ -450,13 +483,31 @@ function chartCard(title, sub, series, opts = {}) {
   // Dash segments that span a data gap (see drawLineChart). sendIntervalMs is
   // only a fallback cadence; the test adapts to each series' own spacing, so
   // even coarse charts (e.g. daily-max) flag only genuinely missing stretches.
-  const chart = { canvas, series, opts: { ...opts, sendIntervalMs }, legendItems, hint, prefs };
+  // inspections default to the view's windows; a caller may override (or pass
+  // [] to opt a chart out — the hub-level power/network charts, whose sensors an
+  // inspection does not touch, have nothing to shade).
+  const chart = {
+    canvas, series, legendItems, hint, prefs,
+    opts: { inspections: chartInspections, ...opts, sendIntervalMs },
+  };
+  // A shaded band with nothing naming it is just an unexplained smudge, so a
+  // chart that has any inspection window to draw says so in its legend.
+  const inspLegend = chart.opts.inspections && chart.opts.inspections.length
+    ? el("span", { class: "lg lg-static", title: "Readings taken while the hive was open are not charted" },
+        el("span", { class: "swatch swatch-inspection" }), "Inspection")
+    : null;
   const legend = el("div", { class: "chart-legend" }, ...legendItems.map((li) => li.item),
+    inspLegend,
     series.length ? chartTools(chart, title, hint) : null);
   activeCharts.push(chart);
   if (series.length) attachChartCursor(chart);
+  // opts.hiveColor: a chart whose series are measures rather than hives (the
+  // band charts) carries the hive's identity in its heading instead, with the
+  // same swatch colour its chip has in the top bar.
   return el("div", { class: "card chart-card" },
-    el("h2", {}, title),
+    el("h2", {},
+      opts.hiveColor ? el("span", { class: "hive-swatch", style: `background:${opts.hiveColor}` }) : null,
+      title),
     sub ? el("p", { class: "card-sub" }, sub) : null,
     series.length ? legend : null,
     wrap);
@@ -905,8 +956,12 @@ function renderOverview(root, state) {
   const statusCard = el("div", { class: "card" },
     el("div", { class: "spread" },
       el("h2", {}, "Status"),
-      el("span", { class: `badge ${m.calibration_mode ? "warn" : "good"}` },
-        m.calibration_mode ? "Calibration mode" : "Live")),
+      // Inspection outranks calibration in the badge: it is the one that
+      // explains why this device's hive readings are missing right now, which
+      // is the question someone looking at a blank tile is asking.
+      el("span", { class: `badge ${m.inspection || m.calibration_mode ? "warn" : "good"}` },
+        m.inspection ? "Inspection in progress"
+          : m.calibration_mode ? "Calibration mode" : "Live")),
     el("p", { class: "card-sub" },
       ins ? `${ins.alert_count || 0} active insight${(ins.alert_count || 0) === 1 ? "" : "s"}` : ""),
     el("div", { class: "rows" },
@@ -960,6 +1015,15 @@ function tsView(title, desc, state, { cards = [], charts = [] }) {
   if (cards.length) root.append(el("div", { class: "grid" }, ...cards));
   if (charts.length) root.append(el("div", { class: "grid wide", style: "margin-top:1rem" }, ...charts));
   return root;
+}
+
+// A folded-away block of charts (progressive disclosure: the expert view sits
+// under the everyday one). A canvas inside a closed <details> has no layout, so
+// it would draw at the fallback width and keep it — redraw once it opens.
+function foldedCharts(title, ...cards) {
+  const panel = collapsible(title, false, el("div", { class: "grid wide" }, ...cards));
+  panel.addEventListener("toggle", () => { if (panel.open) requestAnimationFrame(drawCharts); });
+  return panel;
 }
 
 function renderTemperature(root, state) {
@@ -1070,12 +1134,348 @@ function renderAudio(root, state) {
     chartCard("Peak level", "Per-hive microphone peak", peak, { unit: "dBFS", yDigits: 0 }),
   ];
   root.append(tsView("Audio", "Hive sound levels", state, { cards, charts }));
+  root.append(liveAudioPanel(state));
 }
 
+// ── Live hive audio (issue #71) ────────────────────────────────────────────
+//
+// Two things share one panel: listening to a hive right now, and playing back
+// sessions somebody recorded earlier. They are the same recordings — a live
+// session is simply one that is still being written — which is why the dropdown
+// lists everything and the player switches between raw PCM (in flight) and a
+// WAV (finished).
+//
+// The shape of the feature is dictated by two facts that cannot be designed
+// away. The hub deep-sleeps and only collects commands on its next wake, so
+// pressing Listen cannot be instant and the UI must say what it is waiting for.
+// And the node caps every session at 60 seconds, so "keep listening" is not a
+// longer session but another one — which is exactly why the hub holds its cycle
+// open briefly after each (see HIVEINSIDE_AUDIO_FOLLOWUP_MS).
+const AUDIO_SAMPLE_RATE = 16000;
+const AUDIO_POLL_MS = 250;
+// Ask before the node's own cap, so the next session is queued while the hub is
+// still awake in its follow-up window rather than after it has gone back to sleep.
+const AUDIO_CONTINUE_PROMPT_S = 50;
+
+const liveAudio = {
+  recordingId: null,
+  hive: null,
+  deviceId: null,
+  offset: 0,
+  ctx: null,
+  nextStart: 0,
+  timer: null,
+  status: "",
+  startedAt: 0,
+  carry: null,       // odd trailing byte held back so samples stay aligned
+  error: "",
+  promptShown: false,
+  onChange: null,
+};
+
+function audioStopLive(message = "") {
+  if (liveAudio.timer) { clearTimeout(liveAudio.timer); liveAudio.timer = null; }
+  if (liveAudio.ctx) {
+    // close() rather than suspend(): a live session is over, and holding an
+    // AudioContext open keeps the tab's audio hardware awake for nothing.
+    try { liveAudio.ctx.close(); } catch (_) { /* already closed */ }
+    liveAudio.ctx = null;
+  }
+  liveAudio.recordingId = null;
+  liveAudio.offset = 0;
+  liveAudio.carry = null;
+  liveAudio.promptShown = false;
+  liveAudio.status = message;
+  if (liveAudio.onChange) liveAudio.onChange();
+}
+
+// Queue one PCM slice for playback. Buffers are scheduled back to back off a
+// running clock rather than played on arrival, because arrival is bursty (one
+// poll can carry a second of audio) and playing them "now" would overlap them.
+function audioPlaySlice(buf) {
+  if (!liveAudio.ctx || !buf || !buf.byteLength) return;
+  let bytes = new Uint8Array(buf);
+  if (liveAudio.carry) {
+    const joined = new Uint8Array(liveAudio.carry.length + bytes.length);
+    joined.set(liveAudio.carry, 0);
+    joined.set(bytes, liveAudio.carry.length);
+    bytes = joined;
+    liveAudio.carry = null;
+  }
+  // A slice can end mid-sample; carrying the odd byte to the next poll keeps
+  // every frame aligned. Dropping it instead would shift the whole rest of the
+  // stream by one byte and turn the audio into noise.
+  if (bytes.length % 2) {
+    liveAudio.carry = bytes.slice(bytes.length - 1);
+    bytes = bytes.slice(0, bytes.length - 1);
+  }
+  if (!bytes.length) return;
+
+  const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
+  const audioBuf = liveAudio.ctx.createBuffer(1, pcm.length, AUDIO_SAMPLE_RATE);
+  const channel = audioBuf.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+
+  const src = liveAudio.ctx.createBufferSource();
+  src.buffer = audioBuf;
+  src.connect(liveAudio.ctx.destination);
+  const now = liveAudio.ctx.currentTime;
+  // Re-seed the clock after a stall: without this, audio that arrived late
+  // would be scheduled in the past and dropped silently.
+  if (liveAudio.nextStart < now + 0.05) liveAudio.nextStart = now + 0.15;
+  src.start(liveAudio.nextStart);
+  liveAudio.nextStart += audioBuf.duration;
+}
+
+async function audioPoll(state, repaint) {
+  if (!liveAudio.recordingId) return;
+  const id = liveAudio.recordingId;
+  try {
+    const rec = await state.actions.recording(id);
+    liveAudio.status = rec.status;
+    if (rec.status === "failed") {
+      audioStopLive(rec.error || "the hive could not be recorded");
+      liveAudio.error = rec.error || "recording failed";
+      repaint();
+      return;
+    }
+    if (rec.status !== "requested") {
+      const slice = await state.actions.recordingPcm(id, liveAudio.offset);
+      if (slice.bytes) {
+        if (!liveAudio.startedAt) liveAudio.startedAt = Date.now();
+        audioPlaySlice(slice.bytes);
+        liveAudio.offset = slice.nextOffset;
+      }
+      if (rec.status === "ready" && liveAudio.offset >= (rec.bytes || 0)) {
+        // Everything recorded has been queued for playback; the session itself
+        // ended some seconds ago.
+        audioStopLive("");
+        repaint();
+        return;
+      }
+    }
+  } catch (err) {
+    audioStopLive(err.message || "lost contact with the server");
+    liveAudio.error = err.message || "lost contact with the server";
+    repaint();
+    return;
+  }
+  repaint();
+  liveAudio.timer = setTimeout(() => audioPoll(state, repaint), AUDIO_POLL_MS);
+}
+
+function audioElapsedS() {
+  return liveAudio.startedAt ? Math.round((Date.now() - liveAudio.startedAt) / 1000) : 0;
+}
+
+function recordingOptionLabel(rec) {
+  const when = fmtDateTime(rec.requested_at);
+  const secs = rec.seconds ? `${rec.seconds.toFixed(1)}s` : "—";
+  const flag = rec.status === "ready" ? (rec.complete ? "" : " ⚠") : ` · ${rec.status}`;
+  return `${when} · hive ${rec.hive_index} · ${secs}${flag}`;
+}
+
+function liveAudioPanel(state) {
+  const body = el("div", {});
+  const panel = collapsible("Listen to a hive", false, body);
+  const isAdmin = state.authUser?.role === "admin";
+  const deviceId = state.deviceId;
+  const hives = availableHives(state);
+  let recordings = [];
+  let selectedId = null;
+  let loading = true;
+
+  const paint = () => {
+    const kids = [];
+    kids.push(el("p", { class: "note" },
+      "Ask a hive's HiveInside node for live audio, or play a session recorded "
+      + "earlier. Requests reach the hub on its next wake, so listening starts "
+      + "within one reporting interval rather than immediately."));
+
+    if (liveAudio.error) {
+      kids.push(el("div", { class: "card" },
+        el("h2", {}, "Audio unavailable"), el("p", { class: "note" }, liveAudio.error)));
+    }
+
+    // ── Live controls ─────────────────────────────────────────────────────
+    const controls = el("div", { class: "row" });
+    const hiveSel = el("select", { class: "full" },
+      ...hives.map((h) => el("option", { value: String(h) }, hiveLabel(state, h))));
+    if (liveAudio.hive) hiveSel.value = String(liveAudio.hive);
+
+    const listening = !!liveAudio.recordingId;
+    const listenBtn = el("button", {
+      class: listening ? "btn danger" : "btn",
+      disabled: (!isAdmin || !hives.length) ? "disabled" : null,
+      onclick: async () => {
+        if (listening) { audioStopLive(""); paint(); return; }
+        liveAudio.error = "";
+        try {
+          const hive = Number(hiveSel.value);
+          // The AudioContext must be created inside the click: browsers refuse
+          // to start audio that no user gesture asked for.
+          liveAudio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          liveAudio.nextStart = 0;
+          const rec = await state.actions.requestRecording({ hive, durationS: 0 });
+          liveAudio.recordingId = rec.id;
+          liveAudio.deviceId = deviceId;
+          liveAudio.hive = hive;
+          liveAudio.offset = 0;
+          liveAudio.startedAt = 0;
+          liveAudio.status = "requested";
+          liveAudio.promptShown = false;
+          paint();
+          audioPoll(state, paint);
+        } catch (err) {
+          audioStopLive("");
+          liveAudio.error = err.message || "could not request audio";
+          paint();
+        }
+      },
+    }, listening ? "Stop listening" : "🎧 Listen live");
+
+    controls.append(hiveSel, listenBtn);
+    if (!isAdmin) {
+      controls.append(el("span", { class: "note" },
+        "An administrator can start a recording."));
+    }
+
+    let statusLine = "";
+    if (listening) {
+      statusLine = liveAudio.status === "requested"
+        ? "Waiting for the hub to wake and pick up the request…"
+        : `Listening · ${audioElapsedS()}s of up to 60s`;
+    }
+    const liveCard = el("div", { class: "card" },
+      el("h2", {}, "Live"),
+      controls,
+      statusLine ? el("p", { class: "note" }, statusLine) : null);
+    kids.push(liveCard);
+
+    // The node stops itself at 60 s. Ask before that so the next session is
+    // queued while the hub is still awake in its follow-up window — after it
+    // sleeps, continuing would cost a whole reporting interval again.
+    if (listening && !liveAudio.promptShown && audioElapsedS() >= AUDIO_CONTINUE_PROMPT_S) {
+      liveAudio.promptShown = true;
+      setTimeout(() => {
+        if (!liveAudio.recordingId) return;
+        if (window.confirm("This session stops at 60 seconds. Keep listening?")) {
+          const hive = liveAudio.hive;
+          state.actions.requestRecording({ hive, durationS: 0 })
+            .then((rec) => {
+              // Same context, new recording: playback continues seamlessly
+              // across the session boundary.
+              liveAudio.recordingId = rec.id;
+              liveAudio.offset = 0;
+              liveAudio.startedAt = Date.now();
+              liveAudio.promptShown = false;
+              paint();
+            })
+            .catch((err) => {
+              liveAudio.error = err.message || "could not continue listening";
+              audioStopLive("");
+              paint();
+            });
+        } else {
+          audioStopLive("");
+          paint();
+        }
+      }, 0);
+    }
+
+    // ── Earlier sessions ──────────────────────────────────────────────────
+    const histCard = el("div", { class: "card" }, el("h2", {}, "Earlier sessions"));
+    if (loading) {
+      histCard.append(el("p", { class: "muted-text" }, "Loading…"));
+    } else if (!recordings.length) {
+      histCard.append(el("p", { class: "note" }, "No recordings yet."));
+    } else {
+      const sel = el("select", { class: "full", onchange: (e) => {
+        selectedId = Number(e.target.value); paint();
+      } }, ...recordings.map((r) =>
+        el("option", { value: String(r.id) }, recordingOptionLabel(r))));
+      if (selectedId == null) selectedId = recordings[0].id;
+      sel.value = String(selectedId);
+      histCard.append(sel);
+
+      const rec = recordings.find((r) => r.id === selectedId);
+      if (rec && rec.status === "ready" && rec.bytes > 0) {
+        histCard.append(el("audio", { controls: "controls", preload: "none",
+                                      src: state.actions.recordingWavUrl(rec.id) }));
+        if (!rec.complete) {
+          // Said plainly rather than left to be noticed: a spliced recording
+          // sounds continuous, and an acoustic judgement made on one is wrong
+          // in a way nothing later reveals.
+          const why = [];
+          if (rec.dropped_bytes) why.push(`${rec.dropped_bytes} B dropped by the node`);
+          if (rec.gaps) why.push(`${rec.gaps} gap(s) in transit`);
+          if (!rec.crc_ok) why.push("checksum mismatch");
+          histCard.append(el("p", { class: "note warn" },
+            `Incomplete recording — ${why.join(", ") || "audio is missing"}. `
+            + "Audio either side of a gap is real, but the join is not."));
+        }
+        if (rec.clipped_pct >= 5) {
+          histCard.append(el("p", { class: "note" },
+            `${rec.clipped_pct}% of samples clipped — lower the gain for a cleaner recording.`));
+        }
+      } else if (rec) {
+        histCard.append(el("p", { class: "note" },
+          rec.status === "failed" ? (rec.error || "This recording failed.")
+                                  : `Status: ${rec.status}`));
+      }
+
+      if (rec && isAdmin) {
+        histCard.append(el("button", {
+          class: "btn danger",
+          onclick: async () => {
+            if (!window.confirm("Delete this recording? Nothing else ever will — "
+                                + "there is no automatic clean-up.")) return;
+            try {
+              await state.actions.deleteRecording(rec.id);
+              recordings = recordings.filter((r) => r.id !== rec.id);
+              selectedId = recordings.length ? recordings[0].id : null;
+              paint();
+            } catch (err) {
+              liveAudio.error = err.message || "could not delete the recording";
+              paint();
+            }
+          },
+        }, "Delete"));
+      }
+    }
+    kids.push(histCard);
+
+    body.replaceChildren(...kids.filter(Boolean));
+  };
+
+  paint();
+  state.actions.listRecordings()
+    .then((res) => { recordings = res.recordings || []; loading = false; paint(); })
+    .catch((err) => {
+      loading = false;
+      liveAudio.error = err.message || "could not list recordings";
+      paint();
+    });
+  return panel;
+}
+
+// The five microphone FFT bands, low → high. This is an ORDERED scale, not a set
+// of independent categories: swapping two entries would change what the chart
+// says. So the bands are drawn in the ordinal ramp (bandColor) and the hive keeps
+// the categorical palette — see the note above renderFrequency. The Hz ranges
+// mirror firmware/include/mics.h and server/insights.py; keep them in sync. They
+// are carried in the series label because "Piping" alone means nothing to a
+// beekeeper who has not read the docs, while "Piping · 300–550 Hz" teaches the
+// band every time the legend is read. The short label is used on its own for the
+// spectrum chart's x-axis, where there is no room for the range.
 const BANDS = [
-  ["sub_bass", "Sub-bass"], ["hum", "Hum"], ["piping", "Piping"],
-  ["stress", "Stress"], ["high", "High"],
+  ["sub_bass", "Sub-bass", "50–150 Hz"],
+  ["hum", "Hum", "150–300 Hz"],
+  ["piping", "Piping", "300–550 Hz"],
+  ["stress", "Stress", "550–1500 Hz"],
+  ["high", "High", "1.5–3 kHz"],
 ];
+const bandLabel = ([, label, hz]) => `${label} · ${hz}`;
 
 // Max spectrum lines drawn per chart. Measurements can arrive every few
 // seconds, so plotting one line per row over a multi-day range would be an
@@ -1238,25 +1638,55 @@ function hiveheartBandMinMax(measurements, key) {
   return stats.map((s) => (s.min === Infinity ? null : s));
 }
 
+// Which dimension gets a colour and which gets its own chart is the same
+// decision on this page and on Vibration, and both answer it the same way: the
+// bands share a unit and are read against each other at a moment ("is piping
+// high relative to hum right now?"), which one shared chart does best, while
+// hives are compared across a whole range, which separate charts do best. So
+// every band of one hive goes on one chart, and each hive gets its own — the
+// hive's identity riding on the chart title and its palette dot rather than on
+// the series colours. The spectrum profile answers a different question (the
+// shape of the sound, rather than its history) and is kept below, folded away.
+function bandTimeChart(state, ref, hiveColor) {
+  const series = BANDS.map((band, i) =>
+    seriesCoalesce(ref.measurements, micKeys(ref.hive, `band_${band[0]}_dbfs`),
+      bandLabel(band), bandColor(i, BANDS.length)));
+  if (!series.some((s) => s.points.length)) return null;
+  return chartCard(`Frequency bands — ${refLabel(state, ref)}`,
+    "Loudness in each band over the selected range. Higher is louder; bands run low to high in one colour. Click a band in the legend to hide it.",
+    series, { unit: "dBFS", yDigits: 0, hiveColor });
+}
+
 function renderFrequency(root, state) {
   const refs = selectedRefs(state);
   const categories = BANDS.map(([, label]) => label);
   const charts = [];
   let micCharts = 0;
+  // Time first: the question a beekeeper actually arrives with is "has anything
+  // changed this week", and only a time axis answers it.
   refs.forEach((ref, i) => {
-    const keysList = BANDS.map(([k]) => micKeys(ref.hive, `band_${k}_dbfs`));
-    const snapshots = spectrumSnapshots(ref.measurements, keysList);
-    if (snapshots.length) {
-      micCharts++;
-      const bandStats = bandMinMax(ref.measurements, keysList);
-      charts.push(spectrumChartCard(`Frequency bands — ${refLabel(state, ref)}`,
-        "FFT energy by band, like a spectrum analyzer — the bold line is the latest reading, fainter lines are earlier ones",
-        categories, snapshots, bandStats, paletteColor(i), { unit: "dBFS", yDigits: 0 }));
-    }
+    const chart = bandTimeChart(state, ref, paletteColor(i));
+    if (chart) { micCharts++; charts.push(chart); }
   });
   if (!micCharts) {
     charts.push(el("div", { class: "card" }, el("p", { class: "muted-text" }, "No frequency-band data reported by this device.")));
   }
+
+  // The spectrum profile answers the other question — the shape of the sound
+  // right now, rather than how it got there — so it stays on the page, folded
+  // below the time charts. It encodes age as fadedness, which carries no scale a
+  // reader can decode, and that is exactly why it is the second view: a rising
+  // band or a one-day spike is invisible in it.
+  const profile = [];
+  refs.forEach((ref, i) => {
+    const keysList = BANDS.map(([key]) => micKeys(ref.hive, `band_${key}_dbfs`));
+    const snapshots = spectrumSnapshots(ref.measurements, keysList);
+    if (!snapshots.length) return;
+    const bandStats = bandMinMax(ref.measurements, keysList);
+    profile.push(spectrumChartCard(`Spectrum profile — ${refLabel(state, ref)}`,
+      "FFT energy by band, like a spectrum analyzer — the bold line is the latest reading, fainter lines are earlier ones",
+      categories, snapshots, bandStats, paletteColor(i), { unit: "dBFS", yDigits: 0 }));
+  });
 
   // HiveHeart in-hive spectrum. Rendered as a separate 16-range diagram on its
   // own 0–15 relative-level axis (HiveHeart levels are not dBFS). Only shown when
@@ -1277,18 +1707,167 @@ function renderFrequency(root, state) {
         const freqHz = latestHiveheartFreq(ref);
         const markerIndex = hiveheartFreqToIndex(freqHz);
         if (markerIndex != null) opts.marker = { index: markerIndex, label: `${Math.round(freqHz)} Hz` };
-        charts.push(spectrumChartCard(`HiveHeart spectrum — ${refLabel(state, ref)}`,
+        profile.push(spectrumChartCard(`HiveHeart spectrum — ${refLabel(state, ref)}`,
           "HiveHeart in-hive FFT — 16 frequency ranges (Hz), relative level 0–15 (not dBFS); bold line is the latest reading, fainter lines are earlier ones. The dashed pink marker is HiveHeart's reported peak frequency; the Sub-bass/Hum/Piping/Stress headings are approximate and span several ranges",
           HIVEHEART_FFT_LABELS, snaps, bandStats, paletteColor(i), opts));
       } else {
-        charts.push(el("div", { class: "card" },
+        profile.push(el("div", { class: "card" },
           el("h2", {}, `HiveHeart spectrum — ${refLabel(state, ref)}`),
           el("p", { class: "muted-text" }, "No HiveHeart FFT data for this hive.")));
       }
     });
   }
 
-  root.append(tsView("Frequency bands", "FFT energy by acoustic band", state, { charts }));
+  const node = tsView("Frequency bands",
+    "Microphone FFT energy per band, in dBFS — louder is higher up the axis", state, { charts });
+  if (profile.length) node.append(foldedCharts("Spectrum profile", ...profile));
+  root.append(node);
+}
+
+// ── VIBRATION / ACCELERATION ─────────────────────────────────────────────────
+// In-hive vibration from the paired BLE sensor, all values in milli-g and all AC
+// (gravity removed). A HiveInside node computes the three bands plus broadband
+// RMS/peak on-device; a passive HolyIot/RuuviTag beacon can only send a
+// single-shot magnitude, so it fills rms/peak and leaves the bands null (see
+// docs/accelerometer.md).
+//
+// Laid out exactly like the Frequency bands page, and for the same reason: the
+// bands share a unit and are read against each other, so they share a chart in
+// the ordinal ramp, and each hive gets its own chart tagged with its palette
+// colour. The two acoustic pages are read one after the other — the vibration
+// bands pick up below 50 Hz where the microphones stop — so they should not need
+// two different reading habits.
+//
+// Ordered low → high, like the microphone bands. Ranges mirror
+// server/insights.py and docs/accelerometer.md.
+const ACCEL_BANDS = [
+  { key: "band_swarm_mg", label: "Pre-swarm", hz: "8–30 Hz" },
+  { key: "band_fanning_mg", label: "Fanning", hz: "30–100 Hz" },
+  { key: "band_activity_mg", label: "Activity", hz: "100–200 Hz" },
+];
+
+// Raw per-axis values a HolyIot / RuuviTag beacon reports next to its magnitude.
+// Unlike the accel_* bands these are absolute (gravity included), so they read
+// as orientation rather than vibration.
+const ACCEL_AXES = [["x", "X"], ["y", "Y"], ["z", "Z"]];
+
+// Latest reported accel_{hive}_{suffix} for a ref, under the shared last known
+// value rule (see refReading): a hive whose sensor was not heard during the last
+// cycle still shows its last value, while one silent for days reads as a dash
+// instead of reporting a fault as healthy.
+function accelLatest(ref, suffix) {
+  return refReading(ref, `accel_${ref.hive}_${suffix}`);
+}
+
+// Per-hive sensor health and capture settings, for the hives that report them.
+// Returns null when no selected hive has any diagnostics, so the card is simply
+// left out instead of rendering an empty shell.
+function accelDiagnosticsCard(state, refs) {
+  const rows = [];
+  for (const ref of refs) {
+    const ok = accelLatest(ref, "ok")?.value ?? null;
+    const rate = accelLatest(ref, "sample_rate_hz")?.value ?? null;
+    const count = accelLatest(ref, "sample_count")?.value ?? null;
+    const range = accelLatest(ref, "range_g")?.value ?? null;
+    if (ok == null && rate == null && count == null && range == null) continue;
+    const bits = [];
+    if (isNum(rate)) bits.push(`${fmtInt(rate)} Hz`);
+    if (isNum(count)) bits.push(`${fmtInt(count)} samples`);
+    if (isNum(range)) bits.push(`±${fmtInt(range)} g`);
+    rows.push([refLabel(state, ref), el("span", {},
+      ok == null ? null : el("span", { class: `badge ${ok ? "good" : "danger"}` }, ok ? "OK" : "Fault"),
+      bits.length ? ` ${bits.join(" · ")}` : null)]);
+  }
+  return rows.length ? rowsCard("Vibration sensor", rows) : null;
+}
+
+// One hive's vibration chart: the three bands in the ordinal ramp plus the
+// broadband RMS behind them in grey, because RMS is the total those bands are
+// part of — context, not a fourth band. A hive on a passive beacon has no bands
+// at all, so there RMS becomes the subject and takes a ramp colour instead of
+// the grey. Returns null when the hive has reported nothing.
+function vibrationChart(state, ref, hiveColor) {
+  const bands = ACCEL_BANDS.map((band, i) =>
+    seriesFrom(ref.measurements, `accel_${ref.hive}_${band.key}`,
+      `${band.label} · ${band.hz}`, bandColor(i, ACCEL_BANDS.length)));
+  const hasBands = bands.some((s) => s.points.length);
+  const rms = seriesFrom(ref.measurements, `accel_${ref.hive}_rms_mg`,
+    "Broadband RMS", hasBands ? CONTEXT_COLOR : bandColor(0, 1));
+  const series = hasBands ? [...bands, rms] : [rms];
+  if (!series.some((s) => s.points.length)) return null;
+  return chartCard(`Vibration — ${refLabel(state, ref)}`,
+    hasBands
+      ? "Vibration strength in each band over the selected range. Bands run low to high in one colour; the grey line is the broadband total. Click a band in the legend to hide it."
+      : "Broadband vibration strength over the selected range. This sensor reports no frequency bands — see the note above.",
+    series, { unit: "mg", yDigits: 1, hiveColor });
+}
+
+function renderVibration(root, state) {
+  const refs = selectedRefs(state);
+  const hasBands = refs.some((ref) =>
+    ACCEL_BANDS.some((band) => latestOf(ref.measurements, `accel_${ref.hive}_${band.key}`) != null));
+
+  const cards = [];
+  for (const ref of refs) {
+    const swarm = accelLatest(ref, "band_swarm_mg");
+    const rms = accelLatest(ref, "rms_mg");
+    const peak = accelLatest(ref, "peak_mg");
+    if (!isNum(swarm?.value) && !isNum(rms?.value) && !isNum(peak?.value)) continue;
+    // Headline the pre-swarm band where the sensor reports bands at all; a
+    // passive beacon sends only a magnitude, so there the broadband RMS is the
+    // most meaningful number to lead with.
+    cards.push(isNum(swarm?.value)
+      ? metricCard(`${refLabel(state, ref)} swarm band`, readingValue(swarm, 1), "mg",
+          withAge(isNum(rms?.value) ? `Broadband ${fmt(rms.value, 1)} mg` : "8–30 Hz", swarm))
+      : metricCard(`${refLabel(state, ref)} vibration`, readingValue(rms, 1), "mg",
+          withAge(isNum(peak?.value) ? `Peak ${fmt(peak.value, 1)} mg` : "Broadband RMS", rms)));
+  }
+  const diagnostics = accelDiagnosticsCard(state, refs);
+  if (diagnostics) cards.push(diagnostics);
+
+  const charts = [];
+  refs.forEach((ref, i) => {
+    const chart = vibrationChart(state, ref, paletteColor(i));
+    if (chart) charts.push(chart);
+  });
+  // Raw axes, per hive — only for the beacons that send them, and folded away
+  // below: they are absolute values including gravity, on a different scale to
+  // the AC bands, and they answer a different question (has the hive moved).
+  // X/Y/Z is a nominal set, not an ordered one, so it keeps categorical colours.
+  const axisCharts = [];
+  for (const ref of refs) {
+    const axes = ACCEL_AXES.map(([axis, label], i) =>
+      seriesFrom(ref.measurements, `ble_${ref.hive}_accel_${axis}_mg`, `${label} axis`, paletteColor(i)));
+    if (axes.some((s) => s.points.length)) {
+      axisCharts.push(chartCard(`Raw acceleration axes — ${refLabel(state, ref)}`,
+        "Absolute per-axis reading from the BLE sensor, gravity included — a lasting shift means the hive or the sensor moved",
+        axes, { unit: "mg", yDigits: 0 }));
+    }
+  }
+
+  if (!charts.length && !axisCharts.length) {
+    charts.push(el("div", { class: "card" },
+      el("p", { class: "muted-text" },
+        "No vibration data for the selected hives. In-hive vibration comes from a paired BLE sensor: "
+        + "a HiveInside node reports the three frequency bands, a HolyIot/RuuviTag beacon only the broadband level."),
+      el("p", { class: "note" },
+        el("a", {
+          class: "doc-link",
+          href: "https://github.com/MacNite/HiveHub/blob/main/docs/accelerometer.md",
+          target: "_blank", rel: "noopener noreferrer",
+        }, "Vibration monitoring docs"))));
+  } else if (!hasBands) {
+    charts.unshift(el("div", { class: "card" },
+      el("p", { class: "muted-text" },
+        "No frequency bands reported — a passive HolyIot/RuuviTag beacon sends a single broadband magnitude only. "
+        + "Pair a HiveInside node to get the 8–30 Hz pre-swarm band.")));
+  }
+
+  const node = tsView("Vibration",
+    "In-hive vibration in milli-g, from the paired BLE sensor — stronger vibration is higher up the axis",
+    state, { cards, charts });
+  if (axisCharts.length) node.append(foldedCharts("Raw acceleration axes", ...axisCharts));
+  root.append(node);
 }
 
 // Wireless (BLE) in-hive sensors that report their own battery, separate from
@@ -1347,12 +1926,15 @@ function renderBattery(root, state) {
   }
   if (m.battery_alert) cards.push(metricCard("Battery alert", "Active", "", "Low battery warning"));
   const charts = [
+    // No inspection shading on the hub's own power and network charts: these
+    // sensors keep measuring through an inspection and are exactly how you tell
+    // "the beekeeper had the hive open" from "the hub went dark".
     chartCard("Battery", "State of charge and voltage",
-      [socSeries, battVoltSeries], { yDigits: 1, y2Digits: 2 }),
+      [socSeries, battVoltSeries], { yDigits: 1, y2Digits: 2, inspections: [] }),
   ];
   if (hasSolar) {
     charts.push(chartCard("Solar", "Solar power input",
-      [solarPowerSeries, solarCurrentSeries], { yDigits: 0 }));
+      [solarPowerSeries, solarCurrentSeries], { yDigits: 0, inspections: [] }));
   }
 
   const node = el("div", {});
@@ -1401,7 +1983,8 @@ function renderConnectivity(root, state) {
   ];
   const charts = [
     chartCard("Signal strength", "RSSI over the selected range",
-      [seriesFrom(state.measurements, "rssi_dbm", "RSSI", PALETTE[1])], { unit: "dBm", yDigits: 0 }),
+      [seriesFrom(state.measurements, "rssi_dbm", "RSSI", PALETTE[1])],
+      { unit: "dBm", yDigits: 0, inspections: [] }),
   ];
   const node = tsView("Connectivity", "Network and timing health", state, { cards, charts });
   const note = deviceContextNote(state, "Connectivity is per device and is");
@@ -1747,6 +2330,92 @@ function beeCounterNodes(state) {
   return nodes;
 }
 
+// ── Inspection panel (Device & admin → Configuration) ────────────────────────
+// Start/stop an inspection remotely, see whether the hub has picked the request
+// up yet, and annotate the windows already recorded. The note is the half that
+// pays off later: "removed 2 supers" beside a 40 kg step turns an alarming
+// trace into a harvest record.
+function inspectionCard(state) {
+  const rows = Array.isArray(state.inspections) ? state.inspections : [];
+  const open = rows.find((r) => !r.ended_at) || null;
+  // Requested but not yet acknowledged. A hub deep-sleeps between cycles, so
+  // this state lasts up to a whole send interval and showing it as "active"
+  // would claim something that has not happened yet.
+  const pending = !!open && !open.acknowledged_at;
+
+  const badge = el("span", { class: `badge ${open ? (pending ? "muted" : "warn") : "muted"}` },
+    open ? (pending ? "Requested — waiting for the device" : "Inspection active") : "Not inspecting");
+
+  const startBtn = el("button", { class: "btn", type: "button" }, "Start inspection");
+  const stopBtn = el("button", { class: "btn ghost", type: "button" }, "End inspection");
+  startBtn.disabled = !!open;
+  stopBtn.disabled = !open;
+
+  const noteInput = el("input", { type: "text", placeholder: "e.g. removed 2 supers" });
+
+  startBtn.addEventListener("click", async () => {
+    startBtn.disabled = true;
+    try {
+      await state.actions.startInspection({ note: noteInput.value.trim() || null });
+      state.toast("Inspection started — the device applies it on its next check-in", "success");
+      noteInput.value = "";
+      await state.reload({ full: true });
+    } catch (e) { state.toast(e.message, "error"); startBtn.disabled = false; }
+  });
+  stopBtn.addEventListener("click", async () => {
+    stopBtn.disabled = true;
+    try {
+      await state.actions.stopInspection({ note: noteInput.value.trim() || null });
+      state.toast("Inspection ended", "success");
+      noteInput.value = "";
+      await state.reload({ full: true });
+    } catch (e) { state.toast(e.message, "error"); stopBtn.disabled = false; }
+  });
+
+  // The recorded windows, newest first. Capped: this is a control panel, not the
+  // inspection log, and the charts are where a beekeeper actually reads them.
+  const history = rows.slice(0, 8).map((r) => {
+    const when = r.ended_at
+      ? `${fmtDateTime(r.started_at)} → ${fmtDateTime(r.ended_at)}`
+      : `${fmtDateTime(r.started_at)} → now`;
+    const how = r.end_reason === "timeout" ? " · auto-ended (timeout)" : "";
+    const scope = r.hives && r.hives.length
+      ? ` · ${r.hives.map((n) => hiveLabel(state, n)).join(", ")}`
+      : "";
+    const note = el("input", {
+      type: "text", value: r.note || "", placeholder: "Add a note…", class: "insp-note",
+    });
+    // Saved on blur rather than behind a button: a row per inspection with its
+    // own Save would double the panel's controls for a one-field edit.
+    note.addEventListener("change", async () => {
+      try {
+        await state.actions.updateInspection(r.id, { note: note.value.trim() || null });
+        state.toast("Note saved", "success");
+      } catch (e) { state.toast(e.message, "error"); }
+    });
+    return el("div", { class: "insp-row" },
+      el("span", { class: "meta" }, when + scope + how), note);
+  });
+
+  return el("div", { class: "card" },
+    el("div", { class: "spread" }, el("h2", {}, "Inspection"), badge),
+    el("p", { class: "note" },
+      "While an inspection is running the hive's own readings are kept out of the " +
+      "charts, insights and alert rules — a scale with two supers lifted off it is " +
+      "not measuring the colony. Nothing is deleted: the readings stay in the " +
+      "database and in every export. Ambient temperature, battery and signal keep " +
+      "reporting throughout, so you can still see the hub is alive."),
+    el("p", { class: "note" },
+      "The external button on the device does the same thing, and is what a " +
+      "beekeeper standing at the hive should use. This panel is for starting one " +
+      "from indoors — or for ending one somebody forgot."),
+    el("div", { class: "form-row" }, el("label", {}, "Note"), noteInput),
+    el("div", { class: "form-actions" }, startBtn, stopBtn),
+    history.length
+      ? el("div", { class: "insp-history" }, el("h3", {}, "Recent inspections"), ...history)
+      : null);
+}
+
 function renderDevice(root, state) {
   const cfg = state.config || {};
   const fw = state.firmware || {};
@@ -1755,17 +2424,21 @@ function renderDevice(root, state) {
   const devNote = deviceContextNote(state, "These settings apply to");
   if (devNote) node.append(devNote);
 
-  // ── Configuration form ──────────────────────────────────────────────────
-  // General settings + per-scale calibration and temperature compensation (the
-  // old standalone "Temperature compensation" panel is folded in here), plus a
-  // Fit tool that writes its result into the compensation fields for review.
+  // ── Configuration forms ─────────────────────────────────────────────────
+  // Two panels are built from the fields below: "Configuration" (general
+  // settings) and "Scale calibration & compensation" (per-scale calibration,
+  // temperature compensation and the Fit tool that writes its result into the
+  // compensation fields for review). Each has its own Save.
+  // `group` says which of the two forms below owns the field ("general" or
+  // "calibration"), so each Save sends only its own fields — a Save on one
+  // panel must not quietly write what somebody typed on the other.
   const cfgInputs = {};
-  const numInput = (key, isInt) => {
+  const numInput = (key, isInt, group = "general") => {
     const input = el("input", {
       type: "number", step: isInt ? "1" : "any",
       value: cfg[key] != null ? String(cfg[key]) : "",
     });
-    cfgInputs[key] = { input, int: !!isInt };
+    cfgInputs[key] = { input, int: !!isInt, group };
     return input;
   };
   const fieldRow = (label, control) => el("div", { class: "form-row" }, el("label", {}, label), control);
@@ -1806,8 +2479,9 @@ function renderDevice(root, state) {
   const scaleGroups = new Map();
   for (const n of scales) {
     const [offset, factor, tempco] = n <= 2
-      ? [numInput(`scale${n}_offset`, true), numInput(`scale${n}_factor`),
-         numInput(`scale${n}_tempco_kg_per_c`)]
+      ? [numInput(`scale${n}_offset`, true, "calibration"),
+         numInput(`scale${n}_factor`, false, "calibration"),
+         numInput(`scale${n}_tempco_kg_per_c`, false, "calibration")]
       : [hiveScaleInput(n, "offset", true), hiveScaleInput(n, "factor"),
          hiveScaleInput(n, "tempco_kg_per_c")];
     scaleGroups.set(n, el("div", { class: "scale-fields" },
@@ -1850,8 +2524,10 @@ function renderDevice(root, state) {
       if (r.temp_source) tcSource.value = r.temp_source;
       scaleSelect.value = String(n); showScale();
       // The reference temperature is the user's to set: it is the temperature at
-      // which this scale reads true — the one it was tared and spanned at — which
-      // no regression can recover. Report the window's mean instead of writing it.
+      // which this scale reads true — the one it was tared and spanned at — and
+      // no regression can recover that from the data. All the fit can offer is
+      // the mean temperature of the window it looked at, so report that as
+      // information instead of overwriting the field with it.
       const windowMean = fmt(r.ref_temp_c, 2);
       const refNow = cfgInputs.tempco_ref_temp_c
         ? cfgInputs.tempco_ref_temp_c.input.value.trim() : "";
@@ -1869,9 +2545,10 @@ function renderDevice(root, state) {
   });
 
   // ── HiveTraffic night mode ──────────────────────────────────────────────
-  // Mirrors server/dashboard/assets/views.js. Times are entered as local
-  // wall-clock and stored as minutes since midnight; the window may wrap
-  // midnight (20:00 -> 06:00).
+  // A paired bee counter's 48 IR emitters dominate its power draw by an order
+  // of magnitude, and honey bees are diurnal, so the counter can be told to
+  // stop sensing overnight. Times are entered as local wall-clock and stored as
+  // minutes since midnight; the window may wrap midnight (20:00 -> 06:00).
   const minutesToHhmm = (m) => {
     const v = Number(m);
     if (!Number.isFinite(v) || v < 0 || v > 1439) return "";
@@ -1894,8 +2571,10 @@ function renderDevice(root, state) {
     value: String(cfg.beecounter_night_max_traffic ?? 0),
   });
 
-  // A POSIX TZ string rather than an IANA name: the ESP32 carries no tz
-  // database, and newlib parses this form directly, DST rules included.
+  // A POSIX TZ string rather than an IANA name, because the ESP32 has no tz
+  // database — newlib parses this form directly, DST rules included. The
+  // presets cover the common cases; "Custom" exposes the raw field for anyone
+  // who needs a zone that is not listed.
   const TZ_PRESETS = [
     ["", "UTC (no local time)"],
     ["CET-1CEST,M3.5.0,M10.5.0/3", "Central Europe (Berlin, Paris, Madrid)"],
@@ -1920,10 +2599,14 @@ function renderDevice(root, state) {
   const syncTzRow = () => { nmTzCustomRow.hidden = nmTzSelect.value !== "__custom__"; };
   nmTzSelect.addEventListener("change", syncTzRow);
   syncTzRow();
+  const selectedTz = () =>
+    (nmTzSelect.value === "__custom__" ? nmTzCustom.value.trim() : nmTzSelect.value);
 
-  // Mirrors server/dashboard/assets/views.js: its own form in its own top-level
-  // drop-down, because folded into the Configuration grid it sat two levels down
-  // inside a closed <details> where nobody would find it.
+  // Its own form and its own save button, in its own top-level drop-down.
+  // Folded into the Configuration grid it was effectively invisible: that panel
+  // is a <details> closed by default, so the fields sat two levels down behind
+  // scale calibration, where nobody looking for a bee-counter setting would
+  // think to look.
   const nmSaveBtn = el("button", { class: "btn", type: "submit" }, "Save night mode");
   const nmForm = el("form", {},
     el("div", { class: "config-grid" },
@@ -1943,7 +2626,8 @@ function renderDevice(root, state) {
           "The window may cross midnight. Setting both to the same time " +
           "disables it rather than covering the whole day. Leave a margin " +
           "either side of dusk and dawn: activity peaks just before sunset " +
-          "and just before sunrise."),
+          "and just before sunrise, so a window that starts too early loses " +
+          "real foraging on long summer evenings."),
         fieldRow("Timezone", nmTzSelect),
         nmTzCustomRow,
         el("p", { class: "note" },
@@ -1952,11 +2636,58 @@ function renderDevice(root, state) {
         fieldRow("Postpone above (crossings per cycle)", nmMaxTraffic),
         el("p", { class: "note" },
           "If more than this many bees crossed in the last upload cycle, night " +
-          "mode waits for the next one. 0 goes by the clock alone."))),
+          "mode waits for the next one — so a hive still flying at 20:00 in " +
+          "June is not cut off mid-flight. 0 disables the check and goes by " +
+          "the clock alone."))),
     el("p", { class: "note" },
       "Applies to every HiveTraffic counter paired to this device. Saving bumps " +
       "the config version; the counter is told on the next upload cycle."),
     el("div", { class: "form-actions" }, nmSaveBtn));
+
+  nmForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const patch = {};
+    if (nmEnabled.checked !== !!cfg.beecounter_night_mode_enabled) {
+      patch.beecounter_night_mode_enabled = nmEnabled.checked;
+    }
+    // Times are sent as minutes since midnight. An unparseable or empty field is
+    // left out entirely rather than sent as 0, which is not a missing value but
+    // a real and very wrong window (midnight).
+    const startMin = hhmmToMinutes(nmStart.value);
+    if (startMin !== null && startMin !== cfg.beecounter_night_start_minute) {
+      patch.beecounter_night_start_minute = startMin;
+    }
+    const endMin = hhmmToMinutes(nmEnd.value);
+    if (endMin !== null && endMin !== cfg.beecounter_night_end_minute) {
+      patch.beecounter_night_end_minute = endMin;
+    }
+    const maxTraffic = parseInt(nmMaxTraffic.value, 10);
+    if (Number.isFinite(maxTraffic) && maxTraffic >= 0 &&
+        maxTraffic !== cfg.beecounter_night_max_traffic) {
+      patch.beecounter_night_max_traffic = maxTraffic;
+    }
+    const tz = selectedTz();
+    if (tz !== (cfg.timezone || "")) patch.timezone = tz;
+
+    // Enabling a window whose ends are equal would be stored happily and then
+    // refused by the firmware, so the counter would simply never sleep and
+    // nothing anywhere would say why. Catch it at the only point a human is
+    // looking.
+    const finalStart = patch.beecounter_night_start_minute ?? cfg.beecounter_night_start_minute;
+    const finalEnd = patch.beecounter_night_end_minute ?? cfg.beecounter_night_end_minute;
+    if (nmEnabled.checked && finalStart === finalEnd) {
+      state.toast("Night mode start and end are the same — the window would never apply", "error");
+      return;
+    }
+
+    if (!Object.keys(patch).length) { state.toast("No changes to save"); return; }
+    nmSaveBtn.disabled = true;
+    try {
+      await state.actions.updateConfig(patch);
+      state.toast("Night mode saved", "success");
+      state.reload({ full: true });
+    } catch (err) { state.toast(err.message, "error"); nmSaveBtn.disabled = false; }
+  });
 
   // ── HiveTraffic emitter banks ───────────────────────────────────────────
   // The counter's 48 IR emitters sit behind three MOSFETs, one per MCP23017, so
@@ -2041,8 +2772,28 @@ function renderDevice(root, state) {
     } catch (err) { state.toast(err.message, "error"); bankSaveBtn.disabled = false; }
   });
 
-  const cfgSaveBtn = el("button", { class: "btn", type: "submit" }, "Save configuration");
+  // Two forms, two save buttons, two drop-downs. General settings live here;
+  // everything to do with a load cell moved into its own "Scale calibration &
+  // compensation" panel below, because a single Save spanning both put the
+  // calibration fields in view — and one Enter away from being written — every
+  // time somebody opened this panel to change the send interval.
   const metaRow = (k, v) => el("div", { class: "row" }, el("span", { class: "k" }, k), el("span", { class: "v" }, v));
+
+  // The changed numeric fields of one group, as a config patch. Unchanged and
+  // unparseable fields are left out entirely rather than sent as they are.
+  const numericPatch = (group) => {
+    const patch = {};
+    for (const [key, { input, int, group: g }] of Object.entries(cfgInputs)) {
+      if (g !== group) continue;
+      const raw = input.value.trim();
+      if (raw === "") continue;
+      const v = int ? parseInt(raw, 10) : parseFloat(raw);
+      if (!Number.isFinite(v) || v === cfg[key]) continue;
+      patch[key] = v;
+    }
+    return patch;
+  };
+
   const cfgForm = el("form", {},
     el("div", { class: "config-grid" },
       el("div", { class: "config-block" },
@@ -2051,14 +2802,54 @@ function renderDevice(root, state) {
           metaRow("Device ID", state.device?.device_id || DASH),
           metaRow("Config version", cfg.config_version ?? DASH),
           metaRow("Claim code", cfg.claim_code || DASH)),
-        fieldRow("Send interval (s)", numInput("send_interval_seconds", true))),
+        fieldRow("Send interval (s)", numInput("send_interval_seconds", true)),
+        fieldRow("Inspection timeout (min)", numInput("inspection_timeout_minutes", true)),
+        el("p", { class: "note" },
+          "How long an inspection may run before the device ends it by itself. " +
+          "A safety net, not a schedule: without it one forgotten button press " +
+          "blanks this hive's charts indefinitely, which looks exactly like a " +
+          "dead sensor. Raise it for a long session rather than working around it."))));
+
+  // Save sits at the very bottom of the Configuration panel, under the AP,
+  // Calibration and Inspection cards, so the panel ends with its own action
+  // instead of leaving three cards stranded below a button they have nothing to
+  // do with. It is outside the <form> in the DOM, so it submits it explicitly.
+  const cfgSaveBtn = el("button", { class: "btn", type: "button" }, "Save configuration");
+  cfgSaveBtn.addEventListener("click", () => {
+    if (cfgForm.requestSubmit) cfgForm.requestSubmit();
+    else cfgForm.dispatchEvent(new Event("submit", { cancelable: true }));
+  });
+  const cfgFooter = el("div", {},
+    el("p", { class: "note" }, "Saving bumps the config version; the device applies it on its next check-in."),
+    el("div", { class: "form-actions" }, cfgSaveBtn));
+
+  cfgForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const patch = numericPatch("general");
+    if (!Object.keys(patch).length) { state.toast("No changes to save"); return; }
+    cfgSaveBtn.disabled = true;
+    // full: true — a light reload carries the *previous* config over instead of
+    // refetching it, which repainted the form with the pre-save values and left
+    // the config version stale, as if the save had been dropped.
+    try { await state.actions.updateConfig(patch); state.toast("Configuration saved", "success"); state.reload({ full: true }); }
+    catch (err) { state.toast(err.message, "error"); cfgSaveBtn.disabled = false; }
+  });
+
+  // ── Scale calibration & compensation ────────────────────────────────────
+  // Its own top-level drop-down and its own Save, in one column like every
+  // other panel: the per-scale editor is the longest form on this page and the
+  // one a beekeeper touches least often.
+  const calSaveBtn = el("button", { class: "btn", type: "submit" }, "Save calibration");
+  const calForm = el("form", {},
+    el("div", { class: "config-grid" },
+      // No <h3> here: the drop-down's own summary already names this panel, and
+      // repeating it directly underneath reads as a second, nested section.
       el("div", { class: "config-block" },
-        el("h3", {}, "Scale calibration & compensation"),
         fieldRow("Scale", scaleSelect),
         ...scaleGroups.values(),
         el("div", { class: "form-row" }, el("label", {}, el("span", {}, "Enable temperature compensation "), tcEnabled)),
         fieldRow("Tempco source", tcSource),
-        fieldRow("Tempco ref temp (°C)", numInput("tempco_ref_temp_c")),
+        fieldRow("Tempco ref temp (°C)", numInput("tempco_ref_temp_c", false, "calibration")),
         el("p", { class: "note" },
           "The temperature at which this scale reads true — the one it was tared and " +
           "spanned at. The correction is zero there and grows as the temperature moves " +
@@ -2068,19 +2859,12 @@ function renderDevice(root, state) {
           el("div", { class: "form-actions" }, fitBtn)),
         fitOut)),
     el("p", { class: "note" }, "Saving bumps the config version; the device applies it on its next check-in."),
-    el("div", { class: "form-actions" }, cfgSaveBtn));
+    el("div", { class: "form-actions" }, calSaveBtn));
   showScale();
 
-  cfgForm.addEventListener("submit", async (e) => {
+  calForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const patch = {};
-    for (const [key, { input, int }] of Object.entries(cfgInputs)) {
-      const raw = input.value.trim();
-      if (raw === "") continue;
-      const v = int ? parseInt(raw, 10) : parseFloat(raw);
-      if (!Number.isFinite(v) || v === cfg[key]) continue;
-      patch[key] = v;
-    }
+    const patch = numericPatch("calibration");
     // Hives 3+ patch through hive_scales instead of columns. Send an entry only
     // for a hive whose fields actually changed, with all three values, so the
     // server-side merge keeps the rest of that entry intact.
@@ -2101,12 +2885,16 @@ function renderDevice(root, state) {
     if (hiveScales.length) patch.hive_scales = hiveScales;
     if (tcEnabled.checked !== !!cfg.tempco_enabled) patch.tempco_enabled = tcEnabled.checked;
     if (tcSource.value !== cfg.tempco_source) patch.tempco_source = tcSource.value;
+
     if (!Object.keys(patch).length) { state.toast("No changes to save"); return; }
-    cfgSaveBtn.disabled = true;
-    // full: true — a light reload carries the pre-save config over instead of
-    // refetching it, repainting the form with the values the save replaced.
-    try { await state.actions.updateConfig(patch); state.toast("Configuration saved", "success"); state.reload({ full: true }); }
-    catch (err) { state.toast(err.message, "error"); cfgSaveBtn.disabled = false; }
+    calSaveBtn.disabled = true;
+    // full: true — a light reload carries the *previous* config over instead of
+    // refetching it, which repainted the form with the pre-save values (a fitted
+    // coefficient snapping back to 0, the reference temperature back to its
+    // stored value) and left the config version stale, as if the save had been
+    // dropped.
+    try { await state.actions.updateConfig(patch); state.toast("Calibration saved", "success"); state.reload({ full: true }); }
+    catch (err) { state.toast(err.message, "error"); calSaveBtn.disabled = false; }
   });
 
   // Hive (scale-channel) names — one input per hive the device reports (up to 18).
@@ -2736,13 +3524,49 @@ function renderDevice(root, state) {
     el("p", { class: "note" }, "Calibration mode samples the load cell more frequently so you can place known weights and fit a temperature coefficient."),
     el("div", { class: "form-actions" }, startBtn, stopBtn));
 
+  // ── Setup access point ────────────────────────────────────────────────────
+  // The remote equivalent of a short press on the setup button, queued as a
+  // command like every other. It matters most on the boards where that button
+  // is not reachable: on the XIAO C6 it is the on-board USER button, so a hub
+  // sealed in its enclosure or up a pole has nothing to press.
+  const apBtn = el("button", { class: "btn ghost", type: "button" }, "Start AP mode");
+  apBtn.addEventListener("click", async () => {
+    if (!window.confirm(
+      "Start AP mode on this device?\n\n" +
+      "On its next check-in the device opens its own \"HiveHub-Setup-…\" WiFi " +
+      "network instead of measuring, and stays there until the setup portal is " +
+      "closed or it times out. It is off the network and sending nothing " +
+      "meanwhile, so start it only when somebody is at the hive to use it.")) return;
+    apBtn.disabled = true;
+    try {
+      await state.actions.startProvisioning();
+      state.toast("AP mode requested — the device opens it on its next check-in", "success");
+    } catch (e) { state.toast(e.message, "error"); } finally { apBtn.disabled = false; }
+  });
+  const apCard = el("div", { class: "card" },
+    el("h2", {}, "Setup access point"),
+    el("p", { class: "note" },
+      "Opens the on-device setup portal — WiFi and backend settings, hive and " +
+      "sensor pairing, scale tare/span and the SD-card download — exactly as a " +
+      "short press on the setup button does."),
+    el("p", { class: "note" },
+      "The device is asleep between cycles, so the AP appears on its next " +
+      "check-in (up to one send interval away), not now. Connect to " +
+      "\"HiveHub-Setup-…\" and open http://192.168.4.1; if nobody does, the " +
+      "portal times out by itself and the device goes back to measuring."),
+    el("div", { class: "form-actions" }, apBtn));
+
+  const inspCard = inspectionCard(state);
+
   // ── Layout ────────────────────────────────────────────────────────────────
   // Top: three columns — Status (per-sensor health) · Hive names + Import SD card
   // data · Firmware (status/approve + upload). Each panel sizes to its own
-  // content rather than stretching. Below: a full-width collapsible
-  // "Configuration" (general + per-scale calibration/compensation + fit, plus the
-  // Calibration-mode controls), collapsed by default; and at the very bottom a
-  // full-width collapsible "Admin" grouping the account and admin-only panels.
+  // content rather than stretching. Below, full-width collapsibles, all
+  // collapsed by default: "Configuration" (general settings, the setup-AP,
+  // Calibration-mode and Inspection controls, and its Save at the bottom),
+  // "Scale calibration & compensation" (the per-scale editor and the fit tool,
+  // with its own Save), "HiveTraffic setup", and at the very bottom "Admin",
+  // grouping the account and admin-only panels.
   const isAdmin = state.authUser?.role === "admin";
 
   const topGrid = el("div", { class: "admin-cols" },
@@ -2762,7 +3586,8 @@ function renderDevice(root, state) {
 
   node.append(
     topGrid,
-    collapsible("Configuration", false, cfgForm, calCard),
+    collapsible("Configuration", false, cfgForm, apCard, calCard, inspCard, cfgFooter),
+    collapsible("Scale calibration & compensation", false, calForm),
     collapsible("HiveTraffic setup", false, nmForm, bankForm),
     // Publishing is optional server-side (ENABLE_PUBLIC_EMBEDS): when it is off,
     // every /publish endpoint 404s, so the panel is not built at all rather than
@@ -3935,6 +4760,7 @@ export const GROUPS = [
   { id: "environment", label: "Environment", icon: "💧", render: renderEnvironment },
   { id: "audio", label: "Audio", icon: "🔊", render: renderAudio },
   { id: "frequency", label: "Frequency bands", icon: "📊", render: renderFrequency },
+  { id: "vibration", label: "Vibration", icon: "〰️", render: renderVibration },
   { id: "battery", label: "Battery & power", icon: "🔋", render: renderBattery },
   { id: "connectivity", label: "Connectivity", icon: "📶", render: renderConnectivity },
   { id: "counter", label: "Counter", icon: "🐝", render: renderCounter },
