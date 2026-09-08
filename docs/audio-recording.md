@@ -1,5 +1,7 @@
 # Listening to a hive
 
+*Firmware **0.30.0** · server **0.5.0** · HiveInside **0.6.0** · issue [#71](https://github.com/MacNite/HiveInside/issues/71)*
+
 A HiveInside node (firmware 0.6.0 or later) can be asked for live audio. The
 hub relays it to the backend, and the dashboard plays it — while it is still
 being recorded, or afterwards.
