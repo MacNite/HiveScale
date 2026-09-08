@@ -137,12 +137,24 @@ check("a failed recording is not complete",
 check("a failure reason is passed through",
       _row_to_dict(row(status="failed", error="node busy"))["error"] == "node busy")
 
-# An older row can predate the CRC columns. Unknown must not read as "verified".
+# Missing CRCs must not read as "verified".
 unknown = _row_to_dict(row(crc32=None, device_crc32=None))
 check("an unverifiable recording is not claimed to be checksum-verified",
       unknown["crc_ok"] is False)
-check("an unverifiable but otherwise clean recording is still offered as complete",
+check("a recording with no CRCs but a hub report is still complete",
       unknown["complete"] is True)
+
+# A session the hub never reported on: expire_stale_recordings() marks it ready
+# because the audio is real and playable, but device_bytes stays NULL. Claiming
+# such a recording is complete would be a quiet lie — the missing report is
+# exactly the thing that would have said whether the tail is there.
+abandoned = _row_to_dict(row(device_bytes=None, device_crc32=None, crc32=None,
+                             error="the hub never reported how this session ended"))
+check("a recording the hub never reported on is not called complete",
+      abandoned["complete"] is False)
+check("...but it still plays: status ready and bytes present",
+      abandoned["status"] == "ready" and abandoned["bytes"] > 0)
+check("...and it carries the reason", "never reported" in (abandoned["error"] or ""))
 
 # A live session is requested with duration 0; the UI shows what was asked for.
 check("an open-ended request reports zero requested duration",

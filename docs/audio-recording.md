@@ -160,6 +160,7 @@ judgement made on a splice is wrong in a way nothing later reveals.
 
 | Flag | Meaning |
 |---|---|
+| No hub report | `/finalize` never arrived, so nothing is known about the session beyond the bytes that landed. The audio plays; it is not called complete, because the missing report is exactly what would have said whether the tail is there |
 | `dropped_bytes` | The node's own ring overran — audio never left the hive |
 | `gaps` | Sequence jumps on the air, or the hub's ring overran |
 | CRC mismatch | What arrived is not what the node computed: corruption in transit |
@@ -223,5 +224,7 @@ in-hive microphone in a garden can pick up human speech.
 | "HiveInside not found in scan" | Out of range, flat battery, or busy with an OTA |
 | Stuck at "Waiting for the hub to wake" | Normal for up to one reporting interval; longer means the hub is offline |
 | A recording stays at "requested" forever | The command never reached the queue. Check the server log for `could not queue record_audio`; the row is marked failed with the reason from 0.30.0 on |
+| A recording sits at "streaming" | The hub never sent its `/finalize` report — a reset mid-session, or a lost last request. The audio is on disk and plays anyway; after five minutes the row resolves to ready and says the outcome is unknown. `SELECT result->>'message' FROM device_commands WHERE command_type = 'record_audio' ORDER BY id DESC LIMIT 1;` is the hub's own account of what happened |
+| Audio is loud for a moment then near-silence | The microphone lost power mid-session. On HiveInside before the sensor-rail fix, a measurement cycle already running when the session started would switch LDO1 off underneath it |
 | "node busy" | An OTA or another session holds the node's single connection |
 | Recording marked incomplete | See the quality flags above |

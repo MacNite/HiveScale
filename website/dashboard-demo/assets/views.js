@@ -1316,20 +1316,34 @@ function hiveAudioPanel(state) {
       histCard.append(sel);
 
       const rec = recordings.find((r) => r.id === selectedId);
-      if (rec && rec.status === "ready" && rec.bytes > 0) {
+      // Offer the player whenever audio exists, not only once the session is
+      // finalised. A recording still uploading, or one whose hub never reported
+      // back, has a real file on disk — refusing to play it because a status
+      // column says otherwise leaves somebody staring at audio they cannot hear.
+      if (rec && rec.bytes > 0) {
         histCard.append(el("audio", { controls: "controls", preload: "none",
                                       src: state.actions.recordingWavUrl(rec.id) }));
-        if (!rec.complete) {
+        if (rec.status === "streaming") {
+          histCard.append(el("p", { class: "note" },
+            "Still recording — this is what has arrived so far. Re-select it "
+            + "when the session ends to hear the whole thing."));
+        }
+        if (!rec.complete && rec.status !== "streaming") {
           // Said plainly rather than left to be noticed: a spliced recording
           // sounds continuous, and an acoustic judgement made on one is wrong
           // in a way nothing later reveals.
           const why = [];
           if (rec.dropped_bytes) why.push(`${rec.dropped_bytes} B dropped by the node`);
           if (rec.gaps) why.push(`${rec.gaps} gap(s) in transit`);
-          if (!rec.crc_ok) why.push("checksum mismatch");
+          if (rec.dropped_bytes || rec.gaps) {
+            if (!rec.crc_ok) why.push("checksum mismatch");
+          }
           histCard.append(el("p", { class: "note warn" },
-            `Incomplete recording — ${why.join(", ") || "audio is missing"}. `
-            + "Audio either side of a gap is real, but the join is not."));
+            why.length
+              ? `Incomplete recording — ${why.join(", ")}. Audio either side of `
+                + "a gap is real, but the join is not."
+              : (rec.error || "The hub never reported how this session ended, so "
+                 + "there is no way to tell whether the audio is whole.")));
         }
         if (rec.clipped_pct >= 5) {
           histCard.append(el("p", { class: "note" },
@@ -1338,7 +1352,9 @@ function hiveAudioPanel(state) {
       } else if (rec) {
         histCard.append(el("p", { class: "note" },
           rec.status === "failed" ? (rec.error || "This recording failed.")
-                                  : `Status: ${rec.status} — nothing to play yet.`));
+            : rec.status === "requested"
+              ? "Waiting for the hub to wake and pick this up — nothing recorded yet."
+              : `Status: ${rec.status} — nothing to play yet.`));
       }
 
       if (rec && isAdmin) {

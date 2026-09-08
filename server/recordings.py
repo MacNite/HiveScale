@@ -58,6 +58,23 @@ MAX_DURATION_S = 60
 # JSON-sized response.
 MAX_PCM_SLICE = 256 * 1024
 
+# When to give up on a recording the hub stopped talking about.
+#
+# A row only leaves "streaming" when the hub POSTs /finalize. If the hub resets
+# mid-session, loses WiFi on the last hop, or the POST is simply lost, nothing
+# else ever moves it — and the dashboard shows "streaming" for a session that
+# ended long ago, next to audio that is sitting on disk perfectly playable. That
+# is the same failure the device-command queue solves with
+# expire_stale_claimed_commands(), and it is solved the same way here.
+#
+# The two states get different windows because they wait on different things.
+# "requested" waits for the hub's next wake, which is a whole send interval and
+# is legitimately long. "streaming" waits only for a session that the node caps
+# at 60 s plus its upload, so several minutes of silence there means the hub is
+# gone, not slow.
+RECORDING_REQUESTED_TIMEOUT_MIN = 45
+RECORDING_STREAMING_TIMEOUT_MIN = 5
+
 
 def _path_for(device_id: str, recording_id: int) -> Path:
     """Where a recording's audio lives.
@@ -85,8 +102,14 @@ def _row_to_dict(r) -> dict:
      device_bytes, device_crc32, dropped_bytes, gaps, clipped_pct, error,
      requested_by) = r
     seconds = (num_bytes or 0) / float(sample_rate * BYTES_PER_SAMPLE) if sample_rate else 0.0
+    # "Complete" is a claim about the whole session, so it needs the hub's own
+    # account of it — device_bytes is NULL exactly when /finalize never arrived.
+    # Without that report the audio may be perfectly fine and may equally be
+    # missing its last ten seconds, and there is no way to tell from here.
+    # Saying so is the difference between an honest gap and a quiet lie.
     complete = (
         status == "ready"
+        and device_bytes is not None
         and not dropped_bytes
         and not gaps
         and (device_crc32 is None or crc32 is None or device_crc32 == crc32)
@@ -124,7 +147,68 @@ _SELECT = """
 """
 
 
+def expire_stale_recordings() -> None:
+    """Resolve recordings the hub stopped reporting on.
+
+    Audio that arrived is still audio: a session whose ``/finalize`` never
+    landed has a complete, playable file on disk and only lacks the hub's
+    account of how it went. So it is marked ready and the missing report is
+    stated, rather than being discarded or left looking in-flight forever.
+
+    With no bytes at all there is nothing to keep, and the row says so instead
+    of implying a recording that never existed.
+
+    Cheap and idempotent — called before reading recordings, so no background
+    job is needed. Deliberately does NOT touch crc32/device_bytes: leaving them
+    NULL is what tells the reader this recording was never verified.
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE hive_recordings
+                SET status = 'ready',
+                    completed_at = now(),
+                    error = COALESCE(error,
+                        'the hub never reported how this session ended; the audio '
+                        'here is what arrived before contact was lost')
+                WHERE status = 'streaming'
+                  AND bytes > 0
+                  AND requested_at < now() - (%s || ' minutes')::interval;
+                """,
+                (RECORDING_STREAMING_TIMEOUT_MIN,),
+            )
+            cur.execute(
+                """
+                UPDATE hive_recordings
+                SET status = 'failed',
+                    completed_at = now(),
+                    error = COALESCE(error,
+                        'the hub started uploading but no audio arrived')
+                WHERE status = 'streaming'
+                  AND bytes = 0
+                  AND requested_at < now() - (%s || ' minutes')::interval;
+                """,
+                (RECORDING_STREAMING_TIMEOUT_MIN,),
+            )
+            cur.execute(
+                """
+                UPDATE hive_recordings
+                SET status = 'failed',
+                    completed_at = now(),
+                    error = COALESCE(error,
+                        'the hub never picked this request up \u2014 offline, or the '
+                        'command was dropped')
+                WHERE status = 'requested'
+                  AND requested_at < now() - (%s || ' minutes')::interval;
+                """,
+                (RECORDING_REQUESTED_TIMEOUT_MIN,),
+            )
+            conn.commit()
+
+
 def get_recording(recording_id: int) -> dict:
+    expire_stale_recordings()
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(_SELECT + " WHERE id = %s;", (recording_id,))
@@ -136,6 +220,7 @@ def get_recording(recording_id: int) -> dict:
 
 def list_recordings(device_id: str, hive_index: Optional[int] = None,
                     limit: int = 50) -> list[dict]:
+    expire_stale_recordings()
     sql = _SELECT + " WHERE device_id = %s"
     params: list = [device_id]
     if hive_index is not None:
