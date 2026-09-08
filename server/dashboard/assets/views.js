@@ -721,49 +721,39 @@ function latestCoalesce(measurements, keys) {
 //     their hive fields blanked on purpose (server/inspections.py); reaching
 //     past them would show a pre-inspection weight as if it were live, which is
 //     the very thing the "Inspection in progress" badge exists to deny.
-//   * Expire. A value is carried forward for a few upload cycles only. A sensor
-//     silent for longer is a fault, and a fault has to read as a dash rather
-//     than as a plausible number.
+//   * Expire, against the clock rather than against the device's own newest row.
+//     A sensor silent for longer than MAX_READING_AGE_MS is a fault — and so is
+//     a hub that stopped uploading altogether, which the newest row alone can
+//     never reveal. Both have to read as a dash, not as a plausible number.
 //   * Show its age. Anything older than the newest upload is muted and tagged
 //     with its age, so a last known value can never pass for a live one. The
 //     tag always refers to the card's headline value.
 
-// Upload cycles a missing value may be carried forward for.
-const STALE_CYCLES = 3;
-// Bounds on that allowance. The floor keeps a hub on a fast test loop from
-// expiring a value almost immediately. The ceiling matters because a wide range
-// comes back down-sampled (server/local_dashboard.py thins to ~max_points),
-// which inflates the apparent cycle — without it, changing the range picker
-// could change how old a displayed value is allowed to be.
-const MIN_STALE_MS = 15 * 60000;
-const MAX_STALE_MS = 24 * 3600000;
-// Assumed cycle when the history is too short to measure one (a device with a
-// single reading so far).
-const DEFAULT_CYCLE_MS = 60 * 60000;
+// Nothing older than this is presented as a current reading — neither a value
+// carried forward from an earlier upload, nor the newest upload itself once the
+// hub behind it has fallen silent. That second case is the one that bites: a
+// device offline for weeks still has a "newest" row, so judging age only against
+// that row let a three-week-old temperature read as live.
+//
+// Thirty minutes is three cycles at the default 600 s send interval
+// (send_interval_seconds, server/schemas.py). A hub deliberately configured
+// slower than this shows a dash between its uploads — that is the trade, and
+// this one constant is where to retune it.
+const MAX_READING_AGE_MS = 30 * 60000;
 
 function rowTime(m) {
   const t = m && m.measured_at ? new Date(m.measured_at).getTime() : NaN;
   return Number.isFinite(t) ? t : null;
 }
 
-// The device's observed upload interval: the median gap between its newest rows.
-// Median rather than mean so one long sleep, a reboot or a backfilled SD import
-// cannot stretch it.
-function uploadIntervalMs(measurements) {
-  const times = [];
-  for (const m of measurements || []) {
-    const t = rowTime(m);
-    if (t != null) times.push(t);
-    if (times.length >= 6) break;
-  }
-  const gaps = [];
-  for (let i = 1; i < times.length; i++) {
-    const gap = times[i - 1] - times[i];
-    if (gap > 0) gaps.push(gap);
-  }
-  if (!gaps.length) return DEFAULT_CYCLE_MS;
-  gaps.sort((a, b) => a - b);
-  return gaps[Math.floor(gaps.length / 2)];
+// A device-level row, or {} when it is too old to present as current, so every
+// `m.field` read below falls through to a dash on its own. Charts and the
+// diagnostic panels keep the raw row on purpose: "Last reading 3w ago" is
+// exactly the signal someone needs, while a battery percentage from three weeks
+// ago is not.
+function freshRow(row) {
+  const at = rowTime(row);
+  return at != null && Date.now() - at <= MAX_READING_AGE_MS ? row : {};
 }
 
 // True when this row's hive fields were blanked by an inspection rather than
@@ -785,13 +775,15 @@ function refReadingBy(ref, pick) {
   const rows = [ref.latest, ...(ref.measurements || [])].filter(Boolean);
   if (!rows.length) return null;
   const newest = rows.reduce((t, m) => Math.max(t, rowTime(m) ?? -Infinity), -Infinity);
-  const limit = Math.min(Math.max(STALE_CYCLES * uploadIntervalMs(ref.measurements), MIN_STALE_MS), MAX_STALE_MS);
+  const now = Date.now();
   for (const m of rows) {
     const v = pick(m);
     if (v != null) {
       const at = rowTime(m);
-      if (at == null || !Number.isFinite(newest)) return { value: v, at: m.measured_at || null, stale: false };
-      if (newest - at > limit) return null;
+      // An undatable reading cannot be vouched for, and an old one must not be
+      // dressed up as current. Rows run newest first, so anything further back
+      // is older still: give up rather than keep looking.
+      if (at == null || now - at > MAX_READING_AGE_MS) return null;
       return { value: v, at: m.measured_at || null, stale: at < newest };
     }
     // A blanked row is a deliberate silence, not a missed cycle: stop rather
@@ -891,7 +883,11 @@ function signed(v, digits, unit) {
 // ── OVERVIEW ─────────────────────────────────────────────────────────────────
 function renderOverview(root, state) {
   const refs = selectedRefs(state);
-  const m = state.latest || {};   // active device — for the device-level cards
+  const m = state.latest || {};   // active device — raw, for the Status card's age
+  // Device-level card values are age-gated too: an offline hub must not report a
+  // battery percentage or an ambient temperature from weeks ago. The Status card
+  // keeps `m` itself — saying how old everything is is the whole point of it.
+  const mFresh = freshRow(m);
   // One reading per hive, resolved once: the tiles, the apiary total and the 24h
   // deltas all have to agree on which column and which row they came from.
   const weights = new Map(refs.map((ref) => [ref.key, refWeightReading(ref)]));
@@ -904,8 +900,12 @@ function renderOverview(root, state) {
   // hive with a data gap can't silently skew the apiary-wide number. Each delta
   // reads the same column its tile shows — compensated where compensation ran,
   // raw where it did not — so a number and its change can't disagree.
+  // No current weight means no delta either: a change computed from history the
+  // gate has already rejected would print "+0.00" beside a dash.
   const deltas = new Map(refs.map((ref) =>
-    [ref.key, changeOver(ref.measurements, weights.get(ref.key)?.key || weightKey(ref.latest || {}, ref.hive), 24)]));
+    [ref.key, weights.get(ref.key)
+      ? changeOver(ref.measurements, weights.get(ref.key).key, 24)
+      : null]));
   const w24 = refs.length ? deltas.get(refs[0].key) : null;
   const total24 = refs.length && refs.every((ref) => deltas.get(ref.key) != null)
     ? refs.reduce((sum, ref) => sum + deltas.get(ref.key), 0)
@@ -935,22 +935,22 @@ function renderOverview(root, state) {
             : footerWithAge(refs, weights, w24 != null ? `24h ${signed(w24, 2, "kg")}` : "Total of active scales")),
     perHiveCard(state, "Hive temperature", refs, "°C", hiveTemp,
       footerWithAge(refs, temps,
-        isNum(m.ambient_temp_c) ? `Ambient ${fmt(m.ambient_temp_c, 1)} °C${state.multiDevice ? ` (${state.device?.display_name || state.device?.device_id})` : ""}` : "Brood zone"),
+        isNum(mFresh.ambient_temp_c) ? `Ambient ${fmt(mFresh.ambient_temp_c, 1)} °C${state.multiDevice ? ` (${state.device?.display_name || state.device?.device_id})` : ""}` : "Brood zone"),
       (ref) => readingAge(temps.get(ref.key))),
     refs.length > 1
       ? perHiveCard(state, "In-hive humidity", refs, "%", hiveHum,
-          isNum(m.ambient_humidity_percent) ? `Ambient ${fmt(m.ambient_humidity_percent, 1)} %` : "Brood area",
+          isNum(mFresh.ambient_humidity_percent) ? `Ambient ${fmt(mFresh.ambient_humidity_percent, 1)} %` : "Brood area",
           (ref) => readingAge(hums.get(ref.key)))
       // The in-hive figure follows the selected hive rather than a hard-coded
       // hive 1, so watching hive 5 alone no longer reports hive 1's humidity.
-      : metricCard("Humidity", fmt(m.ambient_humidity_percent, 1), "%",
+      : metricCard("Humidity", fmt(mFresh.ambient_humidity_percent, 1), "%",
           refs.length && isNum(hums.get(refs[0].key)?.value)
             ? withAge(`In-hive ${fmt(hums.get(refs[0].key).value, 0)} %`, hums.get(refs[0].key))
             : "Ambient"),
-    metricCard("Battery", isNum(m.battery_soc_percent) ? fmt(m.battery_soc_percent, 0) : DASH, "%",
-      isNum(m.battery_voltage) ? `${fmt(m.battery_voltage, 2)} V` : "State of charge"),
-    metricCard("Signal", fmt(m.rssi_dbm, 0), "dBm",
-      m.network_transport ? String(m.network_transport) : "Radio"),
+    metricCard("Battery", isNum(mFresh.battery_soc_percent) ? fmt(mFresh.battery_soc_percent, 0) : DASH, "%",
+      isNum(mFresh.battery_voltage) ? `${fmt(mFresh.battery_voltage, 2)} V` : "State of charge"),
+    metricCard("Signal", fmt(mFresh.rssi_dbm, 0), "dBm",
+      mFresh.network_transport ? String(mFresh.network_transport) : "Radio"),
   ];
 
   const statusCard = el("div", { class: "card" },
@@ -1028,7 +1028,7 @@ function foldedCharts(title, ...cards) {
 
 function renderTemperature(root, state) {
   const refs = selectedRefs(state);
-  const m = state.latest || {};   // active device (for the ambient reference)
+  const m = freshRow(state.latest);   // active device (for the ambient reference)
   const cards = refs.map((ref) => {
     const t = refReading(ref, `hive_${ref.hive}_temp_c`);
     const h = refReading(ref, `hive_${ref.hive}_humidity_percent`);
@@ -1054,8 +1054,9 @@ function renderWeight(root, state) {
   const refs = selectedRefs(state);
   const cards = refs.map((ref) => {
     const w = refWeightReading(ref);
-    // Delta on the same column the card shows (see renderOverview).
-    const c24 = changeOver(ref.measurements, w?.key || weightKey(ref.latest || {}, ref.hive), 24);
+    // Delta on the same column the card shows, and only while there is a current
+    // value to change (see renderOverview).
+    const c24 = w ? changeOver(ref.measurements, w.key, 24) : null;
     return metricCard(`${refLabel(state, ref)} weight`, readingValue(w, 2), "kg",
       withAge(c24 != null ? `24h ${signed(c24, 2, "kg")}` : "Compensated", w));
   });
@@ -1073,7 +1074,7 @@ function renderWeight(root, state) {
 
 function renderEnvironment(root, state) {
   const refs = selectedRefs(state);
-  const m = state.latest || {};   // active device — ambient humidity + pressure
+  const m = freshRow(state.latest);   // active device — ambient humidity + pressure
   const pressureKeys = ["ble_1_pressure_hpa", "ble_2_pressure_hpa", "hivescale_1_pressure_hpa", "hivescale_2_pressure_hpa"];
   const hums = new Map(refs.map((ref) => [ref.key, refReading(ref, `hive_${ref.hive}_humidity_percent`)]));
   const cards = [
@@ -1116,7 +1117,7 @@ function micKeys(n, suffix) {
 }
 
 function renderAudio(root, state) {
-  const m = state.latest || {};   // active device — for the sample-rate card
+  const m = freshRow(state.latest);   // active device — for the sample-rate card
   const refs = selectedRefs(state);
   const cards = refs.map((ref) => {
     const rms = refReading(ref, micKeys(ref.hive, "rms_dbfs"));
@@ -1572,7 +1573,7 @@ function wirelessBatterySeries(state, refs, unit) {
 }
 
 function renderBattery(root, state) {
-  const m = state.latest || {};
+  const m = freshRow(state.latest);
 
   // Battery chart: SoC on the primary (left) axis, voltage on a secondary
   // (right) axis. Voltage barely moves (≈3.7–4.2 V), so sharing the 0–100 %
@@ -1652,7 +1653,7 @@ function renderBattery(root, state) {
 }
 
 function renderConnectivity(root, state) {
-  const m = state.latest || {};
+  const m = freshRow(state.latest);
   const cards = [
     metricCard("Signal", fmt(m.rssi_dbm, 0), "dBm", "Wi-Fi / radio RSSI"),
     metricCard("Transport", m.network_transport || DASH, "", "Uplink"),
@@ -1673,7 +1674,7 @@ function renderCounter(root, state) {
   const refs = selectedRefs(state);
   const cards = [];
   for (const ref of refs) {
-    const m = ref.latest || {};
+    const m = freshRow(ref.latest);
     cards.push(metricCard(`${refLabel(state, ref)} in`, fmtInt(m[`bee_counter_${ref.hive}_total_in`]), "", "Total entrances"));
     cards.push(metricCard(`${refLabel(state, ref)} out`, fmtInt(m[`bee_counter_${ref.hive}_total_out`]), "", "Total exits"));
   }
