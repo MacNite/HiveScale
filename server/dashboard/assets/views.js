@@ -1134,138 +1134,75 @@ function renderAudio(root, state) {
     chartCard("Peak level", "Per-hive microphone peak", peak, { unit: "dBFS", yDigits: 0 }),
   ];
   root.append(tsView("Audio", "Hive sound levels", state, { cards, charts }));
-  root.append(liveAudioPanel(state));
+  root.append(hiveAudioPanel(state));
 }
 
-// ── Live hive audio (issue #71) ────────────────────────────────────────────
+// ── Hive audio (issue #71) ─────────────────────────────────────────────────
 //
-// Two things share one panel: listening to a hive right now, and playing back
-// sessions somebody recorded earlier. They are the same recordings — a live
-// session is simply one that is still being written — which is why the dropdown
-// lists everything and the player switches between raw PCM (in flight) and a
-// WAV (finished).
+// Ask a hive's HiveInside node for a recording, then play it back here once the
+// hub has collected it.
 //
-// The shape of the feature is dictated by two facts that cannot be designed
-// away. The hub deep-sleeps and only collects commands on its next wake, so
-// pressing Listen cannot be instant and the UI must say what it is waiting for.
-// And the node caps every session at 60 seconds, so "keep listening" is not a
-// longer session but another one — which is exactly why the hub holds its cycle
-// open briefly after each (see HIVEINSIDE_AUDIO_FOLLOWUP_MS).
-const AUDIO_SAMPLE_RATE = 16000;
-const AUDIO_POLL_MS = 250;
-// Ask before the node's own cap, so the next session is queued while the hub is
-// still awake in its follow-up window rather than after it has gone back to sleep.
-const AUDIO_CONTINUE_PROMPT_S = 50;
+// This is deliberately NOT presented as live listening, even though the
+// transport underneath is capable of it — the hub streams while the microphone
+// runs and the server writes the file as it lands. The reason is the lead-in:
+// the hub deep-sleeps and only collects commands on its next wake, so a "listen
+// now" button would sit there for minutes before the first sound. Calling that
+// live sets an expectation the hardware cannot keep, and a beekeeper waiting on
+// a silent player has no way to tell a working request from a broken one.
+//
+// So the promise is smaller and always true: you ask for N seconds of audio, and
+// it appears in the list when the hive has been heard. The panel keeps polling
+// the request so it can say which of the three states it is in — waiting for the
+// hub, recording, or done.
+const AUDIO_POLL_MS = 3000;
 
-const liveAudio = {
+// The node stops itself at 60 s. Shorter is usually enough to hear what an
+// insight flagged, and costs proportionally less battery and less time with the
+// hive off the air (a connected node neither advertises nor samples).
+const AUDIO_DURATIONS = [
+  [10, "10 seconds"],
+  [30, "30 seconds"],
+  [60, "60 seconds"],
+];
+
+const hiveAudio = {
   recordingId: null,
-  hive: null,
-  deviceId: null,
-  offset: 0,
-  ctx: null,
-  nextStart: 0,
-  timer: null,
   status: "",
-  startedAt: 0,
-  carry: null,       // odd trailing byte held back so samples stay aligned
   error: "",
-  promptShown: false,
-  onChange: null,
+  timer: null,
 };
 
-function audioStopLive(message = "") {
-  if (liveAudio.timer) { clearTimeout(liveAudio.timer); liveAudio.timer = null; }
-  if (liveAudio.ctx) {
-    // close() rather than suspend(): a live session is over, and holding an
-    // AudioContext open keeps the tab's audio hardware awake for nothing.
-    try { liveAudio.ctx.close(); } catch (_) { /* already closed */ }
-    liveAudio.ctx = null;
-  }
-  liveAudio.recordingId = null;
-  liveAudio.offset = 0;
-  liveAudio.carry = null;
-  liveAudio.promptShown = false;
-  liveAudio.status = message;
-  if (liveAudio.onChange) liveAudio.onChange();
+function audioStopPolling() {
+  if (hiveAudio.timer) { clearTimeout(hiveAudio.timer); hiveAudio.timer = null; }
+  hiveAudio.recordingId = null;
+  hiveAudio.status = "";
 }
 
-// Queue one PCM slice for playback. Buffers are scheduled back to back off a
-// running clock rather than played on arrival, because arrival is bursty (one
-// poll can carry a second of audio) and playing them "now" would overlap them.
-function audioPlaySlice(buf) {
-  if (!liveAudio.ctx || !buf || !buf.byteLength) return;
-  let bytes = new Uint8Array(buf);
-  if (liveAudio.carry) {
-    const joined = new Uint8Array(liveAudio.carry.length + bytes.length);
-    joined.set(liveAudio.carry, 0);
-    joined.set(bytes, liveAudio.carry.length);
-    bytes = joined;
-    liveAudio.carry = null;
-  }
-  // A slice can end mid-sample; carrying the odd byte to the next poll keeps
-  // every frame aligned. Dropping it instead would shift the whole rest of the
-  // stream by one byte and turn the audio into noise.
-  if (bytes.length % 2) {
-    liveAudio.carry = bytes.slice(bytes.length - 1);
-    bytes = bytes.slice(0, bytes.length - 1);
-  }
-  if (!bytes.length) return;
-
-  const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
-  const audioBuf = liveAudio.ctx.createBuffer(1, pcm.length, AUDIO_SAMPLE_RATE);
-  const channel = audioBuf.getChannelData(0);
-  for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
-
-  const src = liveAudio.ctx.createBufferSource();
-  src.buffer = audioBuf;
-  src.connect(liveAudio.ctx.destination);
-  const now = liveAudio.ctx.currentTime;
-  // Re-seed the clock after a stall: without this, audio that arrived late
-  // would be scheduled in the past and dropped silently.
-  if (liveAudio.nextStart < now + 0.05) liveAudio.nextStart = now + 0.15;
-  src.start(liveAudio.nextStart);
-  liveAudio.nextStart += audioBuf.duration;
-}
-
-async function audioPoll(state, repaint) {
-  if (!liveAudio.recordingId) return;
-  const id = liveAudio.recordingId;
+// Follow a request until it reaches a terminal state, then hand the list back to
+// the panel so the finished recording shows up without a page reload.
+async function audioPoll(state, onDone, repaint) {
+  if (!hiveAudio.recordingId) return;
+  const id = hiveAudio.recordingId;
   try {
     const rec = await state.actions.recording(id);
-    liveAudio.status = rec.status;
-    if (rec.status === "failed") {
-      audioStopLive(rec.error || "the hive could not be recorded");
-      liveAudio.error = rec.error || "recording failed";
+    hiveAudio.status = rec.status;
+    if (rec.status === "ready" || rec.status === "failed") {
+      if (rec.status === "failed") {
+        hiveAudio.error = rec.error || "the hive could not be recorded";
+      }
+      audioStopPolling();
+      await onDone(id);
       repaint();
       return;
     }
-    if (rec.status !== "requested") {
-      const slice = await state.actions.recordingPcm(id, liveAudio.offset);
-      if (slice.bytes) {
-        if (!liveAudio.startedAt) liveAudio.startedAt = Date.now();
-        audioPlaySlice(slice.bytes);
-        liveAudio.offset = slice.nextOffset;
-      }
-      if (rec.status === "ready" && liveAudio.offset >= (rec.bytes || 0)) {
-        // Everything recorded has been queued for playback; the session itself
-        // ended some seconds ago.
-        audioStopLive("");
-        repaint();
-        return;
-      }
-    }
   } catch (err) {
-    audioStopLive(err.message || "lost contact with the server");
-    liveAudio.error = err.message || "lost contact with the server";
+    hiveAudio.error = err.message || "lost contact with the server";
+    audioStopPolling();
     repaint();
     return;
   }
   repaint();
-  liveAudio.timer = setTimeout(() => audioPoll(state, repaint), AUDIO_POLL_MS);
-}
-
-function audioElapsedS() {
-  return liveAudio.startedAt ? Math.round((Date.now() - liveAudio.startedAt) / 1000) : 0;
+  hiveAudio.timer = setTimeout(() => audioPoll(state, onDone, repaint), AUDIO_POLL_MS);
 }
 
 function recordingOptionLabel(rec) {
@@ -1275,12 +1212,11 @@ function recordingOptionLabel(rec) {
   return `${when} · hive ${rec.hive_index} · ${secs}${flag}`;
 }
 
-function liveAudioPanel(state) {
+function hiveAudioPanel(state) {
   const body = el("div", {});
-  const panel = collapsible("Listen to a hive", false, body);
+  const panel = collapsible("Hive audio", false, body);
   const isAdmin = state.authUser?.role === "admin";
-  const deviceId = state.deviceId;
-  // Only a HiveInside has a microphone, so only its hives can be listened to.
+  // Only a HiveInside has a microphone, so only its hives can be recorded.
   // Offering every hive here would let somebody queue a session against a hive
   // with a HolyIot or nothing at all, and learn a wake cycle later that the hub
   // reported "No HiveInside paired in slot N" — a slow way to be told something
@@ -1290,110 +1226,82 @@ function liveAudioPanel(state) {
   let selectedId = null;
   let loading = true;
 
+  const reload = async (selectId) => {
+    const res = await state.actions.listRecordings();
+    recordings = res.recordings || [];
+    if (selectId != null) selectedId = selectId;
+  };
+
   const paint = () => {
     const kids = [];
     kids.push(el("p", { class: "note" },
-      "Ask a hive's HiveInside node for live audio, or play a session recorded "
-      + "earlier. Requests reach the hub on its next wake, so listening starts "
-      + "within one reporting interval rather than immediately."));
+      "Ask a hive's HiveInside node to record, then listen to it here. The hub "
+      + "collects the request on its next wake, so a recording appears within "
+      + "one reporting interval rather than immediately."));
 
-    if (liveAudio.error) {
+    if (hiveAudio.error) {
       kids.push(el("div", { class: "card" },
-        el("h2", {}, "Audio unavailable"), el("p", { class: "note" }, liveAudio.error)));
+        el("h2", {}, "Audio unavailable"), el("p", { class: "note" }, hiveAudio.error)));
     }
 
-    // ── Live controls ─────────────────────────────────────────────────────
+    // ── Request ───────────────────────────────────────────────────────────
     const controls = el("div", { class: "row" });
     const hiveSel = el("select", { class: "full" },
       ...nodes.map((nd) => el("option", { value: String(nd.n) }, nd.label)));
-    if (liveAudio.hive) hiveSel.value = String(liveAudio.hive);
+    const durSel = el("select", { class: "full" },
+      ...AUDIO_DURATIONS.map(([s, label]) =>
+        el("option", { value: String(s) }, label)));
+    durSel.value = "30";
 
-    const listening = !!liveAudio.recordingId;
-    const listenBtn = el("button", {
-      class: listening ? "btn danger" : "btn",
-      disabled: (!isAdmin || !nodes.length) ? "disabled" : null,
+    const busy = !!hiveAudio.recordingId;
+    const recordBtn = el("button", {
+      class: "btn",
+      disabled: (!isAdmin || !nodes.length || busy) ? "disabled" : null,
       onclick: async () => {
-        if (listening) { audioStopLive(""); paint(); return; }
-        liveAudio.error = "";
+        hiveAudio.error = "";
         try {
           const hive = Number(hiveSel.value);
-          // The AudioContext must be created inside the click: browsers refuse
-          // to start audio that no user gesture asked for.
-          liveAudio.ctx = new (window.AudioContext || window.webkitAudioContext)();
-          liveAudio.nextStart = 0;
-          const rec = await state.actions.requestRecording({ hive, durationS: 0 });
-          liveAudio.recordingId = rec.id;
-          liveAudio.deviceId = deviceId;
-          liveAudio.hive = hive;
-          liveAudio.offset = 0;
-          liveAudio.startedAt = 0;
-          liveAudio.status = "requested";
-          liveAudio.promptShown = false;
+          const durationS = Number(durSel.value);
+          const rec = await state.actions.requestRecording({ hive, durationS });
+          hiveAudio.recordingId = rec.id;
+          hiveAudio.status = "requested";
           paint();
-          audioPoll(state, paint);
+          // Show the new request in the list straight away, so it is visible as
+          // "requested" rather than appearing from nowhere minutes later.
+          await reload(rec.id);
+          paint();
+          audioPoll(state, reload, paint);
         } catch (err) {
-          audioStopLive("");
-          liveAudio.error = err.message || "could not request audio";
+          audioStopPolling();
+          hiveAudio.error = err.message || "the request could not be queued";
           paint();
         }
       },
-    }, listening ? "Stop listening" : "🎧 Listen live");
+    }, "🎙 Record");
 
-    controls.append(hiveSel, listenBtn);
+    controls.append(hiveSel, durSel, recordBtn);
     if (!nodes.length) {
       controls.append(el("span", { class: "note" },
         "No HiveInside node is paired on this hub. Only HiveInside has a "
         + "microphone — a HolyIot or RuuviTag beacon cannot record."));
     } else if (!isAdmin) {
       controls.append(el("span", { class: "note" },
-        "An administrator can start a recording."));
+        "An administrator can request a recording."));
     }
 
     let statusLine = "";
-    if (listening) {
-      statusLine = liveAudio.status === "requested"
-        ? "Waiting for the hub to wake and pick up the request…"
-        : `Listening · ${audioElapsedS()}s of up to 60s`;
+    if (busy) {
+      statusLine = hiveAudio.status === "requested"
+        ? "Waiting for the hub to wake and pick the request up…"
+        : "The hive is being recorded — the audio appears below when it arrives.";
     }
-    const liveCard = el("div", { class: "card" },
-      el("h2", {}, "Live"),
+    kids.push(el("div", { class: "card" },
+      el("h2", {}, "Record"),
       controls,
-      statusLine ? el("p", { class: "note" }, statusLine) : null);
-    kids.push(liveCard);
+      statusLine ? el("p", { class: "note" }, statusLine) : null));
 
-    // The node stops itself at 60 s. Ask before that so the next session is
-    // queued while the hub is still awake in its follow-up window — after it
-    // sleeps, continuing would cost a whole reporting interval again.
-    if (listening && !liveAudio.promptShown && audioElapsedS() >= AUDIO_CONTINUE_PROMPT_S) {
-      liveAudio.promptShown = true;
-      setTimeout(() => {
-        if (!liveAudio.recordingId) return;
-        if (window.confirm("This session stops at 60 seconds. Keep listening?")) {
-          const hive = liveAudio.hive;
-          state.actions.requestRecording({ hive, durationS: 0 })
-            .then((rec) => {
-              // Same context, new recording: playback continues seamlessly
-              // across the session boundary.
-              liveAudio.recordingId = rec.id;
-              liveAudio.offset = 0;
-              liveAudio.startedAt = Date.now();
-              liveAudio.promptShown = false;
-              paint();
-            })
-            .catch((err) => {
-              liveAudio.error = err.message || "could not continue listening";
-              audioStopLive("");
-              paint();
-            });
-        } else {
-          audioStopLive("");
-          paint();
-        }
-      }, 0);
-    }
-
-    // ── Earlier sessions ──────────────────────────────────────────────────
-    const histCard = el("div", { class: "card" }, el("h2", {}, "Earlier sessions"));
+    // ── Playback ──────────────────────────────────────────────────────────
+    const histCard = el("div", { class: "card" }, el("h2", {}, "Recordings"));
     if (loading) {
       histCard.append(el("p", { class: "muted-text" }, "Loading…"));
     } else if (!recordings.length) {
@@ -1430,7 +1338,7 @@ function liveAudioPanel(state) {
       } else if (rec) {
         histCard.append(el("p", { class: "note" },
           rec.status === "failed" ? (rec.error || "This recording failed.")
-                                  : `Status: ${rec.status}`));
+                                  : `Status: ${rec.status} — nothing to play yet.`));
       }
 
       if (rec && isAdmin) {
@@ -1445,7 +1353,7 @@ function liveAudioPanel(state) {
               selectedId = recordings.length ? recordings[0].id : null;
               paint();
             } catch (err) {
-              liveAudio.error = err.message || "could not delete the recording";
+              hiveAudio.error = err.message || "could not delete the recording";
               paint();
             }
           },
@@ -1458,11 +1366,11 @@ function liveAudioPanel(state) {
   };
 
   paint();
-  state.actions.listRecordings()
-    .then((res) => { recordings = res.recordings || []; loading = false; paint(); })
+  reload()
+    .then(() => { loading = false; paint(); })
     .catch((err) => {
       loading = false;
-      liveAudio.error = err.message || "could not list recordings";
+      hiveAudio.error = err.message || "could not list recordings";
       paint();
     });
   return panel;

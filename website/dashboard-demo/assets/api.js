@@ -236,38 +236,33 @@ function recordingRow(r) {
   };
 }
 
-// ── The simulated live session ─────────────────────────────────────────────
+// ── A simulated request ────────────────────────────────────────────────────
 //
-// Decode a sample file to 16-bit PCM once, then hand it back at the rate the
-// node would have produced it. The panel polls by byte offset and stops when
-// the recording reports "ready" with nothing left, so honouring those two
-// signals is all it takes to drive the real UI end to end.
-let livePcm = null;      // Int16Array of the decoded sample
-let liveSession = null;  // { id, startedAt }
+// The real flow is: ask, wait for the hub to wake, then play what it collected.
+// The demo compresses that into a few seconds so a visitor sees all three
+// states — requested, streaming, ready — without waiting for a reporting
+// interval, and ends up with a genuinely playable file.
+let pending = null;  // { id, startedAt, hive, file }
 
-async function decodeSample() {
-  if (livePcm) return livePcm;
-  const rows = await presentRecordings();
-  if (!rows.length) return null;
-  const res = await fetch(AUDIO_DIR + rows[0].file);
-  if (!res.ok) return null;
-  const Ctx = window.AudioContext || window.webkitAudioContext;
-  const buf = await new Ctx().decodeAudioData(await res.arrayBuffer());
-  const src = buf.getChannelData(0);
-  const out = new Int16Array(src.length);
-  for (let i = 0; i < src.length; i++) {
-    const v = Math.max(-1, Math.min(1, src[i]));
-    out[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
-  }
-  livePcm = out;
-  return livePcm;
-}
+const PENDING_REQUESTED_MS = 4000;   // "waiting for the hub to wake"
+const PENDING_STREAMING_MS = 8000;   // "the hive is being recorded"
 
-// How many PCM bytes "exist" this many ms into the simulated session. The
-// sample loops, so a 12-second file still supports the full 60-second cap the
-// real node enforces.
-function liveBytesAt(ms) {
-  return Math.floor((ms / 1000) * AUDIO_RATE) * 2;
+function pendingRow() {
+  const elapsed = Date.now() - pending.startedAt;
+  const status = elapsed < PENDING_REQUESTED_MS ? "requested"
+    : elapsed < PENDING_STREAMING_MS ? "streaming" : "ready";
+  const ready = status === "ready";
+  return {
+    id: pending.id, device_id: "demo", hive_index: pending.hive, status,
+    requested_at: new Date(pending.startedAt).toISOString(),
+    started_at: new Date(pending.startedAt).toISOString(),
+    completed_at: ready ? new Date().toISOString() : null,
+    requested_duration_s: pending.durationS, gain_db: 0, sample_rate: AUDIO_RATE,
+    bytes: ready ? Math.round(pending.durationS * AUDIO_RATE * 2) : 0,
+    seconds: ready ? pending.durationS : 0,
+    dropped_bytes: 0, gaps: 0, clipped_pct: 0,
+    complete: ready, crc_ok: ready, error: null, requested_by: "demo",
+  };
 }
 
 const demoErr = () =>
@@ -425,76 +420,45 @@ export const api = {
 
   // ── Hive audio ───────────────────────────────────────────────────────────
 
-  // Shaped exactly like the server's: { recordings: [...] }. The panel reads
-  // res.recordings, so a bare array here would read as "no recordings" forever.
-  listRecordings: async () => ({
-    recordings: (await presentRecordings()).map(recordingRow),
-  }),
+  listRecordings: async () => {
+    const rows = (await presentRecordings()).map(recordingRow);
+    // Newest first, matching the real API — so a fresh request sits at the top
+    // of the dropdown where somebody just asked for it.
+    return { recordings: pending ? [pendingRow(), ...rows] : rows };
+  },
 
   recording: async (id) => {
-    if (liveSession && id === liveSession.id) {
-      const elapsed = Date.now() - liveSession.startedAt;
-      // The real node stops itself at 60 s; the simulation ends at the same
-      // point, so the "keep listening?" prompt fires exactly as it would.
-      const done = elapsed >= 60000;
-      return {
-        id, device_id: "demo", hive_index: liveSession.hive, status: done ? "ready" : "streaming",
-        requested_at: new Date(liveSession.startedAt).toISOString(),
-        requested_duration_s: 0, gain_db: 0, sample_rate: AUDIO_RATE,
-        bytes: liveBytesAt(Math.min(elapsed, 60000)), seconds: Math.min(elapsed, 60000) / 1000,
-        dropped_bytes: 0, gaps: 0, clipped_pct: 0, complete: done, crc_ok: true,
-        error: null, requested_by: "demo",
-      };
-    }
+    if (pending && id === pending.id) return pendingRow();
     const rows = await presentRecordings();
     const row = rows.find((r) => r.id === id);
     if (!row) throw new Error("recording not found");
     return recordingRow(row);
   },
 
-  requestRecording: async () => {
-    const pcm = await decodeSample();
-    if (!pcm) {
-      // Honest refusal rather than a session that plays nothing: the demo needs
-      // a sample file before it can pretend to hear a hive.
+  requestRecording: async (deviceId, { hive = 1, durationS = 30 } = {}) => {
+    const rows = await presentRecordings();
+    if (!rows.length) {
+      // Honest refusal rather than a request that ripens into silence: the demo
+      // needs a sample file before it can pretend to have recorded a hive.
       throw new Error(
         "This demo has no sample audio yet — add a file to "
         + "website/dashboard-demo/assets/audio/ (see the README there).");
     }
-    liveSession = { id: 9100 + (Date.now() % 800), startedAt: Date.now(), hive: 1 };
-    return { id: liveSession.id, status: "requested", hive_index: 1, duration_s: 0 };
-  },
-
-  recordingPcm: async (id, offset) => {
-    if (!liveSession || id !== liveSession.id) {
-      return { bytes: null, nextOffset: offset, status: "ready" };
-    }
-    const pcm = await decodeSample();
-    const elapsed = Math.min(Date.now() - liveSession.startedAt, 60000);
-    const available = liveBytesAt(elapsed);
-    if (!pcm || offset >= available) {
-      // 204 in the real API: nothing new yet, which is the common answer while
-      // polling and is not an error.
-      return { bytes: null, nextOffset: offset, status: "streaming" };
-    }
-    const out = new Int16Array((available - offset) / 2);
-    const total = pcm.length;
-    for (let i = 0; i < out.length; i++) {
-      out[i] = pcm[(offset / 2 + i) % total];  // loop the sample past its end
-    }
-    return {
-      bytes: out.buffer,
-      nextOffset: available,
-      status: elapsed >= 60000 ? "ready" : "streaming",
-    };
+    pending = { id: 9100 + (Date.now() % 800), startedAt: Date.now(), hive,
+                durationS, file: rows[0].file };
+    return { id: pending.id, status: "requested", hive_index: hive,
+             duration_s: durationS };
   },
 
   recordingWavUrl: (id) => {
+    if (pending && id === pending.id) return AUDIO_DIR + pending.file;
     const row = DEMO_RECORDINGS.find((r) => r.id === id);
     return row ? AUDIO_DIR + row.file : "";
   },
 
-  deleteRecording: () =>
-    Promise.reject(new Error(
-      "This is a read-only demo — deleting a recording needs a HiveHub server.")),
+  deleteRecording: async (id) => {
+    if (pending && id === pending.id) { pending = null; return { status: "deleted" }; }
+    throw new Error(
+      "This is a read-only demo — deleting a stored recording needs a HiveHub server.");
+  },
 };

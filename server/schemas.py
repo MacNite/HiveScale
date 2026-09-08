@@ -690,6 +690,10 @@ class DeviceCommandIn(BaseModel):
         # "requested" from "the hub is actually doing it".
         "start_inspection",
         "stop_inspection",
+        # On-request hive audio (issue #71). Payload carries slot, recording_id,
+        # duration_ds (0 = live/open-ended) and gain_db; the hub derives the
+        # upload URL from its own device id rather than trusting the payload.
+        "record_audio",
     ]
     payload: dict[str, Any] = Field(default_factory=dict)
 

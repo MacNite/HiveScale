@@ -524,9 +524,9 @@
 // ==============================
 // HIVEINSIDE AUDIO (on-request microphone stream)
 // ==============================
-// HiveInside 0.6.0 and later can be asked for live audio: an authenticated
-// START makes it capture 16 kHz PCM16 and push it out as GATT notifications,
-// which this hub relays straight to the backend. See gatt_audio.h and
+// HiveInside 0.6.0 and later can be asked to record: an authenticated START
+// makes it capture 16 kHz PCM16 and push it out as GATT notifications, which
+// this hub relays straight to the backend as they arrive. See gatt_audio.h and
 // HiveInside docs/audio-over-ble.md.
 //
 // Needs ENABLE_BLE_SCAN, for the same reason the HiveInside OTA relay does: a
@@ -570,11 +570,12 @@
 #define HIVEINSIDE_AUDIO_MAX_SECONDS 60
 #endif
 
-// How long the hub stays awake polling for another command after a live audio
-// session ends. Without this, "continue listening" in the dashboard would wait
-// for the next wake cycle — minutes — and the feature would not feel live at
-// all. It only applies after an audio session, so it costs nothing on a hub
-// nobody is listening to.
+// How long the hub stays awake polling for another command after an audio
+// session ends. Somebody asking for audio is usually not asking once: a second
+// hive, a longer take, another listen after hearing the first. Without this
+// each of those would wait a full send interval, so a two-minute task becomes a
+// half-hour one. It only applies after an audio session, so a hub nobody is
+// recording from never pays for it.
 #ifndef HIVEINSIDE_AUDIO_FOLLOWUP_MS
 #define HIVEINSIDE_AUDIO_FOLLOWUP_MS 25000
 #endif

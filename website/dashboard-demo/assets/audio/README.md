@@ -45,20 +45,19 @@ Converting a real recording downloaded from a HiveHub server:
 ffmpeg -i recording.wav -ac 1 -b:a 64k hive-clean.mp3
 ```
 
-## What the live button does
+## What the Record button does
 
-The demo has no hub, so **live listening is simulated**: `api.js` decodes the
-first available file once and serves it back in real-time-sized slices through
-exactly the offset/PCM protocol the real panel drives — including the 60-second
-cap and the "keep listening?" prompt. The sample loops if it is shorter than the
-session, so a 12-second file still demonstrates the full minute.
+The demo has no hub, so a request is **simulated**: `api.js` walks it through
+the same three states the real dashboard shows — requested, then streaming, then
+ready — compressed into about eight seconds instead of a reporting interval, and
+then plays the first available file as the result.
 
-That means the demo exercises the real code path rather than a mock-up of it,
-which is why `views.js` can stay a byte-for-byte copy of the dashboard's.
+That means a visitor sees the real flow (ask, wait, listen) rather than a
+mock-up of it, which is why `views.js` can stay a byte-for-byte copy of the
+dashboard's.
 
-With no file here at all, pressing **Listen live** refuses with a message
-pointing back at this README rather than starting a session that would play
-silence.
+With no file here at all, pressing **Record** refuses with a message pointing
+back at this README rather than producing a request that ripens into silence.
 
 ## Keep it honest
 

@@ -24,9 +24,10 @@ change the time range without installing the server.
   of `server/dashboard/assets/*`.
 - `assets/audio/` — **demo-specific.** Sample hive recordings for the audio
   panel, plus a README explaining what to drop in. Ships empty; the panel lists
-  only the files that exist. Live listening is *simulated* from those files by
-  `api.js` (decoded once, served back through the real offset/PCM protocol), so
-  `views.js` never learns it is running without a hub.
+  only the files that exist. A recording *request* is simulated by `api.js` —
+  it walks through requested → streaming → ready in a few seconds and then
+  serves one of those files — so `views.js` never learns it is running without
+  a hub.
 
 ## Keeping it in sync
 

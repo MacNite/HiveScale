@@ -1442,9 +1442,9 @@ void postCommandResult(int commandId, bool success, const String& message) {
 }
 
 // Claim and run at most one queued command. Returns true when one ran, and
-// sets *wasAudio when it was a live audio session — checkCommands() uses that
-// to stay awake for a follow-up, so "continue listening" in the dashboard does
-// not wait for the next wake cycle.
+// sets *wasAudio when it was an audio session — checkCommands() uses that to
+// stay awake briefly for a follow-up, so a second request does not wait for the
+// next wake cycle.
 static bool runOneCommand(bool* wasAudio) {
   if (wasAudio) *wasAudio = false;
 
@@ -1668,14 +1668,13 @@ void checkCommands() {
   if (!runOneCommand(&wasAudio)) return;
 
 #if HIVEINSIDE_AUDIO_ENABLED
-  // Live listening is a sequence of sessions, not one long one: the node caps
-  // every session at 60 s, so "continue listening" in the dashboard queues
-  // another command. Going back to sleep here would make that wait a whole
-  // send interval, and the feature would not be live in any useful sense.
+  // Somebody asking a hive for audio is usually not asking once — a second
+  // hive, a longer take, another listen after hearing the first. Each of those
+  // would otherwise wait a full send interval, turning a two-minute task into a
+  // half-hour one.
   //
   // So after an audio session — and only then — stay up briefly and keep
-  // polling. A hub nobody is listening to never enters this loop and pays
-  // nothing for it.
+  // polling. A hub nobody is recording from never enters this loop.
   if (!wasAudio) return;
   unsigned long deadline = millis() + HIVEINSIDE_AUDIO_FOLLOWUP_MS;
   Serial.printf("[HI-AUD] holding the cycle open %u ms for a follow-up session\n",

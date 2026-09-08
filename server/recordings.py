@@ -191,15 +191,36 @@ def request_recording(device_id: str, hive_index: int, duration_s: float,
     # device id. A hub that posted microphone audio to whatever address a queued
     # command named would be one malformed command away from streaming a garden
     # to a stranger.
-    cmd = create_command(device_id, DeviceCommandIn(
-        command_type="record_audio",
-        payload={
-            "slot": hive_index,
-            "recording_id": recording_id,
-            "duration_ds": duration_ds,
-            "gain_db": gain_db,
-        },
-    ))
+    #
+    # The row exists before the command does, because the command has to carry
+    # its id. If queueing then fails, that row would sit at "requested" forever
+    # waiting for a hub that was never told anything — indistinguishable from a
+    # hub that is merely asleep. So mark it failed and say why, rather than
+    # leaving a request nothing will ever answer.
+    try:
+        cmd = create_command(device_id, DeviceCommandIn(
+            command_type="record_audio",
+            payload={
+                "slot": hive_index,
+                "recording_id": recording_id,
+                "duration_ds": duration_ds,
+                "gain_db": gain_db,
+            },
+        ))
+    except Exception as exc:
+        logger.exception("could not queue record_audio for recording %s", recording_id)
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE hive_recordings SET status = 'failed', completed_at = now(), "
+                    "error = %s WHERE id = %s;",
+                    (f"could not queue the command for the hub: {exc}", recording_id),
+                )
+                conn.commit()
+        raise HTTPException(
+            status_code=500,
+            detail="the recording could not be queued for the hub",
+        ) from exc
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("UPDATE hive_recordings SET command_id = %s WHERE id = %s;",

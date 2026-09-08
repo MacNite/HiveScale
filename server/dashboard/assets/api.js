@@ -167,39 +167,11 @@ export const api = {
   deleteRecording: (id) => req(`/recordings/${id}`, { method: "DELETE" }),
 
   // A finished recording as a WAV the <audio> element can play directly. The
-  // session cookie authenticates it like any other same-origin request.
+  // session cookie authenticates it like any other same-origin request. The
+  // server also exposes GET /recordings/{id}/pcm for reading a session while it
+  // is still being written; the dashboard does not use it, because a request
+  // waits a wake cycle to start and calling that "live" would oversell it.
   recordingWavUrl: (id) => `${BASE}/recordings/${id}/audio.wav`,
-
-  // Raw PCM from a byte offset, for following a session that is still running.
-  // Returns { done, bytes, nextOffset, status } — `bytes` is null when the
-  // server answered 204 ("nothing new yet"), which is the common case while
-  // polling and is not an error.
-  recordingPcm: async (id, offset) => {
-    const res = await fetch(`${BASE}/recordings/${id}/pcm?offset=${offset}`, {
-      credentials: "same-origin",
-    });
-    if (res.status === 204) {
-      return {
-        bytes: null,
-        nextOffset: offset,
-        status: res.headers.get("X-Recording-Status") || "",
-      };
-    }
-    if (!res.ok) {
-      if (res.status === 401) {
-        window.dispatchEvent(new CustomEvent("dashboard-unauthorized"));
-      }
-      const err = new Error(res.statusText);
-      err.status = res.status;
-      throw err;
-    }
-    const buf = await res.arrayBuffer();
-    return {
-      bytes: buf,
-      nextOffset: Number(res.headers.get("X-Recording-Next-Offset") || offset + buf.byteLength),
-      status: res.headers.get("X-Recording-Status") || "",
-    };
-  },
 
   // ── Download / backup ────────────────────────────────────────────────────
   // Query string shared by the export summary and the download itself:

@@ -2,9 +2,9 @@
 
 *Firmware **0.30.0** · server **0.5.0** · HiveInside **0.6.0** · issue [#71](https://github.com/MacNite/HiveInside/issues/71)*
 
-A HiveInside node (firmware 0.6.0 or later) can be asked for live audio. The
-hub relays it to the backend, and the dashboard plays it — while it is still
-being recorded, or afterwards.
+A HiveInside node (firmware 0.6.0 or later) can be asked to record from inside
+the hive. The hub relays the audio to the backend as it is captured, and the
+dashboard plays it back when it arrives.
 
 ```
 HiveInside                    HiveHub                     backend        browser
@@ -116,22 +116,40 @@ container recreation.
 
 ## Using it
 
-**Dashboard → Audio → "Listen to a hive".** Pick a hive, press Listen. Then the
-part that surprises people:
+**Dashboard → Audio → "Hive audio".** Pick a hive, pick a length (10, 30 or 60
+seconds), press **Record**. Then the part that surprises people:
 
 > **It is not instant.** The hub deep-sleeps and only collects commands on its
-> next wake, so listening starts within one reporting interval. The panel says
-> "Waiting for the hub to wake" for exactly this reason.
+> next wake, so a recording arrives within one reporting interval — minutes,
+> not seconds. The panel says "Waiting for the hub to wake" for exactly this
+> reason.
 
-Once audio starts, the session runs for at most 60 seconds — the node's own cap.
-At 50 seconds the dashboard asks whether to keep listening; saying yes queues
-another session. That works smoothly because the hub deliberately stays awake
-for `HIVEINSIDE_AUDIO_FOLLOWUP_MS` (25 s) after an audio session, so the second
-request does not have to wait for another wake cycle. Say no, or ignore it, and
-the hub goes back to its normal cycle.
+The panel then follows the request through its three states — *waiting for the
+hub*, *the hive is being recorded*, and done — and the finished audio appears in
+the dropdown below, newest first, playing as an ordinary WAV.
 
-Earlier sessions are in the dropdown below, newest first, and play as ordinary
-WAV files.
+Only hives with a HiveInside are offered. Nothing else on a hub has a
+microphone, and a request against a HolyIot or RuuviTag could only fail a wake
+cycle later.
+
+Shorter is usually better: 10–20 seconds is enough to hear what an insight
+flagged, and costs proportionally less battery and less time with the hive off
+the air — a connected node neither advertises nor samples, so its readings pause
+for the length of the session.
+
+### Why this is not "live listening"
+
+The transport underneath *can* stream: the hub uploads while the microphone is
+still running, the server writes the file as it lands, and
+`GET /recordings/{id}/pcm?offset=` reads a session that is still being written.
+An API consumer can use that to follow a recording in flight.
+
+The dashboard deliberately does not, because the lead-in makes the label
+dishonest. A "listen now" button that sits silent for several minutes before the
+first sound sets an expectation the hardware cannot keep, and a beekeeper
+staring at a silent player cannot tell a working request from a broken one. The
+smaller promise — you ask for N seconds, and it appears when the hive has been
+heard — is one the system always keeps.
 
 ## Reading the quality flags
 
@@ -170,7 +188,7 @@ Three surfaces, the same functions behind each: master key
 | `POST …/devices/{id}/commands/record-audio?slot=&duration=&gain_db=` | queue a session; `duration=0` is live |
 | `GET …/devices/{id}/recordings` | list, newest first, optionally `?hive=` |
 | `GET …/recordings/{id}` | one recording's metadata and quality flags |
-| `GET …/recordings/{id}/pcm?offset=` | raw PCM from an offset — follows a live session; 204 means "nothing new yet" |
+| `GET …/recordings/{id}/pcm?offset=` | raw PCM from an offset — reads a session while it is still being written; 204 means "nothing new yet". Not used by the dashboard; see "Why this is not live listening" above |
 | `GET …/recordings/{id}/audio.wav` | the finished recording, playable anywhere |
 | `DELETE …/recordings/{id}` | remove the row and its audio |
 
@@ -204,5 +222,6 @@ in-hive microphone in a garden can pick up human speech.
 | "audio service not found" | The node is running firmware older than 0.6.0 |
 | "HiveInside not found in scan" | Out of range, flat battery, or busy with an OTA |
 | Stuck at "Waiting for the hub to wake" | Normal for up to one reporting interval; longer means the hub is offline |
+| A recording stays at "requested" forever | The command never reached the queue. Check the server log for `could not queue record_audio`; the row is marked failed with the reason from 0.30.0 on |
 | "node busy" | An OTA or another session holds the node's single connection |
 | Recording marked incomplete | See the quality flags above |

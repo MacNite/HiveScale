@@ -37,6 +37,7 @@ from recordings import (  # noqa: E402
     _row_to_dict,
     wav_header,
 )
+from schemas import DeviceCommandIn  # noqa: E402
 
 NOW = datetime(2026, 9, 8, 14, 3, tzinfo=timezone.utc)
 
@@ -153,6 +154,30 @@ check("a fixed request reports its duration in seconds",
 partial = _row_to_dict(row(num_bytes=16000, device_bytes=32000, gaps=2))
 check("seconds reflect what arrived, not what was expected", partial["seconds"] == 0.5)
 check("a partial recording is not complete", partial["complete"] is False)
+
+
+# ── the command the request actually queues ─────────────────────────────────
+#
+# DeviceCommandIn.command_type is a Literal, so a command type missing from it
+# raises at construction — inside request_recording, AFTER the recording row has
+# been inserted and committed. The row then sits at "requested" forever waiting
+# for a hub that was never told anything, which looks exactly like a hub that is
+# merely asleep. This shipped that way once; it is a one-line regression to make
+# and an invisible one to diagnose, so pin it here.
+
+try:
+    DeviceCommandIn(command_type="record_audio",
+                    payload={"slot": 1, "recording_id": 1,
+                             "duration_ds": 0, "gain_db": 0})
+    check("record_audio is an accepted device command type", True)
+except Exception as exc:
+    check(f"record_audio is an accepted device command type ({exc})", False)
+
+try:
+    DeviceCommandIn(command_type="definitely_not_a_command", payload={})
+    check("an unknown command type is still rejected", False)
+except Exception:
+    check("an unknown command type is still rejected", True)
 
 
 if _failures:
