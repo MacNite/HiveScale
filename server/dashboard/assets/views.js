@@ -1280,7 +1280,12 @@ function liveAudioPanel(state) {
   const panel = collapsible("Listen to a hive", false, body);
   const isAdmin = state.authUser?.role === "admin";
   const deviceId = state.deviceId;
-  const hives = availableHives(state);
+  // Only a HiveInside has a microphone, so only its hives can be listened to.
+  // Offering every hive here would let somebody queue a session against a hive
+  // with a HolyIot or nothing at all, and learn a wake cycle later that the hub
+  // reported "No HiveInside paired in slot N" — a slow way to be told something
+  // the dashboard already knows. Same helper the HiveInside firmware panel uses.
+  const nodes = hiveInsideNodes(state);
   let recordings = [];
   let selectedId = null;
   let loading = true;
@@ -1300,13 +1305,13 @@ function liveAudioPanel(state) {
     // ── Live controls ─────────────────────────────────────────────────────
     const controls = el("div", { class: "row" });
     const hiveSel = el("select", { class: "full" },
-      ...hives.map((h) => el("option", { value: String(h) }, hiveLabel(state, h))));
+      ...nodes.map((nd) => el("option", { value: String(nd.n) }, nd.label)));
     if (liveAudio.hive) hiveSel.value = String(liveAudio.hive);
 
     const listening = !!liveAudio.recordingId;
     const listenBtn = el("button", {
       class: listening ? "btn danger" : "btn",
-      disabled: (!isAdmin || !hives.length) ? "disabled" : null,
+      disabled: (!isAdmin || !nodes.length) ? "disabled" : null,
       onclick: async () => {
         if (listening) { audioStopLive(""); paint(); return; }
         liveAudio.error = "";
@@ -1335,7 +1340,11 @@ function liveAudioPanel(state) {
     }, listening ? "Stop listening" : "🎧 Listen live");
 
     controls.append(hiveSel, listenBtn);
-    if (!isAdmin) {
+    if (!nodes.length) {
+      controls.append(el("span", { class: "note" },
+        "No HiveInside node is paired on this hub. Only HiveInside has a "
+        + "microphone — a HolyIot or RuuviTag beacon cannot record."));
+    } else if (!isAdmin) {
       controls.append(el("span", { class: "note" },
         "An administrator can start a recording."));
     }

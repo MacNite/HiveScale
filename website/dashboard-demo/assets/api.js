@@ -107,6 +107,17 @@ function point(dev, t, i) {
     // HolyIot/Ruuvi environment beacon (percent).
     hivescale_1_battery_v: scaleV,
     ble_1_battery_percent: Math.round(blePct),
+    // Hive 1's beacon identifies itself as a HiveInside. The audio panel lists
+    // only hives whose node actually has a microphone (hiveInsideNodes() in
+    // views.js keys off exactly these fields), so without them the demo would
+    // show the panel with an empty hive picker and nothing to listen to.
+    // Hive 2 deliberately has no identity — it stands in for a HolyIot or
+    // RuuviTag, and its absence from the picker is part of what the demo shows.
+    ble_1_sensor_type: "HiveInside",
+    ble_1_firmware_version: "0.6.0",
+    ble_1_board: "nrf54lm20a",
+    ble_1_device_name: "HiveInside-8A3F",
+    ble_1_mac: "d8:3a:dd:11:22:33",
   };
 
   if (dev.twoHives) {
@@ -189,7 +200,7 @@ const DEMO_RECORDINGS = [
     crc_ok: true, requested_by: "demo",
   },
   {
-    id: 9002, file: "hive-incomplete.mp3", hive_index: 2, minutesAgo: 190,
+    id: 9002, file: "hive-incomplete.mp3", hive_index: 1, minutesAgo: 190,
     seconds: 9.4, dropped_bytes: 3840, gaps: 2, clipped_pct: 7, complete: false,
     crc_ok: false, requested_by: "demo",
   },
