@@ -38,28 +38,81 @@ pre-empts connection events. It measures flash scheduling, not the radio.
 
 ## Setting it up
 
-**1. Provision the shared key.** The node will not record without an
-authenticated request, and the hub will not ask without a key. Generate one:
+### 1. Generate the key
+
+The node will not record without an authenticated request, and the hub will not
+ask without a key. The two sides want the **same 32 bytes** in different
+notations — a hex string on the hub, a C array on the node — so generate once
+and print both:
 
 ```bash
-openssl rand -hex 32
+KEY=$(openssl rand -hex 32)
+echo "HiveHub  secrets.h:  #define HIVEINSIDE_AUDIO_PSK_HEX \"$KEY\""
+echo "HiveInside audio_secret.h:"
+echo "$KEY" | sed 's/../0x&, /g' | fold -sw 48 | sed 's/^/\t/;s/ $//'
 ```
 
-Put the same 64-character value in both places, each of them gitignored:
+Keep the output somewhere safe until both devices are flashed; nothing stores
+the key anywhere else, so a lost key means reflashing both sides with a new one.
 
-* HiveHub: `HIVEINSIDE_AUDIO_PSK_HEX` in `firmware/include/secrets.h`
-* HiveInside: `hive_audio_psk` in `firmware-nrf54lm20a/src/audio_secret.h`
+### 2. Put it on the hub
 
-A missing or all-zero key fails closed on both sides. That is the intended
+Add one line to `firmware/include/secrets.h` (gitignored — copy
+`secrets.example.h` if you do not have one yet). It can go anywhere in the file;
+next to the other HiveInside settings keeps it findable:
+
+```c
+#define HIVEINSIDE_AUDIO_PSK_HEX "40d813ad974c1506...5919426b"
+```
+
+64 hex characters, no `0x` prefix, no spaces. Anything else — a short string, a
+stray `0x`, all zeros — is treated as "no key configured" and every session is
+refused with a message saying so.
+
+### 3. Put it on the node
+
+Copy `firmware-nrf54lm20a/src/audio_secret.example.h` to
+`firmware-nrf54lm20a/src/audio_secret.h` (also gitignored) and replace the
+zeroed array with the rows the command above printed:
+
+```c
+#pragma once
+#include <stdint.h>
+static const uint8_t hive_audio_psk[32] = {
+	0x40, 0xd8, 0x13, 0xad, 0x97, 0x4c, 0x15, 0x06,
+	0x27, 0x03, 0xa0, 0x4e, 0x1f, 0xa3, 0x67, 0x25,
+	0xf7, 0x09, 0x33, 0x30, 0xa8, 0xd3, 0xd1, 0x01,
+	0x81, 0xfc, 0xdf, 0xe5, 0x59, 0x19, 0x42, 0x6b,
+};
+```
+
+Both sides fail closed when the key is missing or all-zero. That is the intended
 behaviour, not a bug to work around: the alternative is a microphone in a garden
 that any BLE device in range can switch on.
 
-**2. Flash both.** HiveHub with `HIVEINSIDE_AUDIO_ENABLED` (default on wherever
-`ENABLE_BLE_SCAN` is), HiveInside with 0.6.0 or later.
+### 4. Flash both
 
-**3. Mount the storage.** `RECORDINGS_DIR` (default `/app/recordings`) needs a
-volume — the compose file ships one. Without it the database keeps rows whose
-audio vanished on the next container recreation.
+HiveHub with `HIVEINSIDE_AUDIO_ENABLED` (default on wherever `ENABLE_BLE_SCAN`
+is), HiveInside with 0.6.0 or later.
+
+> **`FORCE_RESEED` is not needed.** That flag only re-seeds the *claim code*
+> from `secrets.h` into NVS preferences (see `device_prefs.cpp`). The audio key
+> is never stored in preferences — the relay reads the compiled-in macro at the
+> start of every session — so an ordinary flash or OTA is enough. Setting
+> `FORCE_RESEED` would only re-push the claim code, which is unrelated and
+> forces a re-registration you do not want.
+
+**Update both sides together.** The key is checked on every session, so between
+flashing one device and the other, audio fails with "authentication failed"
+while measurements keep working normally. That asymmetry is the giveaway: if
+readings are fine and only listening is broken, suspect the key before the
+radio.
+
+### 5. Mount the storage
+
+`RECORDINGS_DIR` (default `/app/recordings`) needs a volume — the compose file
+ships one. Without it the database keeps rows whose audio vanished on the next
+container recreation.
 
 ## Using it
 
@@ -146,8 +199,8 @@ in-hive microphone in a garden can pick up human speech.
 
 | Symptom | Cause |
 |---|---|
-| "no HiveInside audio key configured on this hub" | `HIVEINSIDE_AUDIO_PSK_HEX` is empty in `secrets.h` |
-| "authentication failed" | The two keys differ, or the node has none |
+| "no HiveInside audio key configured on this hub" | `HIVEINSIDE_AUDIO_PSK_HEX` is missing, empty, not 64 hex characters, or all zeros in `secrets.h` — see [Generate the key](#1-generate-the-key) |
+| "authentication failed" | The two keys differ, or the node has none. Usually one side was flashed and the other not; measurements keep working, which is what makes this look like a radio fault rather than a key one |
 | "audio service not found" | The node is running firmware older than 0.6.0 |
 | "HiveInside not found in scan" | Out of range, flat battery, or busy with an OTA |
 | Stuck at "Waiting for the hub to wake" | Normal for up to one reporting interval; longer means the hub is offline |
