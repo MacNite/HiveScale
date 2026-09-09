@@ -137,7 +137,13 @@ seconds), press **Record**. Then the part that surprises people:
 
 The panel is split: the request controls sit in the left rail above the list of
 sessions, newest first, and selecting one fills the right-hand side with its
-player, its quality figures and a download button. A request follows its three
+player, its quality figures and a download button. On a narrow screen the two
+columns stack, which is what the shot below shows.
+
+<img src="hive-audio-panel.png" alt="The Hive audio panel: hive and length
+selectors above a Record button, a list of two sessions, and the selected
+recording with its player, quality figures and a Checksum reading of &quot;not
+confirmed&quot;." width="420"> A request follows its three
 states in place — *waiting for the hub*, *being recorded*, done — and the
 finished audio plays as an ordinary WAV.
 
