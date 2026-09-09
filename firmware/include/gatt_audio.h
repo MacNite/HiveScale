@@ -57,7 +57,12 @@ struct Stats {
   uint32_t droppedBytes = 0;  // STATUS: audio lost to the node's ring overrun
   uint32_t elapsedMs = 0;     // STATUS: session duration on the node
   uint32_t gaps = 0;          // sequence discontinuities this hub observed
-  uint32_t ringOverruns = 0;  // PCM this hub dropped because the sink lagged
+  // Seams this hub introduced: one per notification the staging ring could not
+  // take, whether because the upload was behind or because the session was
+  // being torn down around it. Counted in packets, like `gaps`, because that is
+  // what the two are summed into for the backend.
+  uint32_t ringOverruns = 0;
+  uint32_t ringDroppedBytes = 0;  // how much PCM those seams cost, for the log
   uint16_t sampleRate = 0;    // STATUS: 16000
   uint8_t  state = 0;         // STATUS: 0 idle, 1 armed, 2 streaming, 3 done
   uint8_t  error = 0;         // STATUS: >= 0x10 is fatal

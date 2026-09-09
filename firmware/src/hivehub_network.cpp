@@ -12,6 +12,8 @@
 #include "heap_diag.h"
 #include "night_mode.h"   // MINUTES_PER_DAY, for clamping the delivered window
 
+#include <memory>
+
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -1194,6 +1196,34 @@ static bool relayAudioSession(const String& mac, long recordingId,
   headers += "\r\n";
   sock->print(headers);
 
+  // The upload buffer lives on the HEAP, not in this frame.
+  //
+  // This function runs on the Arduino loop task, whose stack is 8 kB, and
+  // `sock->write()` below descends into mbedtls, which wants a couple of
+  // kilobytes of it to build and encrypt a TLS record. A 4 kB array declared
+  // here took half the stack before that call was even made, leaving the canary
+  // a few hundred bytes away on the classic ESP32 — whose windowed-ABI frames
+  // are larger than the C6's, which is part of why the same firmware crashed on
+  // one board and not the other. The firmware relay next door has always kept
+  // its own relay buffer at 1 kB for the same reason; this path is the one that
+  // got it wrong.
+  //
+  // 4 kB is still the right CHUNK — it batches roughly seventeen notifications
+  // into one TLS record — so move it rather than shrink it.
+  std::unique_ptr<uint8_t, void (*)(void*)> uploadBuf(
+      (uint8_t*)malloc(HIVEINSIDE_AUDIO_UPLOAD_CHUNK), ::free);
+  uint8_t* const buf = uploadBuf.get();
+  if (!buf) {
+    setMsg("out of memory for the audio upload buffer");
+    Serial.printf("[HI-AUD] out of memory for the %u B audio upload buffer "
+                  "(free heap %u, largest block %u)\n",
+                  (unsigned)HIVEINSIDE_AUDIO_UPLOAD_CHUNK,
+                  (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    sock->print("0\r\n\r\n");
+    sock->stop();
+    return false;
+  }
+
   bool bleOk = gattaudio::begin(mac, durationDs, gainDb);
   if (!bleOk) {
     setMsg(gattaudio::lastError().length() ? gattaudio::lastError()
@@ -1207,15 +1237,20 @@ static bool relayAudioSession(const String& mac, long recordingId,
     return false;
   }
 
+  // Both radios and the ring are now resident at once — the tightest the heap
+  // gets on this hub. The firmware relay probes the same boundary for the same
+  // reason: when this path faults, the log has to say whether the heap was
+  // already damaged before the session started.
+  heapdiag::probe("audio-session-open");
+
   const uint32_t maxMs = (uint32_t)HIVEINSIDE_AUDIO_MAX_SECONDS * 1000UL;
   const unsigned long startedMs = millis();
   unsigned long lastDataMs = startedMs;
-  uint8_t buf[HIVEINSIDE_AUDIO_UPLOAD_CHUNK];
   uint32_t uploaded = 0;
   bool stalled = false, socketLost = false;
 
   while (true) {
-    size_t n = gattaudio::read(buf, sizeof(buf));
+    size_t n = gattaudio::read(buf, HIVEINSIDE_AUDIO_UPLOAD_CHUNK);
     if (n > 0) {
       // Chunked framing: size in hex, CRLF, data, CRLF.
       sock->printf("%X\r\n", (unsigned)n);
@@ -1251,7 +1286,7 @@ static bool relayAudioSession(const String& mac, long recordingId,
 
   // Whatever is still in the ring belongs to this recording.
   size_t n;
-  while ((n = gattaudio::read(buf, sizeof(buf))) > 0 && !socketLost) {
+  while ((n = gattaudio::read(buf, HIVEINSIDE_AUDIO_UPLOAD_CHUNK)) > 0 && !socketLost) {
     sock->printf("%X\r\n", (unsigned)n);
     sock->write(buf, n);
     sock->print("\r\n");
@@ -1396,8 +1431,19 @@ void checkForOtaUpdate() {
 // say so against the right command id while the row is still open.
 static const uint32_t RELAY_MARKER_MAGIC = 0x48524C59UL;  // "HRLY"
 
-static void markRelayInFlight(int commandId) {
+// What was running, so the report after a reset names it. A hub that dies
+// during a recording used to tell the dashboard "firmware transfer did not
+// complete", which sent the operator looking for an OTA that never happened.
+enum RelayKind : uint32_t {
+  RELAY_KIND_FIRMWARE = 0,  // also what an unrecognised value is treated as
+  RELAY_KIND_AUDIO = 1,
+};
+
+static void markRelayInFlight(int commandId, RelayKind kind) {
   rtcRelayCommandId = (uint32_t)commandId;
+  // Kind before magic: the magic is what makes the whole record believable, so
+  // it must be the last field written and the first one checked.
+  rtcRelayKind = (uint32_t)kind;
   rtcRelayMagic = RELAY_MARKER_MAGIC;
 }
 
@@ -1409,6 +1455,7 @@ static void markRelayInFlight(int commandId) {
 // leave that sliver uncovered than to invent a failure that did not happen.
 static void clearRelayInFlight() {
   rtcRelayCommandId = 0;
+  rtcRelayKind = RELAY_KIND_FIRMWARE;
   rtcRelayMagic = 0;
 }
 
@@ -1419,12 +1466,14 @@ static void reportInterruptedRelay() {
   if (rtcRelayMagic != RELAY_MARKER_MAGIC || rtcRelayCommandId == 0) return;
 
   const int commandId = (int)rtcRelayCommandId;
+  const bool wasAudio = (rtcRelayKind == RELAY_KIND_AUDIO);
   // Clear FIRST. If the report itself is what kills us, the next boot must not
   // find the same marker and try again forever; one lost report beats a loop.
   clearRelayInFlight();
 
-  String msg = String("hub reset during relay (") + resetReasonName() +
-               ") — firmware transfer did not complete";
+  String msg = String("hub reset during relay (") + resetReasonName() + ") — " +
+               (wasAudio ? "the audio session did not complete"
+                         : "firmware transfer did not complete");
   Serial.printf("[CMD] Reporting interrupted relay for command %d: %s\n",
                 commandId, msg.c_str());
   postCommandResult(commandId, false, msg);
@@ -1525,7 +1574,7 @@ static bool runOneCommand(bool* wasAudio) {
       String resultMsg;
       // Note the attempt before starting: a reset during the transfer otherwise
       // leaves the row to time out silently an hour later.
-      markRelayInFlight(commandId);
+      markRelayInFlight(commandId, RELAY_KIND_FIRMWARE);
       bool ok = updateHiveInside(mac, fwUrl, crc, &resultMsg);
       clearRelayInFlight();
       Serial.printf("[HI-OTA] update result: %s (%s)\n",
@@ -1559,7 +1608,7 @@ static bool runOneCommand(bool* wasAudio) {
       // Same crash-safe marker as the OTA relays: a session runs for up to a
       // minute and only reports at the end, so a reset in the middle would
       // otherwise strand the row until the backend's stale sweep noticed.
-      markRelayInFlight(commandId);
+      markRelayInFlight(commandId, RELAY_KIND_AUDIO);
       String resultMsg;
       bool ok = recordHiveInsideAudio(mac, recordingId, durationDs, gainDb, &resultMsg);
       clearRelayInFlight();
@@ -1605,7 +1654,7 @@ static bool runOneCommand(bool* wasAudio) {
       // only known once updateBeeCounter returns.
       String resultMsg;
       // Same crash-safe marker as the HiveInside relay above.
-      markRelayInFlight(commandId);
+      markRelayInFlight(commandId, RELAY_KIND_FIRMWARE);
       bool ok = updateBeeCounter(mac, fwUrl, crc, &resultMsg);
       clearRelayInFlight();
       Serial.printf("[BC-OTA] update result: %s (%s)\n",

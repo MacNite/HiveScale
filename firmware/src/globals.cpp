@@ -3,7 +3,7 @@
 
 #include <esp_system.h>
 
-const char* const FIRMWARE_VERSION = "0.30.0";
+const char* const FIRMWARE_VERSION = "0.30.1";
 
 #if ENABLE_HX711
 HX711 scale1;
@@ -128,6 +128,10 @@ RTC_DATA_ATTR uint32_t rtcBootCount = 0;
 // reportInterruptedRelay() in hivehub_network.cpp.
 RTC_NOINIT_ATTR uint32_t rtcRelayCommandId;
 RTC_NOINIT_ATTR uint32_t rtcRelayMagic;
+// Which kind of relay it was, so the report names what actually died. Written
+// before the magic and only ever read once the magic matches, so the garbage a
+// power-on leaves here is never believed.
+RTC_NOINIT_ATTR uint32_t rtcRelayKind;
 
 // A `start_provisioning` request that had to reboot to get a NimBLE port
 // lifetime its BLE scan is allowed to run in. See portal.cpp.

@@ -1,6 +1,6 @@
 # Listening to a hive
 
-*Firmware **0.30.0** · server **0.5.1** · HiveInside **0.6.2** · issue [#71](https://github.com/MacNite/HiveInside/issues/71)*
+*Firmware **0.30.1** · server **0.5.1** · HiveInside **0.6.2** · issue [#71](https://github.com/MacNite/HiveInside/issues/71)*
 
 A HiveInside node can be asked to record from inside
 the hive. The hub relays the audio to the backend as it is captured, and the
@@ -258,6 +258,52 @@ in-hive microphone in a garden can pick up human speech.
   in radio range could capture a session in progress.
 * Recordings are kept until deleted, and the dashboard names who requested each.
 
+## When the hub resets mid-recording
+
+Hub firmware up to 0.30.0 could panic during an audio session and reboot. The
+dashboard showed the recording as failed with `hub reset during relay
+(panic/exception)`, and — misleadingly — "firmware transfer did not complete",
+because the post-reset report was worded for the OTA relay that shipped first.
+0.30.1 fixes the crash, and says "the audio session did not complete" when it
+was a recording.
+
+**It hit 30-pin ESP32 hubs far more than ESP32-C6 ones, and weak BLE links more
+than strong ones.** Both follow from the same cause.
+
+Audio notifications are delivered on NimBLE's host task, which is pinned to
+core 0, while the upload loop runs on the Arduino loop task on core 1. On the
+dual-core ESP32 those two run *at the same instant*; the ESP32-C6 is
+single-core, so they can only interleave. When a session ended — and on a weak
+link it ends by stall or dropped connection, with the node still transmitting —
+the teardown freed the staging buffer while a notification was writing into it.
+Depending on the timing that corrupted the heap (so some later, innocent
+allocation faulted instead), wrote through a null pointer, or divided by a zero
+buffer size, which traps on Xtensa but not on the C6's RISC-V core. Three
+crashes, one race, all of them reported as `ESP_RST_PANIC`.
+
+The staging ring is now a checked structure (`firmware/include/audio_ring.h`,
+with host tests in `firmware/host_test/test_audio_ring.cpp`) that refuses to
+touch memory once it has been detached, teardown detaches it before it frees
+anything, and no size is ever used as a divisor. A notification that arrives
+during teardown is counted as a dropped packet and reported with the session,
+which is what the `gaps` figure is for.
+
+Three smaller things on the same path went with it:
+
+* The 4 KiB upload buffer moved off the loop task's 8 KiB stack, where it sat
+  directly above mbedtls's own stack use during a TLS write.
+* A failure to bring the BLE stack up is now an error rather than something the
+  relay continues past. The hub asks for the radio with WiFi connected and a TLS
+  session already open, which is the tightest the heap ever gets — and much
+  tighter on the ESP32 than on the C6.
+* The staging buffer shrinks to fit a fragmented heap (down to 8 KiB) instead of
+  failing the session outright.
+
+If you see a reset on 0.30.1 or later, the serial log is the place to look:
+`monitor_filters = esp32_exception_decoder` is already set in
+`platformio.ini`, so a panic prints a decoded backtrace rather than raw hex.
+
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -272,3 +318,6 @@ in-hive microphone in a garden can pick up human speech.
 | Audio is loud for a moment then near-silence | The microphone lost power mid-session. On HiveInside before the sensor-rail fix, a measurement cycle already running when the session started would switch LDO1 off underneath it |
 | "node busy" | An OTA or another session holds the node's single connection |
 | Recording marked incomplete | See the quality flags above |
+| "hub reset during relay (panic/exception)" | A crash mid-session. Fixed in hub firmware 0.30.1 — see [When the hub resets mid-recording](#when-the-hub-resets-mid-recording) |
+| "BLE stack would not start" | The hub could not bring the radio up with WiFi and TLS already open. Almost always a 30-pin ESP32 with an unusually full heap; the serial log prints the free heap and the largest free block next to it |
+| "audio buffer trimmed to N B" (serial log, not an error) | The hub could not get the full 32 KiB staging buffer and took a smaller one. The recording still happens; a slow upload will show up as gaps sooner |

@@ -879,7 +879,7 @@ void writeSnapshotToHive(JsonObject hive, const Snapshot& snap) {
 // genuinely needs this file's scan machinery: an nRF54 HiveInside is otherwise
 // only ever a passive beacon, so nothing establishes which address type to
 // connect with until it has been seen advertising.
-#if HIVEINSIDE_OTA_ENABLED
+#if HIVEINSIDE_OTA_ENABLED || HIVEINSIDE_AUDIO_ENABLED
 
 bool locateByScan(const String& mac, uint8_t& addrTypeOut) {
   String m = normalizeMac(mac);
@@ -921,7 +921,7 @@ bool locateByScan(const String& mac, uint8_t& addrTypeOut) {
   return true;
 }
 
-#endif  // HIVEINSIDE_OTA_ENABLED
+#endif  // HIVEINSIDE_OTA_ENABLED || HIVEINSIDE_AUDIO_ENABLED
 
 }  // namespace blesensor
 

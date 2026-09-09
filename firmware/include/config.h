@@ -557,6 +557,21 @@
 #define HIVEINSIDE_AUDIO_RING_BYTES 32768
 #endif
 
+// The floor the ring is allowed to shrink to when the heap cannot give the
+// figure above. gatt_audio.cpp halves its request down to this rather than
+// refusing the session: the ring is a cushion, so a smaller one means a
+// recording with more seams in it under load — reported, never hidden — where
+// insisting on the full 32 KiB means no recording at all.
+//
+// This matters on the classic 30-pin ESP32 far more than on the C6. Both the
+// BT controller and the ring are asked for while WiFi and a TLS session are
+// already resident, and the ESP32 has substantially less DRAM to spread across
+// the three. 8 KiB is a quarter-second of cushion — enough that only a genuinely
+// slow upload leaves a mark.
+#ifndef HIVEINSIDE_AUDIO_RING_MIN_BYTES
+#define HIVEINSIDE_AUDIO_RING_MIN_BYTES 8192
+#endif
+
 // Bytes pulled from the ring per TLS write. One notification carries 240 B, so
 // this batches roughly seventeen of them per socket write.
 #ifndef HIVEINSIDE_AUDIO_UPLOAD_CHUNK

@@ -3,7 +3,7 @@
 # — no Arduino toolchain: the tests exercise the exact production headers
 # (i2c_iface.h, nau7802_checked.h, scale_math.h, scale_topology.h) against the
 # scripted mock bus in mock_i2c.h, plus the pure per-hive BLE pairing lane rules
-# in ble_lanes.h.
+# in ble_lanes.h, plus the audio staging ring in audio_ring.h.
 set -e
 cd "$(dirname "$0")"
 : "${CXX:=g++}"
@@ -19,3 +19,7 @@ mkdir -p build
 "$CXX" -std=gnu++17 -Wall -Wextra -Werror -I../include \
        -o build/test_ble_lanes test_ble_lanes.cpp
 ./build/test_ble_lanes
+
+"$CXX" -std=gnu++17 -Wall -Wextra -Werror -I../include \
+       -o build/test_audio_ring test_audio_ring.cpp
+./build/test_audio_ring
