@@ -9,6 +9,12 @@
 #include "config.h"   // for WIFI_CONNECT_TIMEOUT_MS (default arg below)
 
 // ---- URL helpers ----------------------------------------------------------
+// Rolling CRC-32 (IEEE 802.3, reflected 0xEDB88320 — the same algorithm as the
+// backend's zlib.crc32). Start with crc=0 and feed each chunk the previous
+// call's return value. Shared with gatt_audio.cpp, which checks a recording
+// against the CRC the node computed over the same bytes.
+uint32_t crc32Update(uint32_t crc, const uint8_t* data, size_t len);
+
 String apiUrl(const String& path);
 String absoluteUrl(String maybeRelativeUrl);
 
@@ -70,6 +76,15 @@ bool performFirmwareUpdate(const String& firmwareUrl, int expectedSize = 0,
 // "HiveInside OTA completed", "HiveInside not found in scan", "firmware download
 // failed (HTTP 404)") so the caller can report the real outcome to the backend
 // instead of a bare boolean.
+#if HIVEINSIDE_AUDIO_ENABLED
+// Run one HiveInside audio session and relay it to the backend, synchronously.
+// `durationDs` is deciseconds, 0 for a live/open-ended session that ends at the
+// node's own 60 s cap. Returns false with *outMsg naming the cause; the message
+// is what the dashboard shows next to the recording.
+bool recordHiveInsideAudio(const String& mac, long recordingId,
+                           uint16_t durationDs, int8_t gainDb, String* outMsg);
+#endif
+
 bool updateHiveInside(const String& mac, const String& firmwareUrl,
                       uint32_t expectedCrc32 = 0, String* outMsg = nullptr);
 // The HiveTraffic counter equivalent. Note the counter STOPS COUNTING for the

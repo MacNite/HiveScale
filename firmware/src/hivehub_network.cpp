@@ -24,6 +24,9 @@
 #if ENABLE_BLE_SCAN
 #include "ble_sensor.h"
 #endif
+#if HIVEINSIDE_AUDIO_ENABLED
+#include "gatt_audio.h"
+#endif
 #if GATT_OTA_ENABLED
 #include "gatt_ota.h"
 #endif
@@ -740,7 +743,7 @@ static uint16_t expectedImageChipId() {
 // Rolling CRC-32 (IEEE 802.3, reflected 0xEDB88320 — the same algorithm as the
 // backend's zlib.crc32). Start with crc=0 and feed each
 // chunk the previous call's return value; the final value is the file CRC.
-static uint32_t crc32Update(uint32_t crc, const uint8_t* data, size_t len) {
+uint32_t crc32Update(uint32_t crc, const uint8_t* data, size_t len) {
   crc = ~crc;
   for (size_t i = 0; i < len; i++) {
     crc ^= data[i];
@@ -1091,6 +1094,250 @@ bool updateBeeCounter(const String& mac, const String& firmwareUrl,
 }
 #endif
 
+#if HIVEINSIDE_AUDIO_ENABLED
+// Split an absolute URL into the pieces a raw socket needs. The audio upload
+// cannot go through HTTPClient: a live session has no length to declare, and
+// HTTPClient can only send a body whose size is known up front.
+static bool splitUrl(const String& url, bool& tls, String& host, uint16_t& port,
+                     String& path) {
+  int schemeEnd;
+  if (url.startsWith("https://")) {
+    tls = true; port = 443; schemeEnd = 8;
+  } else if (url.startsWith("http://")) {
+    tls = false; port = 80; schemeEnd = 7;
+  } else {
+    return false;
+  }
+  int slash = url.indexOf('/', schemeEnd);
+  String hostPort = (slash < 0) ? url.substring(schemeEnd)
+                                : url.substring(schemeEnd, slash);
+  path = (slash < 0) ? String("/") : url.substring(slash);
+  int colon = hostPort.indexOf(':');
+  if (colon >= 0) {
+    port = (uint16_t)hostPort.substring(colon + 1).toInt();
+    host = hostPort.substring(0, colon);
+  } else {
+    host = hostPort;
+  }
+  return host.length() > 0 && port != 0;
+}
+
+// Relay one HiveInside audio session to the backend.
+//
+// The upload is a single chunked POST rather than a series of sized ones. A
+// live session's length is unknown until it ends, and a fresh TLS handshake per
+// chunk would cost more wall-clock time than the audio it carried: the node
+// emits 32 kB/s and does not wait. One socket, one handshake, chunk framing for
+// the duration.
+//
+// Ordering matters and is deliberate: the socket and its headers go out BEFORE
+// the BLE session starts. Reversed, the one-to-several seconds of scan,
+// connect and TLS handshake would run while the node was already streaming into
+// a 32 KiB ring, and the first second of every recording would be lost to an
+// overrun. An idle socket waiting for its first chunk is the cheaper end of
+// that trade.
+static bool relayAudioSession(const String& mac, long recordingId,
+                              uint16_t durationDs, int8_t gainDb,
+                              String* outMsg) {
+  auto setMsg = [&](const String& m) { if (outMsg) *outMsg = m; };
+
+  if (!connectWifi()) { setMsg("WiFi connect failed"); return false; }
+
+  // The upload URL is built here, never taken from the command payload. A hub
+  // that POSTed microphone audio to whatever address a queued command named
+  // would be one compromised or malformed command away from streaming a hive —
+  // and a garden — to a stranger.
+  const String base = String("/api/v1/devices/") + deviceId + "/recordings/" + recordingId;
+  const String streamUrl = apiUrl(base + "/stream");
+
+  bool tls = false; String host, path; uint16_t port = 0;
+  if (!splitUrl(streamUrl, tls, host, port, path)) {
+    setMsg("audio upload URL has no http:// or https:// scheme");
+    return false;
+  }
+#if !ALLOW_INSECURE_HTTP
+  if (!tls) {
+    setMsg("refusing to stream audio over plain HTTP "
+           "(set ALLOW_INSECURE_HTTP to 1 to opt in)");
+    return false;
+  }
+#endif
+
+  heapdiag::probe("audio-start");
+
+  WiFiClientSecure secureClient;
+  WiFiClient plainClient;
+  WiFiClient* sock = nullptr;
+  if (tls) {
+    applyTlsConfig(secureClient);
+    secureClient.setTimeout(HTTP_REQUEST_TIMEOUT_MS / 1000);
+    if (!secureClient.connect(host.c_str(), port)) {
+      setMsg("TLS connect to the backend failed");
+      return false;
+    }
+    sock = &secureClient;
+  } else {
+    if (!plainClient.connect(host.c_str(), port)) {
+      setMsg("connect to the backend failed");
+      return false;
+    }
+    sock = &plainClient;
+  }
+
+  String headers = String("POST ") + path + " HTTP/1.1\r\n" +
+                   "Host: " + host + "\r\n" +
+                   "User-Agent: HiveHub/" + FIRMWARE_VERSION + "\r\n" +
+                   "Content-Type: application/octet-stream\r\n" +
+                   "Transfer-Encoding: chunked\r\n" +
+                   "Connection: close\r\n";
+  if (apiKey.length() > 0) headers += "X-API-Key: " + apiKey + "\r\n";
+  headers += "\r\n";
+  sock->print(headers);
+
+  bool bleOk = gattaudio::begin(mac, durationDs, gainDb);
+  if (!bleOk) {
+    setMsg(gattaudio::lastError().length() ? gattaudio::lastError()
+                                           : String("audio session failed to start"));
+    // Close the body cleanly anyway: the backend then sees a zero-byte
+    // recording it can mark failed, instead of a half-open socket it has to
+    // time out.
+    sock->print("0\r\n\r\n");
+    sock->stop();
+    gattaudio::cleanup();
+    return false;
+  }
+
+  const uint32_t maxMs = (uint32_t)HIVEINSIDE_AUDIO_MAX_SECONDS * 1000UL;
+  const unsigned long startedMs = millis();
+  unsigned long lastDataMs = startedMs;
+  uint8_t buf[HIVEINSIDE_AUDIO_UPLOAD_CHUNK];
+  uint32_t uploaded = 0;
+  bool stalled = false, socketLost = false;
+
+  while (true) {
+    size_t n = gattaudio::read(buf, sizeof(buf));
+    if (n > 0) {
+      // Chunked framing: size in hex, CRLF, data, CRLF.
+      sock->printf("%X\r\n", (unsigned)n);
+      size_t written = sock->write(buf, n);
+      sock->print("\r\n");
+      if (written != n) { socketLost = true; break; }
+      uploaded += n;
+      lastDataMs = millis();
+      if ((uploaded % (64 * 1024)) < n) {
+        Serial.printf("[HI-AUD] uploaded %u B (%lus)\n", (unsigned)uploaded,
+                      (millis() - startedMs) / 1000UL);
+      }
+      continue;  // drain hard while there is anything buffered
+    }
+
+    if (!gattaudio::streaming()) break;  // node finished; loop once more drained
+    if (!sock->connected()) { socketLost = true; break; }
+
+    if (millis() - lastDataMs > (unsigned long)HIVEINSIDE_AUDIO_STALL_S * 1000UL) {
+      stalled = true;
+      break;
+    }
+    if (millis() - startedMs > maxMs) {
+      // The node caps itself at 60 s; reaching this means it never sent a final
+      // packet, so end the session from this side rather than holding a hive
+      // off the air indefinitely.
+      Serial.println("[HI-AUD] hub-side cap reached; stopping the session");
+      gattaudio::stop();
+      break;
+    }
+    delay(5);
+  }
+
+  // Whatever is still in the ring belongs to this recording.
+  size_t n;
+  while ((n = gattaudio::read(buf, sizeof(buf))) > 0 && !socketLost) {
+    sock->printf("%X\r\n", (unsigned)n);
+    sock->write(buf, n);
+    sock->print("\r\n");
+    uploaded += n;
+  }
+
+  gattaudio::stop();
+  gattaudio::Stats stats;
+  bool sessionOk = gattaudio::finish(&stats);
+  String sessionErr = gattaudio::lastError();
+  gattaudio::cleanup();
+
+  int httpStatus = 0;
+  if (!socketLost) {
+    sock->print("0\r\n\r\n");
+    // Read just the status line; the body carries nothing this side needs.
+    unsigned long deadline = millis() + HTTP_REQUEST_TIMEOUT_MS;
+    String line;
+    while (millis() < deadline && sock->connected() && line.length() == 0) {
+      if (sock->available()) line = sock->readStringUntil('\n');
+      else delay(10);
+    }
+    int sp = line.indexOf(' ');
+    if (sp > 0) httpStatus = line.substring(sp + 1, sp + 4).toInt();
+    Serial.printf("[HI-AUD] upload HTTP %d, %u B\n", httpStatus, (unsigned)uploaded);
+  }
+  sock->stop();
+  heapdiag::probe("audio-end");
+
+  // Report the session to the backend even when it went badly: a recording row
+  // that never hears back is indistinguishable from a hub that died, and the
+  // dashboard would show "recording…" forever.
+  JsonDocument fin;
+  fin["bytes"] = uploaded;
+  fin["crc32"] = stats.crc32;
+  fin["device_bytes"] = stats.deviceBytes;
+  fin["device_crc32"] = stats.deviceCrc;
+  fin["dropped_bytes"] = stats.droppedBytes;
+  fin["elapsed_ms"] = stats.elapsedMs;
+  fin["gaps"] = stats.gaps + stats.ringOverruns;
+  fin["sample_rate"] = stats.sampleRate ? stats.sampleRate : 16000;
+  fin["clipped_pct"] = stats.clippedPct;
+  fin["device_error"] = stats.error;
+
+  String reason;
+  bool ok = sessionOk && !socketLost && !stalled &&
+            httpStatus >= 200 && httpStatus < 300;
+  if (!sessionOk) reason = sessionErr;
+  else if (stalled) reason = String("no audio for ") + HIVEINSIDE_AUDIO_STALL_S +
+                             "s; session abandoned";
+  else if (socketLost) reason = "upload connection lost mid-session";
+  else if (httpStatus < 200 || httpStatus >= 300)
+    reason = String("backend rejected the upload (HTTP ") + httpStatus + ")";
+
+  fin["ok"] = ok;
+  if (reason.length()) fin["error"] = reason;
+  String finPayload;
+  serializeJson(fin, finPayload);
+  httpPostJson(apiUrl(base + "/finalize"), finPayload);
+
+  if (ok) {
+    // A recording with holes in it is still useful, but the operator has to be
+    // told rather than left to notice a seam by ear.
+    String msg = String("recorded ") + uploaded + " B (" +
+                 String(stats.elapsedMs / 1000.0f, 1) + " s)";
+    if (stats.droppedBytes || stats.gaps || stats.ringOverruns) {
+      msg += String(" (INCOMPLETE: ") + stats.droppedBytes + " B dropped by the node, " +
+             (stats.gaps + stats.ringOverruns) + " gap(s) at the hub)";
+    } else if (stats.crc32 != stats.deviceCrc) {
+      msg += " (CRC mismatch — audio was corrupted in transit)";
+    }
+    setMsg(msg);
+  } else {
+    setMsg(reason.length() ? reason : String("audio session failed"));
+  }
+  Serial.printf("[HI-AUD] result: %s (%s)\n", ok ? "OK" : "FAIL",
+                outMsg ? outMsg->c_str() : "");
+  return ok;
+}
+
+bool recordHiveInsideAudio(const String& mac, long recordingId,
+                           uint16_t durationDs, int8_t gainDb, String* outMsg) {
+  return relayAudioSession(mac, recordingId, durationDs, gainDb, outMsg);
+}
+#endif  // HIVEINSIDE_AUDIO_ENABLED
+
 void checkForOtaUpdate() {
   if (!connectNetwork()) {
     Serial.println("[OTA] Skipping: network unavailable");
@@ -1194,11 +1441,12 @@ void postCommandResult(int commandId, bool success, const String& message) {
   httpPostJson(apiUrl(String("/api/v1/devices/") + deviceId + "/commands/" + commandId + "/result"), payload);
 }
 
-void checkCommands() {
-  if (!connectNetwork()) return;
-
-  // Close out a relay that a reset interrupted before claiming anything new.
-  reportInterruptedRelay();
+// Claim and run at most one queued command. Returns true when one ran, and
+// sets *wasAudio when it was an audio session — checkCommands() uses that to
+// stay awake briefly for a follow-up, so a second request does not wait for the
+// next wake cycle.
+static bool runOneCommand(bool* wasAudio) {
+  if (wasAudio) *wasAudio = false;
 
   JsonDocument doc;
   String url = apiUrl(String("/api/v1/devices/") + deviceId + "/commands/next");
@@ -1206,13 +1454,13 @@ void checkCommands() {
   Serial.println("[CMD] Checking for command");
   if (!httpGetJson(url, doc)) {
     Serial.println("[CMD] Command check failed");
-    return;
+    return false;
   }
 
   bool hasCommand = doc["command"] | false;
   if (!hasCommand) {
     Serial.println("[CMD] No pending command");
-    return;
+    return false;
   }
 
   int commandId = doc["id"] | 0;
@@ -1287,6 +1535,49 @@ void checkCommands() {
                                            : (ok ? "HiveInside OTA completed"
                                                  : "HiveInside OTA failed"));
     }
+  }
+#endif
+#if HIVEINSIDE_AUDIO_ENABLED
+  else if (type == "record_audio") {
+    // payload: { "slot": 1..MAX_HIVES, "recording_id": <int>,
+    //            "duration_ds": <0 = live/open-ended>, "gain_db": <-20..20> }
+    //
+    // No URL in the payload — the upload target is derived from this hub's own
+    // device id (see relayAudioSession). Microphone audio must never be posted
+    // to an address a queued command chose.
+    int slot = payload["slot"] | 1;
+    long recordingId = payload["recording_id"] | 0L;
+    uint16_t durationDs = (uint16_t)(payload["duration_ds"] | 0U);
+    int8_t gainDb = (int8_t)(payload["gain_db"] | 0);
+    String mac = hivecfg::hiveInsideMacForSlot((uint8_t)slot);
+
+    if (recordingId <= 0) {
+      postCommandResult(commandId, false, "record_audio missing recording_id");
+    } else if (mac.length() == 0) {
+      postCommandResult(commandId, false, String("No HiveInside paired in slot ") + slot);
+    } else {
+      // Same crash-safe marker as the OTA relays: a session runs for up to a
+      // minute and only reports at the end, so a reset in the middle would
+      // otherwise strand the row until the backend's stale sweep noticed.
+      markRelayInFlight(commandId);
+      String resultMsg;
+      bool ok = recordHiveInsideAudio(mac, recordingId, durationDs, gainDb, &resultMsg);
+      clearRelayInFlight();
+      if (wasAudio) *wasAudio = ok;
+      postCommandResult(commandId, ok,
+                        resultMsg.length() ? resultMsg
+                                           : (ok ? "audio session completed"
+                                                 : "audio session failed"));
+    }
+  }
+#else
+  else if (type == "record_audio") {
+    // Fail explicitly rather than silently: a hub built without the BLE scan
+    // has no way to reach a HiveInside at all, and a command that just vanished
+    // would look like a dead node.
+    postCommandResult(commandId, false,
+                      "record_audio is not supported by this firmware build "
+                      "(needs ENABLE_BLE_SCAN)");
   }
 #endif
 #if ENABLE_WIRELESS_BEECOUNTER && BEECOUNTER_OTA_ENABLED
@@ -1364,4 +1655,41 @@ void checkCommands() {
   } else {
     postCommandResult(commandId, false, String("Unknown command: ") + type);
   }
+  return true;
+}
+
+void checkCommands() {
+  if (!connectNetwork()) return;
+
+  // Close out a relay that a reset interrupted before claiming anything new.
+  reportInterruptedRelay();
+
+  bool wasAudio = false;
+  if (!runOneCommand(&wasAudio)) return;
+
+#if HIVEINSIDE_AUDIO_ENABLED
+  // Somebody asking a hive for audio is usually not asking once — a second
+  // hive, a longer take, another listen after hearing the first. Each of those
+  // would otherwise wait a full send interval, turning a two-minute task into a
+  // half-hour one.
+  //
+  // So after an audio session — and only then — stay up briefly and keep
+  // polling. A hub nobody is recording from never enters this loop.
+  if (!wasAudio) return;
+  unsigned long deadline = millis() + HIVEINSIDE_AUDIO_FOLLOWUP_MS;
+  Serial.printf("[HI-AUD] holding the cycle open %u ms for a follow-up session\n",
+                (unsigned)HIVEINSIDE_AUDIO_FOLLOWUP_MS);
+  while ((long)(deadline - millis()) > 0) {
+    delay(2000);
+    bool again = false;
+    if (!runOneCommand(&again)) continue;
+    // Some other command arrived — hand the cycle back rather than holding it
+    // open for work that has nothing to do with listening.
+    if (!again) return;
+    // Another session ran: restart the window from now, so a listener who
+    // keeps pressing "continue" is never cut off by the original deadline.
+    deadline = millis() + HIVEINSIDE_AUDIO_FOLLOWUP_MS;
+  }
+  Serial.println("[HI-AUD] follow-up window closed");
+#endif
 }

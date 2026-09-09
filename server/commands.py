@@ -390,4 +390,12 @@ def command_result(device_id: str, command_id: int, payload: DeviceCommandResult
                 ),
             )
             conn.commit()
+    # A record_audio command is also a recording's only reliable report. The
+    # recordings module imports this one for create_command(), so the import
+    # goes here rather than at the top; the update no-ops for every command
+    # that has no recording attached, which is all of them but this one.
+    from recordings import finalize_from_command_result
+
+    finalize_from_command_result(device_id, command_id, payload.success,
+                                 payload.message)
     return {"status": "ok"}

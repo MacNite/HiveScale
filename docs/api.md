@@ -714,6 +714,7 @@ permanent "relaying…". The attempt counter lives in `device_commands.attempts`
 | `check_ota` / `ota_update` | `{}` | Trigger immediate OTA check/update |
 | `update_hiveinside` | `{"slot": 1, "url": "...", "version": "...", "crc32": 123}` | Relay a firmware image to a HiveInside sensor over BLE GATT (normally queued via the `update-hiveinside` helper above) |
 | `update_beecounter` | `{"slot": 1, "url": "...", "version": "...", "crc32": 123}` | Relay a firmware image to a HiveTraffic counter over BLE GATT (normally queued via the `update-beecounter` helper above) |
+| `record_audio` | `{"slot": 1, "recording_id": 42, "duration_ds": 0, "gain_db": 0}` | Record audio from the HiveInside node on hive `slot` and stream it to the backend (normally queued via the `record-audio` helper, which creates the recording row first). `duration_ds` is deciseconds; **0 means live** — the node ends the session at its own 60-second cap. No URL is carried: the hub derives the upload target from its own device id, so microphone audio can never be posted to an address a queued command chose. Firmware 0.30.0+, HiveInside 0.6.0+ — see [Listening to a hive](audio-recording.md) |
 | `start_provisioning` | `{}` | Start the provisioning AP — the remote equivalent of a press on the setup button. The device opens it at the end of the cycle that picked the command up, and closes it again on the portal timeout. From firmware 0.25.5 it **reboots first** when the portal's BLE pairing scan would otherwise be unable to run (the usual case once a sensor is paired), so the AP appears a few seconds later and after one extra boot; the command result is posted before the reboot. Also queued by the dashboard's **Device & admin → Configuration → Start AP mode** button (`POST /api/v1/local/devices/{device_id}/provisioning/start`, admin) |
 
 Response:
@@ -1272,6 +1273,108 @@ recurrence of the same detector starts a new row.
 
 ---
 
+## Hive audio recordings
+
+On request, a HiveInside node (firmware 0.6.2+) records from inside the hive and
+the hub relays the audio here. Full background — the key both sides need, the
+quality flags, why it is not live listening — is in
+[Listening to a hive](audio-recording.md). Requires HiveHub firmware 0.30.0+ and
+server 0.5.1+.
+
+Three surfaces, the same functions behind each:
+
+| Surface | Prefix | Auth |
+|---|---|---|
+| Master key | `/api/v1/devices/…`, `/api/v1/recordings/…` | `X-API-Key` |
+| Dashboard session | `/api/v1/local/…` | dashboard login cookie |
+| HivePal user | `/api/v1/app/…` | service key + user token |
+
+### `POST /api/v1/devices/{device_id}/commands/record-audio`
+
+Creates the recording row **and** queues the `record_audio` command that fills
+it. Prefer this over posting the raw command: the command carries the
+`recording_id` the row hands out, and a command queued without one has nowhere
+to upload.
+
+| Query | Default | Meaning |
+|---|---|---|
+| `slot` | `1` | hive index, 1–16 — must be a hive with a HiveInside |
+| `duration` | `0.0` | seconds, 0–60. `0` is open-ended; the node still stops at its own 60-second cap |
+| `gain_db` | `0` | −20…+20, applied on the node before transmission |
+
+Returns the new recording at status `requested`. **It is not instant**: the hub
+collects commands on its next wake, so expect one reporting interval. Requesting
+needs `admin` on the dashboard, or `owner`/`admin` in HivePal.
+
+### `GET /api/v1/devices/{device_id}/recordings`
+
+Newest first. `?hive=` filters to one hive, `?limit=` is 1–500 (default 50).
+Wrapped as `{"recordings": [...]}`.
+
+### `GET /api/v1/recordings/{recording_id}`
+
+One recording:
+
+```json
+{
+  "id": 42, "device_id": "hive_scale_dual_01", "hive_index": 1,
+  "status": "ready", "requested_at": "2026-09-08T14:03:00+00:00",
+  "started_at": "...", "completed_at": "...",
+  "requested_duration_s": 30.0, "gain_db": 0, "sample_rate": 16000,
+  "bytes": 960000, "seconds": 30.0,
+  "dropped_bytes": 0, "gaps": 0, "clipped_pct": 1,
+  "complete": true, "crc_ok": true, "confirmation": "verified",
+  "hub_message": null, "error": null, "requested_by": "max"
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `status` | `requested` → `streaming` → `ready` / `failed`. A stale sweep resolves rows the hub stopped reporting on, so nothing sits in flight forever |
+| `seconds` | derived from `bytes` — what actually arrived, not what was asked for |
+| `dropped_bytes` / `gaps` | audio the node's ring lost, and sequence holes on the air. Either one means the clip is spliced |
+| `clipped_pct` | samples that hit the rail; ≥5 % means lower the gain |
+| `crc_ok` | the hub's CRC matched the server's over the bytes on disk |
+| `confirmation` | `verified` / `reported` / `confirmed` / `unknown` — how much of the hub's account of the session actually arrived. See [How sure we are](audio-recording.md#how-sure-we-are-confirmation) |
+| `complete` | ready, corroborated, no gaps, no dropped bytes, no CRC disagreement |
+| `hub_message` | the hub's own words about the session, verbatim — usually more specific than anything the server can infer |
+
+### `GET /api/v1/recordings/{recording_id}/audio.wav`
+
+The recording as a WAV: a 44-byte header generated per request over the raw PCM
+on disk. Streamed, never buffered. Playable and downloadable anywhere.
+
+### `GET /api/v1/recordings/{recording_id}/pcm?offset=&limit=`
+
+Raw PCM from a byte offset — reads a session **while it is still being written**,
+for a client that wants to follow one in flight. `204` means nothing new yet.
+Response headers carry `X-Recording-Status`, `X-Recording-Size`,
+`X-Recording-Offset` and `X-Recording-Next-Offset`, so a poller needs no second
+request to know when to stop. `limit` is capped at 256 KiB. The dashboard does
+not use this — see
+[Why this is not "live listening"](audio-recording.md#why-this-is-not-live-listening).
+
+### `DELETE /api/v1/recordings/{recording_id}`
+
+Removes the row and its audio. **Nothing else ever will** — there is no
+retention sweep, by design.
+
+### Hub ingest (device key)
+
+`POST …/devices/{id}/recordings/{rec_id}/stream` takes the chunked audio body as
+it is captured, and `POST …/finalize` reports the byte count, CRC and quality
+counters. Both are device-authenticated and not for general use. The upload
+target is derived from the hub's own device id and is never carried in the
+queued command, so microphone audio cannot be posted to an address a command
+chose.
+
+`/finalize` is a single fire-and-forget POST, so the recording is also closed by
+the ordinary command result (`POST …/commands/{id}/result`), which is retried and
+swept. Whichever arrives first resolves the row; a later `/finalize` only adds
+detail.
+
+---
+
 ## Database schema
 
 The backend auto-creates and updates the schema on startup.
@@ -1286,8 +1389,10 @@ The backend auto-creates and updates the schema on startup.
 | `firmware_releases` | Firmware versions available for OTA, with `target`, `crc32`, and `owner_user_id` (NULL = global/official; otherwise the owner the release is private to) |
 | `device_commands` | Pending, claimed, done, and failed commands, with the `attempts` counter used to recover abandoned claims |
 | `insight_alerts` | Persisted lifecycle of insight alerts (first/last seen, peak severity, resolution) powering the history endpoint |
+| `inspections` | Open and closed inspection windows per device/hive, with the note and end reason |
+| `hive_recordings` | One row per audio session: status, timings, byte count, CRC, quality counters and the `command_id` that carried it. The audio itself is a file under `RECORDINGS_DIR`, not a column |
 
-The backend creates the full schema on startup and runs idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` statements, so existing deployments upgrade automatically. Columns cover power telemetry (battery/solar), calibration mode, boot count, time source, INMP441 acoustic levels + FFT bands, per-hive HiveTraffic bee-counter counts (BLE/GATT), load-cell temperature-compensation config, per-hive vibration bands, in-hive BLE humidity/pressure, the beehivemonitoring.com `hiveheart_*` / `hivescale_*` fields, the normalized per-hive `hive_readings` table (multi-hive payloads), and the dashboard-auth tables (`dashboard_users`, `dashboard_settings`, `push_subscriptions`); `firmware_releases` gains `target`, `crc32`, `owner_user_id`, and `board`; `device_commands` gains `attempts`. The SQL files in `server/migrations/` (`001_offgrid_telemetry.sql` through `021_device_command_attempts.sql`) can also be applied manually. All fields remain available in `raw_json` for forward compatibility.
+The backend creates the full schema on startup and runs idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` statements, so existing deployments upgrade automatically. Columns cover power telemetry (battery/solar), calibration mode, boot count, time source, INMP441 acoustic levels + FFT bands, per-hive HiveTraffic bee-counter counts (BLE/GATT), load-cell temperature-compensation config, per-hive vibration bands, in-hive BLE humidity/pressure, the beehivemonitoring.com `hiveheart_*` / `hivescale_*` fields, the normalized per-hive `hive_readings` table (multi-hive payloads), and the dashboard-auth tables (`dashboard_users`, `dashboard_settings`, `push_subscriptions`); `firmware_releases` gains `target`, `crc32`, `owner_user_id`, and `board`; `device_commands` gains `attempts`. The SQL files in `server/migrations/` (`001_offgrid_telemetry.sql` through `029_hive_recordings.sql`) can also be applied manually. All fields remain available in `raw_json` for forward compatibility.
 
 ---
 

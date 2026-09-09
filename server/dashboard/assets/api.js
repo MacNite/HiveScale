@@ -135,6 +135,44 @@ export const api = {
       body: formData,
     }),
 
+  // ── Hive audio (issue #71) ───────────────────────────────────────────────
+  // Requesting a recording turns a microphone on inside a hive, so the server
+  // gates it on the admin role; listing, playing and polling need a session.
+  //
+  // A request returns as soon as the command is queued. The hub deep-sleeps and
+  // only picks it up on its next wake, so the caller polls the returned id
+  // until it leaves "requested" — there is no way to make that instant, and the
+  // UI says so rather than looking frozen.
+
+  requestRecording: (deviceId, { hive, durationS = 0, gainDb = 0 } = {}) => {
+    const q = new URLSearchParams({
+      hive: String(hive),
+      duration: String(durationS),
+      gain_db: String(gainDb),
+    });
+    return req(`/devices/${encodeURIComponent(deviceId)}/recordings?${q}`, {
+      method: "POST",
+    });
+  },
+
+  listRecordings: (deviceId, hive) => {
+    const q = new URLSearchParams();
+    if (hive != null) q.set("hive", String(hive));
+    const qs = q.toString();
+    return req(`/devices/${encodeURIComponent(deviceId)}/recordings${qs ? "?" + qs : ""}`);
+  },
+
+  recording: (id) => req(`/recordings/${id}`),
+
+  deleteRecording: (id) => req(`/recordings/${id}`, { method: "DELETE" }),
+
+  // A finished recording as a WAV the <audio> element can play directly. The
+  // session cookie authenticates it like any other same-origin request. The
+  // server also exposes GET /recordings/{id}/pcm for reading a session while it
+  // is still being written; the dashboard does not use it, because a request
+  // waits a wake cycle to start and calling that "live" would oversell it.
+  recordingWavUrl: (id) => `${BASE}/recordings/${id}/audio.wav`,
+
   // ── Download / backup ────────────────────────────────────────────────────
   // Query string shared by the export summary and the download itself:
   // repeated device_id / hive params plus an optional time range.

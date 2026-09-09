@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Backend server version. Bump on releases; reported in the OpenAPI metadata
 # (/docs) and by GET /health so a deployment's version is visible remotely.
-SERVER_VERSION = "0.4.1"
+SERVER_VERSION = "0.5.1"
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 API_KEY = os.environ["API_KEY"]
@@ -57,6 +57,18 @@ ENABLE_PUBLIC_EMBEDS = os.environ.get("ENABLE_PUBLIC_EMBEDS", "true").strip().lo
     "on",
 )
 FIRMWARE_DIR = Path(os.environ.get("FIRMWARE_DIR", "/app/firmware"))
+# Where on-request hive audio is stored (see server/recordings.py). One file per
+# recording, raw 16 kHz PCM16 mono — the WAV header is generated on the way out
+# rather than stored, so the same bytes serve both the live player and a
+# downloaded .wav.
+#
+# There is no automatic retention sweep: recordings are kept until somebody
+# deletes them. One minute of audio is ~1.9 MB, so this directory grows only as
+# fast as somebody presses "listen", but it does grow without bound. Mount it on
+# a volume you watch. MAX_RECORDING_BYTES caps a SINGLE upload — the node stops
+# itself at 60 s, and this is the backstop for a hub that does not.
+RECORDINGS_DIR = Path(os.environ.get("RECORDINGS_DIR", "/app/recordings"))
+MAX_RECORDING_BYTES = int(os.environ.get("MAX_RECORDING_BYTES", str(4 * 1024 * 1024)))
 DB_POOL_MIN_SIZE = int(os.environ.get("DB_POOL_MIN_SIZE", "1"))
 DB_POOL_MAX_SIZE = int(os.environ.get("DB_POOL_MAX_SIZE", "10"))
 

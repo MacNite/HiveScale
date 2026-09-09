@@ -626,6 +626,47 @@ def init_db():
                     ON device_commands (status, claimed_at)
                     WHERE status = 'claimed';
 
+                -- On-request audio from a hive's HiveInside node. The row is
+                -- created when somebody ASKS for audio, well before any bytes
+                -- exist: a hub deep-sleeps and only picks the command up on its
+                -- next wake, so "requested" is a state a listener must be shown.
+                -- The audio lives on disk under RECORDINGS_DIR — a minute is
+                -- ~1.9 MB, and a bytea that size would turn every listing into
+                -- a scan over audio. The quality columns (dropped_bytes, gaps,
+                -- crc32 vs device_crc32, clipped_pct) exist because a session
+                -- can be incomplete and still worth hearing; a player that
+                -- ignored them would splice across a hole and present the result
+                -- as continuous. See migrations/029_hive_recordings.sql.
+                CREATE TABLE IF NOT EXISTS hive_recordings (
+                    id BIGSERIAL PRIMARY KEY,
+                    device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+                    hive_index INTEGER NOT NULL,
+                    command_id BIGINT,
+                    status TEXT NOT NULL DEFAULT 'requested',
+                    requested_by TEXT,
+                    requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    started_at TIMESTAMPTZ,
+                    completed_at TIMESTAMPTZ,
+                    duration_ds INTEGER NOT NULL DEFAULT 0,
+                    gain_db INTEGER NOT NULL DEFAULT 0,
+                    sample_rate INTEGER NOT NULL DEFAULT 16000,
+                    bytes BIGINT NOT NULL DEFAULT 0,
+                    crc32 BIGINT,
+                    device_bytes BIGINT,
+                    device_crc32 BIGINT,
+                    dropped_bytes BIGINT NOT NULL DEFAULT 0,
+                    gaps INTEGER NOT NULL DEFAULT 0,
+                    clipped_pct INTEGER NOT NULL DEFAULT 0,
+                    device_error INTEGER,
+                    filename TEXT,
+                    error TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS hive_recordings_device_idx
+                    ON hive_recordings (device_id, requested_at DESC);
+                CREATE INDEX IF NOT EXISTS hive_recordings_hive_idx
+                    ON hive_recordings (device_id, hive_index, requested_at DESC);
+
                 -- Persisted lifecycle of sensor-based insight alerts so HivePal
                 -- can show a *history* (alerts are otherwise recomputed live and
                 -- never stored). One row per distinct alert occurrence: while an

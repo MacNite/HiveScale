@@ -192,6 +192,24 @@ curl -X POST http://<truenas-ip>:31115/api/v1/firmware/releases \
 >     - /mnt/<pool>/hivescale-firmware:/app/firmware
 > ```
 
+### Hive audio recordings
+
+If you use [hive audio](audio-recording.md), give it a dataset too. Recordings
+are files on disk while the rows describing them live in the database, so
+without a mount a container recreation leaves a list of sessions whose audio has
+vanished:
+
+```yaml
+hivescale-api:
+  environment:
+    RECORDINGS_DIR: /app/recordings
+  volumes:
+    - /mnt/<pool>/hivescale-recordings:/app/recordings
+```
+
+Nothing prunes recordings — that is deliberate — so size the dataset for how
+much you intend to keep: about **1.9 MB per recorded minute**.
+
 ---
 
 ## Updating the application

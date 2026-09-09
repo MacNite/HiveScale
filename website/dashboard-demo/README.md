@@ -22,6 +22,12 @@ change the time range without installing the server.
   controls. Keep it in sync with the exports of `server/dashboard/assets/push.js`.
 - `assets/{style.css,charts.js,format.js,views.js}` — **verbatim copies**
   of `server/dashboard/assets/*`.
+- `assets/audio/` — **demo-specific.** Sample hive recordings for the audio
+  panel, plus a README explaining what to drop in. Ships empty; the panel lists
+  only the files that exist. A recording *request* is simulated by `api.js` —
+  it walks through requested → streaming → ready in a few seconds and then
+  serves one of those files — so `views.js` never learns it is running without
+  a hub.
 
 ## Keeping it in sync
 
@@ -33,8 +39,13 @@ cp server/dashboard/assets/{style.css,charts.js,format.js,views.js} \
    website/dashboard-demo/assets/
 ```
 
-`index.html`, `assets/api.js`, `assets/app.js` and `assets/push.js` are
-demo-specific — don't overwrite those.
+`index.html`, `assets/api.js`, `assets/app.js`, `assets/push.js` and
+`assets/audio/` are demo-specific — don't overwrite those.
+
+When the real dashboard gains a feature that calls a new `state.actions.*`
+method, porting `views.js` alone is not enough: add the matching entry to the
+demo's `app.js` and a stub to its `api.js`, or the view throws on render. The
+audio panel is the worked example.
 
 ## Preview locally
 

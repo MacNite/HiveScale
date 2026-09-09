@@ -1134,6 +1134,358 @@ function renderAudio(root, state) {
     chartCard("Peak level", "Per-hive microphone peak", peak, { unit: "dBFS", yDigits: 0 }),
   ];
   root.append(tsView("Audio", "Hive sound levels", state, { cards, charts }));
+  root.append(hiveAudioPanel(state));
+}
+
+// ── Hive audio (issue #71) ─────────────────────────────────────────────────
+//
+// Ask a hive's HiveInside node for a recording, then play it back here once the
+// hub has collected it.
+//
+// This is deliberately NOT presented as live listening, even though the
+// transport underneath is capable of it — the hub streams while the microphone
+// runs and the server writes the file as it lands. The reason is the lead-in:
+// the hub deep-sleeps and only collects commands on its next wake, so a "listen
+// now" button would sit there for minutes before the first sound. Calling that
+// live sets an expectation the hardware cannot keep, and a beekeeper waiting on
+// a silent player has no way to tell a working request from a broken one.
+//
+// So the promise is smaller and always true: you ask for N seconds of audio, and
+// it appears in the list when the hive has been heard. The panel keeps polling
+// the request so it can say which of the three states it is in — waiting for the
+// hub, recording, or done.
+const AUDIO_POLL_MS = 3000;
+
+// The node stops itself at 60 s. Shorter is usually enough to hear what an
+// insight flagged, and costs proportionally less battery and less time with the
+// hive off the air (a connected node neither advertises nor samples).
+const AUDIO_DURATIONS = [
+  [10, "10 seconds"],
+  [30, "30 seconds"],
+  [60, "60 seconds"],
+];
+
+const hiveAudio = {
+  recordingId: null,
+  status: "",
+  error: "",
+  timer: null,
+};
+
+function audioStopPolling() {
+  if (hiveAudio.timer) { clearTimeout(hiveAudio.timer); hiveAudio.timer = null; }
+  hiveAudio.recordingId = null;
+  hiveAudio.status = "";
+}
+
+// Follow a request until it reaches a terminal state, then hand the list back to
+// the panel so the finished recording shows up without a page reload.
+async function audioPoll(state, onDone, repaint) {
+  if (!hiveAudio.recordingId) return;
+  const id = hiveAudio.recordingId;
+  try {
+    const rec = await state.actions.recording(id);
+    hiveAudio.status = rec.status;
+    if (rec.status === "ready" || rec.status === "failed") {
+      if (rec.status === "failed") {
+        hiveAudio.error = rec.error || "the hive could not be recorded";
+      }
+      audioStopPolling();
+      await onDone(id);
+      repaint();
+      return;
+    }
+  } catch (err) {
+    hiveAudio.error = err.message || "lost contact with the server";
+    audioStopPolling();
+    repaint();
+    return;
+  }
+  repaint();
+  hiveAudio.timer = setTimeout(() => audioPoll(state, onDone, repaint), AUDIO_POLL_MS);
+}
+
+// Where a recording sits between "the hub verified this" and "nobody ever said".
+// Drives both the dot in the list and the checksum figure, so the two can never
+// disagree. See server/recordings.py::_row_to_dict for what the server means by
+// each state.
+const AUDIO_CONFIRMATION = {
+  verified: ["good", "verified"],
+  reported: ["warn", "unverified"],
+  confirmed: ["good", "hub confirmed"],
+  unknown: ["muted", "not confirmed"],
+};
+
+function recordingTone(rec) {
+  if (rec.status === "failed") return "danger";
+  if (rec.status !== "ready") return "muted";
+  if (!rec.complete) return "warn";
+  return (AUDIO_CONFIRMATION[rec.confirmation] || AUDIO_CONFIRMATION.unknown)[0];
+}
+
+// The recording list lives in a 260px rail, so the full "Sep 08, 2026, 01:54 PM"
+// that fmtDateTime gives elsewhere gets ellipsised down to something you cannot
+// tell two sessions apart by. The year is the part worth losing: recordings are
+// listed newest-first and read within days of being made, and the detail pane
+// beside the list still spells the date out in full.
+function recordingShortWhen(iso) {
+  if (!iso) return DASH;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return DASH;
+  return d.toLocaleString(undefined, {
+    month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+// Right-hand column of a list row: length once there is audio, otherwise what
+// the recording is waiting for. Kept short — this sits in a 260px rail.
+function recordingListMeta(rec) {
+  if (rec.status === "requested") return "waiting";
+  if (rec.status === "streaming") return "recording…";
+  if (rec.status === "failed") return "failed";
+  return rec.seconds ? `${rec.seconds.toFixed(1)} s` : "—";
+}
+
+// One quality figure: a label, a value, and optionally a colour when the value
+// is itself the verdict.
+function qualFigure(label, value, tone) {
+  return el("div", {}, label,
+    el("b", { class: tone ? tone : null }, value));
+}
+
+function hiveAudioPanel(state) {
+  const body = el("div", {});
+  const panel = collapsible("Hive audio", false, body);
+  const isAdmin = state.authUser?.role === "admin";
+  // Only a HiveInside has a microphone, so only its hives can be recorded.
+  // Offering every hive here would let somebody queue a session against a hive
+  // with a HolyIot or nothing at all, and learn a wake cycle later that the hub
+  // reported "No HiveInside paired in slot N" — a slow way to be told something
+  // the dashboard already knows. Same helper the HiveInside firmware panel uses.
+  const nodes = hiveInsideNodes(state);
+  // With one node there is nothing to disambiguate, and the hive number is dead
+  // weight in a rail this narrow — the detail pane names the hive either way.
+  const multiNode = nodes.length > 1;
+  let recordings = [];
+  let selectedId = null;
+  let loading = true;
+
+  const reload = async (selectId) => {
+    const res = await state.actions.listRecordings();
+    recordings = res.recordings || [];
+    if (selectId != null) selectedId = selectId;
+  };
+
+  // ── left rail: ask for a recording ─────────────────────────────────────
+  const renderSide = () => {
+    const side = el("div", { class: "audio-side" });
+    const hiveSel = el("select", {},
+      ...nodes.map((nd) => el("option", { value: String(nd.n) }, nd.label)));
+    const durSel = el("select", {},
+      ...AUDIO_DURATIONS.map(([s, label]) =>
+        el("option", { value: String(s) }, label)));
+    durSel.value = "30";
+
+    const busy = !!hiveAudio.recordingId;
+    const recordBtn = el("button", {
+      class: "btn",
+      disabled: (!isAdmin || !nodes.length || busy) ? "disabled" : null,
+      onclick: async () => {
+        hiveAudio.error = "";
+        try {
+          const hive = Number(hiveSel.value);
+          const durationS = Number(durSel.value);
+          const rec = await state.actions.requestRecording({ hive, durationS });
+          hiveAudio.recordingId = rec.id;
+          hiveAudio.status = "requested";
+          paint();
+          // Show the new request in the list straight away, so it is visible as
+          // "waiting" rather than appearing from nowhere minutes later.
+          await reload(rec.id);
+          paint();
+          audioPoll(state, reload, paint);
+        } catch (err) {
+          audioStopPolling();
+          hiveAudio.error = err.message || "the request could not be queued";
+          paint();
+        }
+      },
+    }, "🎙 Record");
+
+    side.append(
+      el("div", { class: "audio-field" }, el("label", {}, "Hive"), hiveSel),
+      el("div", { class: "audio-field" }, el("label", {}, "Length"), durSel),
+      recordBtn,
+    );
+
+    if (!nodes.length) {
+      side.append(el("p", { class: "note" },
+        "No HiveInside node is paired on this hub. Only HiveInside has a "
+        + "microphone — a HolyIot or RuuviTag beacon cannot record."));
+    } else if (!isAdmin) {
+      side.append(el("p", { class: "note" },
+        "An administrator can request a recording."));
+    } else if (busy) {
+      side.append(el("p", { class: "note" }, hiveAudio.status === "requested"
+        ? "Waiting for the hub to wake and pick the request up…"
+        : "Recording — the audio appears here as it arrives."));
+    } else {
+      side.append(el("p", { class: "note" },
+        "Reaches the hub on its next wake."));
+    }
+
+    // The list doubles as the picker. Clicking a row selects it; the dot is the
+    // only per-row quality signal there is room for, and it repeats what the
+    // checksum figure on the right says in words.
+    if (loading) {
+      side.append(el("p", { class: "muted-text" }, "Loading…"));
+    } else if (!recordings.length) {
+      side.append(el("p", { class: "note" }, "No recordings yet."));
+    } else {
+      side.append(el("ul", { class: "audio-pick" }, ...recordings.map((r) =>
+        el("li", {
+          class: r.id === selectedId ? "sel" : null,
+          title: r.error || "",
+          onclick: () => { selectedId = r.id; paint(); },
+        },
+          el("span", { class: `dot ${recordingTone(r)}` }),
+          el("span", { class: "pick-when" }, multiNode
+            ? `${recordingShortWhen(r.requested_at)} · hive ${r.hive_index}`
+            : recordingShortWhen(r.requested_at)),
+          el("span", { class: "pick-len" }, recordingListMeta(r))))));
+    }
+    return side;
+  };
+
+  // ── right pane: the selected recording ─────────────────────────────────
+  const renderDetail = () => {
+    const detail = el("div", { class: "audio-detail" });
+    if (loading) return detail;
+    if (!recordings.length) {
+      detail.append(el("p", { class: "note" },
+        "Ask a hive to record and it will appear here. A session is 10–60 "
+        + "seconds of 16 kHz audio pulled off the node over BLE."));
+      return detail;
+    }
+    if (selectedId == null) selectedId = recordings[0].id;
+    const rec = recordings.find((r) => r.id === selectedId);
+    if (!rec) return detail;
+
+    detail.append(
+      el("h4", {}, `${fmtDateTime(rec.requested_at)} · hive ${rec.hive_index}`),
+      el("p", { class: "note", style: "margin-top:0" },
+        [rec.requested_by ? `Requested by ${rec.requested_by}` : null,
+         rec.requested_duration_s ? `${rec.requested_duration_s}s requested` : null]
+          .filter(Boolean).join(" · ") || DASH));
+
+    // Offer the player whenever audio exists, not only once the session is
+    // finalised. A recording still uploading, or one whose hub never reported
+    // back, has a real file on disk — refusing to play it because a status
+    // column says otherwise leaves somebody staring at audio they cannot hear.
+    if (rec.bytes > 0) {
+      detail.append(el("audio", { controls: "controls", preload: "none",
+                                  src: state.actions.recordingWavUrl(rec.id) }));
+      if (rec.status === "streaming") {
+        detail.append(el("p", { class: "note" },
+          "Still recording — this is what has arrived so far. Re-select it "
+          + "when the session ends to hear the whole thing."));
+      }
+
+      // Always shown, never only on failure: a spliced recording sounds
+      // continuous, so an acoustic judgement made on one is wrong in a way
+      // nothing later reveals. Figures rather than a warning banner, because
+      // most of the time they are the boring numbers you want to have seen.
+      const [crcTone, crcLabel] =
+        AUDIO_CONFIRMATION[rec.confirmation] || AUDIO_CONFIRMATION.unknown;
+      detail.append(el("div", { class: "audio-qual" },
+        qualFigure("Length", rec.seconds ? `${rec.seconds.toFixed(1)} s` : DASH),
+        qualFigure("Dropped", `${fmtInt(rec.dropped_bytes || 0)} B`,
+                   rec.dropped_bytes ? "warn" : null),
+        qualFigure("Gaps", String(rec.gaps || 0), rec.gaps ? "warn" : null),
+        qualFigure("Clipping", `${rec.clipped_pct || 0} %`,
+                   rec.clipped_pct >= 5 ? "warn" : null),
+        qualFigure("Checksum", crcLabel, crcTone === "muted" ? null : crcTone)));
+
+      // Only the things the figures cannot say on their own.
+      if (rec.gaps || rec.dropped_bytes) {
+        detail.append(el("p", { class: "note warn" },
+          "Audio either side of a gap is real, but the join is not."));
+      }
+      if (rec.clipped_pct >= 5) {
+        detail.append(el("p", { class: "note" },
+          "Lower the gain for a cleaner recording."));
+      }
+      if (rec.confirmation === "unknown") {
+        detail.append(el("p", { class: "note" },
+          "The hub never reported on this session, so nothing checked whether "
+          + "the audio is whole. What is here plays."));
+      }
+      if (rec.hub_message && rec.status === "failed") {
+        detail.append(el("p", { class: "note warn" }, rec.hub_message));
+      }
+    } else {
+      detail.append(el("p", { class: "note" },
+        rec.status === "failed"
+          ? (rec.error || rec.hub_message || "This recording failed.")
+          : rec.status === "requested"
+            ? "Waiting for the hub to wake and pick this up — nothing recorded yet."
+            : `Status: ${rec.status} — nothing to play yet.`));
+    }
+
+    const actions = el("div", { class: "row", style: "margin-top:1rem" });
+    if (rec.bytes > 0) {
+      actions.append(el("a", {
+        class: "btn ghost small",
+        href: state.actions.recordingWavUrl(rec.id),
+        download: `hive${rec.hive_index}-${rec.id}.wav`,
+      }, "Download"));
+    }
+    if (isAdmin) {
+      actions.append(el("button", {
+        class: "btn ghost small",
+        onclick: async () => {
+          if (!window.confirm("Delete this recording? Nothing else ever will — "
+                              + "there is no automatic clean-up.")) return;
+          try {
+            await state.actions.deleteRecording(rec.id);
+            recordings = recordings.filter((r) => r.id !== rec.id);
+            selectedId = recordings.length ? recordings[0].id : null;
+            paint();
+          } catch (err) {
+            hiveAudio.error = err.message || "could not delete the recording";
+            paint();
+          }
+        },
+      }, "Delete"));
+    }
+    if (actions.children.length) detail.append(actions);
+    return detail;
+  };
+
+  const paint = () => {
+    const kids = [];
+    kids.push(el("p", { class: "note" },
+      "Ask a hive's HiveInside node to record, then listen to it here. The hub "
+      + "collects the request on its next wake, so a recording appears within "
+      + "one reporting interval rather than immediately."));
+    if (hiveAudio.error) {
+      kids.push(el("div", { class: "card" },
+        el("h2", {}, "Audio unavailable"),
+        el("p", { class: "note" }, hiveAudio.error)));
+    }
+    kids.push(el("div", { class: "card audio-split" }, renderSide(), renderDetail()));
+    body.replaceChildren(...kids.filter(Boolean));
+  };
+
+  paint();
+  reload()
+    .then(() => { loading = false; paint(); })
+    .catch((err) => {
+      loading = false;
+      hiveAudio.error = err.message || "could not list recordings";
+      paint();
+    });
+  return panel;
 }
 
 // The five microphone FFT bands, low → high. This is an ORDERED scale, not a set

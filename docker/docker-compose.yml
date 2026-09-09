@@ -53,6 +53,12 @@ services:
       RATE_LIMIT_DEFAULT: '${RATE_LIMIT_DEFAULT:-120/minute}'
       MAX_BODY_BYTES: '${MAX_BODY_BYTES:-262144}'
       MAX_FIRMWARE_BYTES: '${MAX_FIRMWARE_BYTES:-16777216}'
+      # Hive audio (issue #71). One minute of 16 kHz PCM16 is ~1.9 MB and there
+      # is deliberately NO automatic retention sweep — recordings live until
+      # somebody deletes them — so this directory grows with use. The cap below
+      # bounds a SINGLE upload; the node stops itself at 60 s and this is the
+      # backstop for a hub that does not.
+      MAX_RECORDING_BYTES: '${MAX_RECORDING_BYTES:-4194304}'
       # ── Optional MQTT bridge (Home Assistant etc.) — disabled by default ──
       MQTT_ENABLED: '${MQTT_ENABLED:-false}'
       MQTT_HOST: '${MQTT_HOST:-localhost}'
@@ -82,6 +88,11 @@ services:
       # Without a volume they are lost on every container recreation while the
       # firmware_releases DB rows survive — leaving releases that 404.
       - firmware-data:/app/firmware
+      # Hive audio recordings (RECORDINGS_DIR). Same reasoning as above, and
+      # more pointed: the hive_recordings rows survive a container recreation,
+      # so without a volume the dashboard would list sessions whose audio is
+      # gone. Point this at real disk if you record often — nothing prunes it.
+      - recordings-data:/app/recordings
 
   hivescale-db:
     image: postgres:16-alpine
@@ -104,3 +115,4 @@ services:
 
 volumes:
   firmware-data:
+  recordings-data:

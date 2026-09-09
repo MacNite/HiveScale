@@ -107,6 +107,17 @@ function point(dev, t, i) {
     // HolyIot/Ruuvi environment beacon (percent).
     hivescale_1_battery_v: scaleV,
     ble_1_battery_percent: Math.round(blePct),
+    // Hive 1's beacon identifies itself as a HiveInside. The audio panel lists
+    // only hives whose node actually has a microphone (hiveInsideNodes() in
+    // views.js keys off exactly these fields), so without them the demo would
+    // show the panel with an empty hive picker and nothing to listen to.
+    // Hive 2 deliberately has no identity — it stands in for a HolyIot or
+    // RuuviTag, and its absence from the picker is part of what the demo shows.
+    ble_1_sensor_type: "HiveInside",
+    ble_1_firmware_version: "0.6.0",
+    ble_1_board: "nrf54lm20a",
+    ble_1_device_name: "HiveInside-8A3F",
+    ble_1_mac: "d8:3a:dd:11:22:33",
   };
 
   if (dev.twoHives) {
@@ -148,6 +159,111 @@ function series(deviceId, startIso) {
   }
   out.reverse(); // newest first, matching the real API
   return out;
+}
+
+// ── Hive audio (issue #71) ─────────────────────────────────────────────────
+//
+// The demo has no hub and no backend, so everything the audio panel asks for is
+// answered from static files in assets/audio/ plus a clock. All of the pretence
+// lives here on purpose: views.js is a verbatim copy of the real dashboard, so
+// it must not learn that it is running in a demo.
+//
+// Two things are faked, differently:
+//
+//   * **Stored sessions** are honest. The files really are played by the same
+//     <audio> element the real dashboard uses; only the metadata around them is
+//     invented. The list is filtered to the files that actually exist, so an
+//     empty assets/audio/ degrades to "No recordings yet" rather than a row of
+//     broken players.
+//   * **Live listening** is a simulation. A real session streams PCM off a hive
+//     over BLE; here a sample file is decoded once and served back in
+//     real-time-sized slices through exactly the protocol the panel expects
+//     (offset in, PCM out, 204 for "nothing yet"). It looks like the real thing
+//     because it goes through the real code path — which is also why the panel
+//     below is labelled as a simulation in the demo README.
+
+const AUDIO_DIR = "assets/audio/";
+const AUDIO_RATE = 16000;   // what the real node records at; slices are sized for it
+
+// The sample recordings the demo offers. `file` names what you drop into
+// assets/audio/ — see the README there. Entries whose file is absent are hidden,
+// so this list is a menu of what the demo *can* show, not a promise that it will.
+//
+// The second entry deliberately carries damage. A recording with a hole in it
+// plays as perfectly continuous sound, and the warning the dashboard puts above
+// it is the only thing that tells a listener not to trust the join — so the demo
+// shows that state rather than pretending every session is clean.
+const DEMO_RECORDINGS = [
+  {
+    id: 9001, file: "hive-clean.mp3", hive_index: 1, minutesAgo: 42,
+    seconds: 12.0, dropped_bytes: 0, gaps: 0, clipped_pct: 1, complete: true,
+    crc_ok: true, confirmation: "verified", requested_by: "demo",
+  },
+  {
+    id: 9002, file: "hive-incomplete.mp3", hive_index: 1, minutesAgo: 190,
+    seconds: 9.4, dropped_bytes: 3840, gaps: 2, clipped_pct: 7, complete: false,
+    crc_ok: false, confirmation: "reported", requested_by: "demo",
+  },
+];
+
+// Which sample files are actually present. Resolved once, lazily: a HEAD per
+// candidate on first use, cached thereafter.
+let audioPresence = null;
+async function presentRecordings() {
+  if (!audioPresence) {
+    audioPresence = Promise.all(DEMO_RECORDINGS.map(async (r) => {
+      try {
+        const res = await fetch(AUDIO_DIR + r.file, { method: "HEAD" });
+        return res.ok ? r : null;
+      } catch (_) {
+        return null;  // file:// origins reject HEAD; treat as absent
+      }
+    })).then((rows) => rows.filter(Boolean));
+  }
+  return audioPresence;
+}
+
+function recordingRow(r) {
+  const at = new Date(Date.now() - r.minutesAgo * 60000).toISOString();
+  return {
+    id: r.id, device_id: "demo", hive_index: r.hive_index, status: "ready",
+    requested_at: at, started_at: at, completed_at: at,
+    requested_duration_s: 0, gain_db: 0, sample_rate: AUDIO_RATE,
+    bytes: Math.round(r.seconds * AUDIO_RATE * 2), seconds: r.seconds,
+    dropped_bytes: r.dropped_bytes, gaps: r.gaps, clipped_pct: r.clipped_pct,
+    complete: r.complete, crc_ok: r.crc_ok, confirmation: r.confirmation,
+    error: null, hub_message: null, requested_by: r.requested_by,
+  };
+}
+
+// ── A simulated request ────────────────────────────────────────────────────
+//
+// The real flow is: ask, wait for the hub to wake, then play what it collected.
+// The demo compresses that into a few seconds so a visitor sees all three
+// states — requested, streaming, ready — without waiting for a reporting
+// interval, and ends up with a genuinely playable file.
+let pending = null;  // { id, startedAt, hive, file }
+
+const PENDING_REQUESTED_MS = 4000;   // "waiting for the hub to wake"
+const PENDING_STREAMING_MS = 8000;   // "the hive is being recorded"
+
+function pendingRow() {
+  const elapsed = Date.now() - pending.startedAt;
+  const status = elapsed < PENDING_REQUESTED_MS ? "requested"
+    : elapsed < PENDING_STREAMING_MS ? "streaming" : "ready";
+  const ready = status === "ready";
+  return {
+    id: pending.id, device_id: "demo", hive_index: pending.hive, status,
+    requested_at: new Date(pending.startedAt).toISOString(),
+    started_at: new Date(pending.startedAt).toISOString(),
+    completed_at: ready ? new Date().toISOString() : null,
+    requested_duration_s: pending.durationS, gain_db: 0, sample_rate: AUDIO_RATE,
+    bytes: ready ? Math.round(pending.durationS * AUDIO_RATE * 2) : 0,
+    seconds: ready ? pending.durationS : 0,
+    dropped_bytes: 0, gaps: 0, clipped_pct: 0,
+    complete: ready, crc_ok: ready, confirmation: ready ? "verified" : "unknown",
+    error: null, hub_message: null, requested_by: "demo",
+  };
 }
 
 const demoErr = () =>
@@ -302,4 +418,48 @@ export const api = {
     Promise.reject(new Error("This is a read-only demo — publishing needs a HiveHub server.")),
   updatePublishedChart: demoErr,
   deletePublishedChart: demoErr,
+
+  // ── Hive audio ───────────────────────────────────────────────────────────
+
+  listRecordings: async () => {
+    const rows = (await presentRecordings()).map(recordingRow);
+    // Newest first, matching the real API — so a fresh request sits at the top
+    // of the dropdown where somebody just asked for it.
+    return { recordings: pending ? [pendingRow(), ...rows] : rows };
+  },
+
+  recording: async (id) => {
+    if (pending && id === pending.id) return pendingRow();
+    const rows = await presentRecordings();
+    const row = rows.find((r) => r.id === id);
+    if (!row) throw new Error("recording not found");
+    return recordingRow(row);
+  },
+
+  requestRecording: async (deviceId, { hive = 1, durationS = 30 } = {}) => {
+    const rows = await presentRecordings();
+    if (!rows.length) {
+      // Honest refusal rather than a request that ripens into silence: the demo
+      // needs a sample file before it can pretend to have recorded a hive.
+      throw new Error(
+        "This demo has no sample audio yet — add a file to "
+        + "website/dashboard-demo/assets/audio/ (see the README there).");
+    }
+    pending = { id: 9100 + (Date.now() % 800), startedAt: Date.now(), hive,
+                durationS, file: rows[0].file };
+    return { id: pending.id, status: "requested", hive_index: hive,
+             duration_s: durationS };
+  },
+
+  recordingWavUrl: (id) => {
+    if (pending && id === pending.id) return AUDIO_DIR + pending.file;
+    const row = DEMO_RECORDINGS.find((r) => r.id === id);
+    return row ? AUDIO_DIR + row.file : "";
+  },
+
+  deleteRecording: async (id) => {
+    if (pending && id === pending.id) { pending = null; return { status: "deleted" }; }
+    throw new Error(
+      "This is a read-only demo — deleting a stored recording needs a HiveHub server.");
+  },
 };

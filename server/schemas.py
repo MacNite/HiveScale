@@ -690,6 +690,10 @@ class DeviceCommandIn(BaseModel):
         # "requested" from "the hub is actually doing it".
         "start_inspection",
         "stop_inspection",
+        # On-request hive audio (issue #71). Payload carries slot, recording_id,
+        # duration_ds (0 = live/open-ended) and gain_db; the hub derives the
+        # upload URL from its own device id rather than trusting the payload.
+        "record_audio",
     ]
     payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -763,6 +767,35 @@ class DeviceInspectionStatus(BaseModel):
     pending: bool
     inspection: Optional[DeviceInspection] = None
     timeout_minutes: int = 60
+
+
+class RecordingFinalizeIn(BaseModel):
+    """How an audio session actually went, reported by the hub when it ends.
+
+    Sent whether the session succeeded or failed — a recording row that never
+    hears back is indistinguishable from a hub that died mid-session, and the
+    dashboard would show "recording..." forever.
+
+    The pairs are deliberate: ``crc32``/``bytes`` are what the hub received,
+    ``device_crc32``/``device_bytes`` what the node says it sent. A mismatch is
+    corruption in transit; ``dropped_bytes`` (lost inside the node) and ``gaps``
+    (lost on the air or in the hub's ring) are audio that never made it at all.
+    A recording can be incomplete and still worth listening to, so none of these
+    fail the upload — they are recorded and surfaced.
+    """
+
+    ok: bool = False
+    bytes: int = Field(default=0, ge=0)
+    crc32: Optional[int] = Field(default=None, ge=0, le=4294967295)
+    device_bytes: Optional[int] = Field(default=None, ge=0)
+    device_crc32: Optional[int] = Field(default=None, ge=0, le=4294967295)
+    dropped_bytes: int = Field(default=0, ge=0)
+    gaps: int = Field(default=0, ge=0)
+    clipped_pct: int = Field(default=0, ge=0, le=100)
+    elapsed_ms: int = Field(default=0, ge=0)
+    sample_rate: Optional[int] = Field(default=None, ge=1, le=192000)
+    device_error: Optional[int] = Field(default=None, ge=0, le=255)
+    error: Optional[str] = Field(default=None, max_length=500)
 
 
 class DeviceCommandResult(BaseModel):
