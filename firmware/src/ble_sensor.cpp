@@ -64,7 +64,7 @@ static constexpr float GRAVITY_MG     = 1000.0f; // ~1 g at rest, removed for AC
 //
 //   off 0..1  : company id (LE)        == HIVEINSIDE_COMPANY_ID
 //   off 2     : magic                   == 0x48 ('H')
-//   off 3     : version                 (currently 0x01)
+//   off 3     : version                 (currently 0x02)
 //   off 4     : flags  bit0 sht bit1 accel bit2 mic bit3 batt
 //   off 5..6  : temperature  int16 LE, 0.1 °C   (valid only if flags bit0 set)
 //   off 7..8  : humidity      uint16 LE, 0.1 %RH (valid only if flags bit0 set)
