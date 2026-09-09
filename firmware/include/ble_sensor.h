@@ -170,8 +170,11 @@ void writeSnapshotToHive(JsonObject hive, const Snapshot& snap);
 // or "" when it is not a valid 6-byte MAC. Shared by the portal and matcher.
 String normalizeMac(const String& raw);
 
-#if HIVEINSIDE_OTA_ENABLED
-// ── Locate-scan for the firmware-over-BLE relay (src/gatt_ota.cpp) ──────────
+// Compiled for either consumer: the firmware relay (src/gatt_ota.cpp) and the
+// audio relay (src/gatt_audio.cpp) both need it, and either one may be switched
+// off without the other.
+#if HIVEINSIDE_OTA_ENABLED || HIVEINSIDE_AUDIO_ENABLED
+// ── Locate-scan for the BLE relays (src/gatt_ota.cpp, src/gatt_audio.cpp) ──
 // Run a short scan for `mac` and report the address type it advertised with, so
 // the relay can open a GATT connection to it. Returns false when the node was
 // not seen (powered off or out of range), leaving `addrTypeOut` untouched.
@@ -184,7 +187,7 @@ String normalizeMac(const String& raw);
 // moved to gatt_ota.h, which is shared with the BeeCounter relay and must
 // compile on devices built without ENABLE_BLE_SCAN.
 bool locateByScan(const String& mac, uint8_t& addrTypeOut);
-#endif
+#endif  // HIVEINSIDE_OTA_ENABLED || HIVEINSIDE_AUDIO_ENABLED
 
 }  // namespace blesensor
 

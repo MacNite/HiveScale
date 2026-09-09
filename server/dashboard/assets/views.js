@@ -1402,14 +1402,26 @@ function hiveAudioPanel(state) {
         qualFigure("Dropped", `${fmtInt(rec.dropped_bytes || 0)} B`,
                    rec.dropped_bytes ? "warn" : null),
         qualFigure("Gaps", String(rec.gaps || 0), rec.gaps ? "warn" : null),
+        qualFigure("Hub buffer", String(rec.ring_overruns || 0),
+                   rec.ring_overruns ? "warn" : null),
         qualFigure("Clipping", `${rec.clipped_pct || 0} %`,
                    rec.clipped_pct >= 5 ? "warn" : null),
         qualFigure("Checksum", crcLabel, crcTone === "muted" ? null : crcTone)));
 
       // Only the things the figures cannot say on their own.
-      if (rec.gaps || rec.dropped_bytes) {
+      // Name the side. The three counters have three different remedies —
+      // move the node closer, improve the radio path, or fix the hub's upload —
+      // and a single "there are gaps" line sent people looking in the wrong
+      // place. Recordings made by a hub older than 0.30.2 report the sum in
+      // `gaps`, so they simply say nothing more specific.
+      if (rec.gaps || rec.dropped_bytes || rec.ring_overruns) {
+        const causes = [];
+        if (rec.dropped_bytes) causes.push("the node could not push audio out fast enough");
+        if (rec.gaps) causes.push("packets were lost on the air");
+        if (rec.ring_overruns) causes.push("the hub's upload fell behind its buffer");
         detail.append(el("p", { class: "note warn" },
-          "Audio either side of a gap is real, but the join is not."));
+          "Audio either side of a gap is real, but the join is not. "
+          + "Cause: " + causes.join("; ") + "."));
       }
       if (rec.clipped_pct >= 5) {
         detail.append(el("p", { class: "note" },

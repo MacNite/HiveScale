@@ -12,6 +12,8 @@
 #include "heap_diag.h"
 #include "night_mode.h"   // MINUTES_PER_DAY, for clamping the delivered window
 
+#include <memory>
+
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -1136,6 +1138,11 @@ static bool splitUrl(const String& url, bool& tls, String& host, uint16_t& port,
 // a 32 KiB ring, and the first second of every recording would be lost to an
 // overrun. An idle socket waiting for its first chunk is the cheaper end of
 // that trade.
+// Bytes reserved ahead of the payload for an HTTP chunk's hex length line.
+// HIVEINSIDE_AUDIO_UPLOAD_CHUNK is 4096, so the longest line is "1000\r\n" —
+// six bytes. Eight leaves room for a larger chunk size without revisiting this.
+static constexpr size_t CHUNK_SLACK = 8;
+
 static bool relayAudioSession(const String& mac, long recordingId,
                               uint16_t durationDs, int8_t gainDb,
                               String* outMsg) {
@@ -1194,6 +1201,38 @@ static bool relayAudioSession(const String& mac, long recordingId,
   headers += "\r\n";
   sock->print(headers);
 
+  // The upload buffer lives on the HEAP, not in this frame.
+  //
+  // This function runs on the Arduino loop task, whose stack is 8 kB, and
+  // `sock->write()` below descends into mbedtls, which wants a couple of
+  // kilobytes of it to build and encrypt a TLS record. A 4 kB array declared
+  // here took half the stack before that call was even made, leaving the canary
+  // a few hundred bytes away on the classic ESP32 — whose windowed-ABI frames
+  // are larger than the C6's, which is part of why the same firmware crashed on
+  // one board and not the other. The firmware relay next door has always kept
+  // its own relay buffer at 1 kB for the same reason; this path is the one that
+  // got it wrong.
+  //
+  // 4 kB is still the right CHUNK — it batches roughly seventeen notifications
+  // into one TLS record — so move it rather than shrink it.
+  //
+  // The allocation carries the chunk framing as well as the payload: CHUNK_SLACK
+  // bytes ahead of it for the hex length line and two behind it for the trailing
+  // CRLF, so the whole HTTP chunk goes out as ONE socket write. See sendChunk().
+  std::unique_ptr<uint8_t, void (*)(void*)> uploadBuf(
+      (uint8_t*)malloc(CHUNK_SLACK + HIVEINSIDE_AUDIO_UPLOAD_CHUNK + 2), ::free);
+  uint8_t* const buf = uploadBuf ? uploadBuf.get() + CHUNK_SLACK : nullptr;
+  if (!buf) {
+    setMsg("out of memory for the audio upload buffer");
+    Serial.printf("[HI-AUD] out of memory for the %u B audio upload buffer "
+                  "(free heap %u, largest block %u)\n",
+                  (unsigned)HIVEINSIDE_AUDIO_UPLOAD_CHUNK,
+                  (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    sock->print("0\r\n\r\n");
+    sock->stop();
+    return false;
+  }
+
   bool bleOk = gattaudio::begin(mac, durationDs, gainDb);
   if (!bleOk) {
     setMsg(gattaudio::lastError().length() ? gattaudio::lastError()
@@ -1207,21 +1246,46 @@ static bool relayAudioSession(const String& mac, long recordingId,
     return false;
   }
 
+  // Both radios and the ring are now resident at once — the tightest the heap
+  // gets on this hub, so say what it looks like. logDiag(), NOT probe():
+  // checkIntegrity() walks every block in the heap, and the node is already
+  // streaming 32 kB/s into a one-second ring by the time this line is reached.
+  // Spending that walk here costs audio.
+  heapdiag::logDiag("audio-session-open");
+
+  // Send one HTTP chunk as a SINGLE socket write.
+  //
+  // Every NetworkClientSecure::write() becomes exactly one mbedtls_ssl_write(),
+  // so the old three-call form (hex length, payload, CRLF) spent three TLS
+  // records — three lots of ~29 B of framing plus their TCP segments — on every
+  // chunk, to carry two payload-less lines. At a few hundred chunks a second
+  // that is the difference between the upload keeping up with the node and the
+  // staging ring overrunning, which the recording shows as seams.
+  //
+  // `buf` deliberately sits CHUNK_SLACK bytes into its allocation so the length
+  // line can be written immediately BEFORE the payload without moving it.
+  auto sendChunk = [&](size_t n) -> bool {
+    char hdr[CHUNK_SLACK + 1];
+    const int hdrLen = snprintf(hdr, sizeof(hdr), "%X\r\n", (unsigned)n);
+    if (hdrLen <= 0 || (size_t)hdrLen > CHUNK_SLACK) return false;  // unreachable
+    uint8_t* const start = buf - hdrLen;
+    memcpy(start, hdr, (size_t)hdrLen);
+    buf[n] = '\r';
+    buf[n + 1] = '\n';
+    const size_t total = (size_t)hdrLen + n + 2;
+    return sock->write(start, total) == total;
+  };
+
   const uint32_t maxMs = (uint32_t)HIVEINSIDE_AUDIO_MAX_SECONDS * 1000UL;
   const unsigned long startedMs = millis();
   unsigned long lastDataMs = startedMs;
-  uint8_t buf[HIVEINSIDE_AUDIO_UPLOAD_CHUNK];
   uint32_t uploaded = 0;
   bool stalled = false, socketLost = false;
 
   while (true) {
-    size_t n = gattaudio::read(buf, sizeof(buf));
+    size_t n = gattaudio::read(buf, HIVEINSIDE_AUDIO_UPLOAD_CHUNK);
     if (n > 0) {
-      // Chunked framing: size in hex, CRLF, data, CRLF.
-      sock->printf("%X\r\n", (unsigned)n);
-      size_t written = sock->write(buf, n);
-      sock->print("\r\n");
-      if (written != n) { socketLost = true; break; }
+      if (!sendChunk(n)) { socketLost = true; break; }
       uploaded += n;
       lastDataMs = millis();
       if ((uploaded % (64 * 1024)) < n) {
@@ -1251,10 +1315,10 @@ static bool relayAudioSession(const String& mac, long recordingId,
 
   // Whatever is still in the ring belongs to this recording.
   size_t n;
-  while ((n = gattaudio::read(buf, sizeof(buf))) > 0 && !socketLost) {
-    sock->printf("%X\r\n", (unsigned)n);
-    sock->write(buf, n);
-    sock->print("\r\n");
+  while ((n = gattaudio::read(buf, HIVEINSIDE_AUDIO_UPLOAD_CHUNK)) > 0 && !socketLost) {
+    // Checked, like the main loop: a short write here would declare a chunk
+    // length the body does not carry and mis-frame everything after it.
+    if (!sendChunk(n)) { socketLost = true; break; }
     uploaded += n;
   }
 
@@ -1291,7 +1355,16 @@ static bool relayAudioSession(const String& mac, long recordingId,
   fin["device_crc32"] = stats.deviceCrc;
   fin["dropped_bytes"] = stats.droppedBytes;
   fin["elapsed_ms"] = stats.elapsedMs;
-  fin["gaps"] = stats.gaps + stats.ringOverruns;
+  // Reported SEPARATELY since 0.30.2. Summing them was defensible while both
+  // meant "a seam", but it made the one question a field report actually asks —
+  // did the radio lose this, or did the hub? — unanswerable without a serial
+  // cable. `gaps` is now sequence discontinuities on the air (or the node's own
+  // FLAG_GAP); `ring_overruns` is notifications this hub's staging ring refused
+  // because the upload was behind. A server older than 0.6.0 ignores the second
+  // field and simply under-reports, which beats blaming the wrong side.
+  fin["gaps"] = stats.gaps;
+  fin["ring_overruns"] = stats.ringOverruns;
+  fin["ring_dropped_bytes"] = stats.ringDroppedBytes;
   fin["sample_rate"] = stats.sampleRate ? stats.sampleRate : 16000;
   fin["clipped_pct"] = stats.clippedPct;
   fin["device_error"] = stats.error;
@@ -1318,8 +1391,9 @@ static bool relayAudioSession(const String& mac, long recordingId,
     String msg = String("recorded ") + uploaded + " B (" +
                  String(stats.elapsedMs / 1000.0f, 1) + " s)";
     if (stats.droppedBytes || stats.gaps || stats.ringOverruns) {
-      msg += String(" (INCOMPLETE: ") + stats.droppedBytes + " B dropped by the node, " +
-             (stats.gaps + stats.ringOverruns) + " gap(s) at the hub)";
+      msg += String(" (INCOMPLETE: ") + stats.droppedBytes +
+             " B dropped by the node, " + stats.gaps + " gap(s) on the air, " +
+             stats.ringOverruns + " lost to the hub's buffer)";
     } else if (stats.crc32 != stats.deviceCrc) {
       msg += " (CRC mismatch — audio was corrupted in transit)";
     }
@@ -1396,8 +1470,19 @@ void checkForOtaUpdate() {
 // say so against the right command id while the row is still open.
 static const uint32_t RELAY_MARKER_MAGIC = 0x48524C59UL;  // "HRLY"
 
-static void markRelayInFlight(int commandId) {
+// What was running, so the report after a reset names it. A hub that dies
+// during a recording used to tell the dashboard "firmware transfer did not
+// complete", which sent the operator looking for an OTA that never happened.
+enum RelayKind : uint32_t {
+  RELAY_KIND_FIRMWARE = 0,  // also what an unrecognised value is treated as
+  RELAY_KIND_AUDIO = 1,
+};
+
+static void markRelayInFlight(int commandId, RelayKind kind) {
   rtcRelayCommandId = (uint32_t)commandId;
+  // Kind before magic: the magic is what makes the whole record believable, so
+  // it must be the last field written and the first one checked.
+  rtcRelayKind = (uint32_t)kind;
   rtcRelayMagic = RELAY_MARKER_MAGIC;
 }
 
@@ -1409,6 +1494,7 @@ static void markRelayInFlight(int commandId) {
 // leave that sliver uncovered than to invent a failure that did not happen.
 static void clearRelayInFlight() {
   rtcRelayCommandId = 0;
+  rtcRelayKind = RELAY_KIND_FIRMWARE;
   rtcRelayMagic = 0;
 }
 
@@ -1419,12 +1505,14 @@ static void reportInterruptedRelay() {
   if (rtcRelayMagic != RELAY_MARKER_MAGIC || rtcRelayCommandId == 0) return;
 
   const int commandId = (int)rtcRelayCommandId;
+  const bool wasAudio = (rtcRelayKind == RELAY_KIND_AUDIO);
   // Clear FIRST. If the report itself is what kills us, the next boot must not
   // find the same marker and try again forever; one lost report beats a loop.
   clearRelayInFlight();
 
-  String msg = String("hub reset during relay (") + resetReasonName() +
-               ") — firmware transfer did not complete";
+  String msg = String("hub reset during relay (") + resetReasonName() + ") — " +
+               (wasAudio ? "the audio session did not complete"
+                         : "firmware transfer did not complete");
   Serial.printf("[CMD] Reporting interrupted relay for command %d: %s\n",
                 commandId, msg.c_str());
   postCommandResult(commandId, false, msg);
@@ -1525,7 +1613,7 @@ static bool runOneCommand(bool* wasAudio) {
       String resultMsg;
       // Note the attempt before starting: a reset during the transfer otherwise
       // leaves the row to time out silently an hour later.
-      markRelayInFlight(commandId);
+      markRelayInFlight(commandId, RELAY_KIND_FIRMWARE);
       bool ok = updateHiveInside(mac, fwUrl, crc, &resultMsg);
       clearRelayInFlight();
       Serial.printf("[HI-OTA] update result: %s (%s)\n",
@@ -1559,7 +1647,7 @@ static bool runOneCommand(bool* wasAudio) {
       // Same crash-safe marker as the OTA relays: a session runs for up to a
       // minute and only reports at the end, so a reset in the middle would
       // otherwise strand the row until the backend's stale sweep noticed.
-      markRelayInFlight(commandId);
+      markRelayInFlight(commandId, RELAY_KIND_AUDIO);
       String resultMsg;
       bool ok = recordHiveInsideAudio(mac, recordingId, durationDs, gainDb, &resultMsg);
       clearRelayInFlight();
@@ -1605,7 +1693,7 @@ static bool runOneCommand(bool* wasAudio) {
       // only known once updateBeeCounter returns.
       String resultMsg;
       // Same crash-safe marker as the HiveInside relay above.
-      markRelayInFlight(commandId);
+      markRelayInFlight(commandId, RELAY_KIND_FIRMWARE);
       bool ok = updateBeeCounter(mac, fwUrl, crc, &resultMsg);
       clearRelayInFlight();
       Serial.printf("[BC-OTA] update result: %s (%s)\n",

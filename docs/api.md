@@ -1279,7 +1279,7 @@ On request, a HiveInside node (firmware 0.6.2+) records from inside the hive and
 the hub relays the audio here. Full background — the key both sides need, the
 quality flags, why it is not live listening — is in
 [Listening to a hive](audio-recording.md). Requires HiveHub firmware 0.30.0+ and
-server 0.5.1+.
+server 0.5.2+ for the split gap counters (0.5.1 for the feature itself).
 
 Three surfaces, the same functions behind each:
 
@@ -1332,7 +1332,7 @@ One recording:
 |---|---|
 | `status` | `requested` → `streaming` → `ready` / `failed`. A stale sweep resolves rows the hub stopped reporting on, so nothing sits in flight forever |
 | `seconds` | derived from `bytes` — what actually arrived, not what was asked for |
-| `dropped_bytes` / `gaps` | audio the node's ring lost, and sequence holes on the air. Either one means the clip is spliced |
+| `dropped_bytes` / `gaps` / `ring_overruns` | audio the node's ring lost, sequence holes on the air, and notifications the hub's own staging ring refused because the upload was behind. Any one of them means the clip is spliced, and they have three different remedies. Split from a single summed `gaps` in firmware 0.30.2 / server 0.5.2; older hubs report the sum under `gaps` |
 | `clipped_pct` | samples that hit the rail; ≥5 % means lower the gain |
 | `crc_ok` | the hub's CRC matched the server's over the bytes on disk |
 | `confirmation` | `verified` / `reported` / `confirmed` / `unknown` — how much of the hub's account of the session actually arrived. See [How sure we are](audio-recording.md#how-sure-we-are-confirmation) |
