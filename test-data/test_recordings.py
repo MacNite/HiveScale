@@ -59,7 +59,8 @@ def row(**over):
         requested_at=NOW, started_at=NOW, completed_at=NOW,
         duration_ds=0, gain_db=0, sample_rate=SAMPLE_RATE,
         num_bytes=32000, crc32=123456, device_bytes=32000, device_crc32=123456,
-        dropped_bytes=0, gaps=0, clipped_pct=0, error=None, requested_by="max",
+        dropped_bytes=0, gaps=0, ring_overruns=0, ring_dropped_bytes=0,
+        clipped_pct=0, error=None, requested_by="max",
         command_status="done", command_message=None,
     )
     base.update(over)
@@ -127,6 +128,13 @@ check("audio the node dropped makes it incomplete",
       _row_to_dict(row(dropped_bytes=480))["complete"] is False)
 check("a gap in transit makes it incomplete",
       _row_to_dict(row(gaps=1))["complete"] is False)
+# The two seams have opposite remedies — one is the radio, one is this hub's
+# upload — so they are separate columns and each has to fail `complete` alone.
+check("audio the hub's own buffer refused makes it incomplete",
+      _row_to_dict(row(ring_overruns=1))["complete"] is False)
+check("the air and the hub's buffer are reported separately",
+      _row_to_dict(row(gaps=3, ring_overruns=4))["gaps"] == 3
+      and _row_to_dict(row(gaps=3, ring_overruns=4))["ring_overruns"] == 4)
 check("a CRC mismatch makes it incomplete",
       _row_to_dict(row(device_crc32=999))["complete"] is False)
 check("a CRC mismatch is reported as such",

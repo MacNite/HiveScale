@@ -1138,6 +1138,11 @@ static bool splitUrl(const String& url, bool& tls, String& host, uint16_t& port,
 // a 32 KiB ring, and the first second of every recording would be lost to an
 // overrun. An idle socket waiting for its first chunk is the cheaper end of
 // that trade.
+// Bytes reserved ahead of the payload for an HTTP chunk's hex length line.
+// HIVEINSIDE_AUDIO_UPLOAD_CHUNK is 4096, so the longest line is "1000\r\n" —
+// six bytes. Eight leaves room for a larger chunk size without revisiting this.
+static constexpr size_t CHUNK_SLACK = 8;
+
 static bool relayAudioSession(const String& mac, long recordingId,
                               uint16_t durationDs, int8_t gainDb,
                               String* outMsg) {
@@ -1210,9 +1215,13 @@ static bool relayAudioSession(const String& mac, long recordingId,
   //
   // 4 kB is still the right CHUNK — it batches roughly seventeen notifications
   // into one TLS record — so move it rather than shrink it.
+  //
+  // The allocation carries the chunk framing as well as the payload: CHUNK_SLACK
+  // bytes ahead of it for the hex length line and two behind it for the trailing
+  // CRLF, so the whole HTTP chunk goes out as ONE socket write. See sendChunk().
   std::unique_ptr<uint8_t, void (*)(void*)> uploadBuf(
-      (uint8_t*)malloc(HIVEINSIDE_AUDIO_UPLOAD_CHUNK), ::free);
-  uint8_t* const buf = uploadBuf.get();
+      (uint8_t*)malloc(CHUNK_SLACK + HIVEINSIDE_AUDIO_UPLOAD_CHUNK + 2), ::free);
+  uint8_t* const buf = uploadBuf ? uploadBuf.get() + CHUNK_SLACK : nullptr;
   if (!buf) {
     setMsg("out of memory for the audio upload buffer");
     Serial.printf("[HI-AUD] out of memory for the %u B audio upload buffer "
@@ -1238,10 +1247,34 @@ static bool relayAudioSession(const String& mac, long recordingId,
   }
 
   // Both radios and the ring are now resident at once — the tightest the heap
-  // gets on this hub. The firmware relay probes the same boundary for the same
-  // reason: when this path faults, the log has to say whether the heap was
-  // already damaged before the session started.
-  heapdiag::probe("audio-session-open");
+  // gets on this hub, so say what it looks like. logDiag(), NOT probe():
+  // checkIntegrity() walks every block in the heap, and the node is already
+  // streaming 32 kB/s into a one-second ring by the time this line is reached.
+  // Spending that walk here costs audio.
+  heapdiag::logDiag("audio-session-open");
+
+  // Send one HTTP chunk as a SINGLE socket write.
+  //
+  // Every NetworkClientSecure::write() becomes exactly one mbedtls_ssl_write(),
+  // so the old three-call form (hex length, payload, CRLF) spent three TLS
+  // records — three lots of ~29 B of framing plus their TCP segments — on every
+  // chunk, to carry two payload-less lines. At a few hundred chunks a second
+  // that is the difference between the upload keeping up with the node and the
+  // staging ring overrunning, which the recording shows as seams.
+  //
+  // `buf` deliberately sits CHUNK_SLACK bytes into its allocation so the length
+  // line can be written immediately BEFORE the payload without moving it.
+  auto sendChunk = [&](size_t n) -> bool {
+    char hdr[CHUNK_SLACK + 1];
+    const int hdrLen = snprintf(hdr, sizeof(hdr), "%X\r\n", (unsigned)n);
+    if (hdrLen <= 0 || (size_t)hdrLen > CHUNK_SLACK) return false;  // unreachable
+    uint8_t* const start = buf - hdrLen;
+    memcpy(start, hdr, (size_t)hdrLen);
+    buf[n] = '\r';
+    buf[n + 1] = '\n';
+    const size_t total = (size_t)hdrLen + n + 2;
+    return sock->write(start, total) == total;
+  };
 
   const uint32_t maxMs = (uint32_t)HIVEINSIDE_AUDIO_MAX_SECONDS * 1000UL;
   const unsigned long startedMs = millis();
@@ -1252,11 +1285,7 @@ static bool relayAudioSession(const String& mac, long recordingId,
   while (true) {
     size_t n = gattaudio::read(buf, HIVEINSIDE_AUDIO_UPLOAD_CHUNK);
     if (n > 0) {
-      // Chunked framing: size in hex, CRLF, data, CRLF.
-      sock->printf("%X\r\n", (unsigned)n);
-      size_t written = sock->write(buf, n);
-      sock->print("\r\n");
-      if (written != n) { socketLost = true; break; }
+      if (!sendChunk(n)) { socketLost = true; break; }
       uploaded += n;
       lastDataMs = millis();
       if ((uploaded % (64 * 1024)) < n) {
@@ -1287,9 +1316,9 @@ static bool relayAudioSession(const String& mac, long recordingId,
   // Whatever is still in the ring belongs to this recording.
   size_t n;
   while ((n = gattaudio::read(buf, HIVEINSIDE_AUDIO_UPLOAD_CHUNK)) > 0 && !socketLost) {
-    sock->printf("%X\r\n", (unsigned)n);
-    sock->write(buf, n);
-    sock->print("\r\n");
+    // Checked, like the main loop: a short write here would declare a chunk
+    // length the body does not carry and mis-frame everything after it.
+    if (!sendChunk(n)) { socketLost = true; break; }
     uploaded += n;
   }
 
@@ -1326,7 +1355,16 @@ static bool relayAudioSession(const String& mac, long recordingId,
   fin["device_crc32"] = stats.deviceCrc;
   fin["dropped_bytes"] = stats.droppedBytes;
   fin["elapsed_ms"] = stats.elapsedMs;
-  fin["gaps"] = stats.gaps + stats.ringOverruns;
+  // Reported SEPARATELY since 0.30.2. Summing them was defensible while both
+  // meant "a seam", but it made the one question a field report actually asks —
+  // did the radio lose this, or did the hub? — unanswerable without a serial
+  // cable. `gaps` is now sequence discontinuities on the air (or the node's own
+  // FLAG_GAP); `ring_overruns` is notifications this hub's staging ring refused
+  // because the upload was behind. A server older than 0.6.0 ignores the second
+  // field and simply under-reports, which beats blaming the wrong side.
+  fin["gaps"] = stats.gaps;
+  fin["ring_overruns"] = stats.ringOverruns;
+  fin["ring_dropped_bytes"] = stats.ringDroppedBytes;
   fin["sample_rate"] = stats.sampleRate ? stats.sampleRate : 16000;
   fin["clipped_pct"] = stats.clippedPct;
   fin["device_error"] = stats.error;
@@ -1353,8 +1391,9 @@ static bool relayAudioSession(const String& mac, long recordingId,
     String msg = String("recorded ") + uploaded + " B (" +
                  String(stats.elapsedMs / 1000.0f, 1) + " s)";
     if (stats.droppedBytes || stats.gaps || stats.ringOverruns) {
-      msg += String(" (INCOMPLETE: ") + stats.droppedBytes + " B dropped by the node, " +
-             (stats.gaps + stats.ringOverruns) + " gap(s) at the hub)";
+      msg += String(" (INCOMPLETE: ") + stats.droppedBytes +
+             " B dropped by the node, " + stats.gaps + " gap(s) on the air, " +
+             stats.ringOverruns + " lost to the hub's buffer)";
     } else if (stats.crc32 != stats.deviceCrc) {
       msg += " (CRC mismatch — audio was corrupted in transit)";
     }

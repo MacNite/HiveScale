@@ -64,11 +64,16 @@ String s_lastError;
 audioring::Ring s_ring;
 portMUX_TYPE s_ringMux = portMUX_INITIALIZER_UNLOCKED;
 
+// `volatile` only where a reader takes the value WITHOUT the spinlock:
+// streaming() and finish() both check these outside it. Everything below them
+// is read and written under s_ringMux, which already orders the access — and
+// `volatile` there is not merely redundant, it makes `s_gaps++` a deprecated
+// expression in C++20 and a warning today.
 volatile bool s_streaming = false;
 volatile bool s_sawFinal = false;
-volatile uint32_t s_gaps = 0;
-volatile bool s_haveSeq = false;
-volatile uint16_t s_nextSeq = 0;
+uint32_t s_gaps = 0;
+bool s_haveSeq = false;
+uint16_t s_nextSeq = 0;
 uint32_t s_crc = 0;
 bool s_stopSent = false;
 

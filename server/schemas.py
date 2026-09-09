@@ -778,10 +778,12 @@ class RecordingFinalizeIn(BaseModel):
 
     The pairs are deliberate: ``crc32``/``bytes`` are what the hub received,
     ``device_crc32``/``device_bytes`` what the node says it sent. A mismatch is
-    corruption in transit; ``dropped_bytes`` (lost inside the node) and ``gaps``
-    (lost on the air or in the hub's ring) are audio that never made it at all.
-    A recording can be incomplete and still worth listening to, so none of these
-    fail the upload — they are recorded and surfaced.
+    corruption in transit. Three separate counters describe audio that never
+    made it at all, and they have three different fixes: ``dropped_bytes`` was
+    lost inside the node, ``gaps`` on the air, and ``ring_overruns`` in the
+    hub's own staging ring because the upload could not keep up. A recording can
+    be incomplete and still worth listening to, so none of these fail the
+    upload — they are recorded and surfaced.
     """
 
     ok: bool = False
@@ -791,6 +793,10 @@ class RecordingFinalizeIn(BaseModel):
     device_crc32: Optional[int] = Field(default=None, ge=0, le=4294967295)
     dropped_bytes: int = Field(default=0, ge=0)
     gaps: int = Field(default=0, ge=0)
+    # Firmware 0.30.2+. Older hubs send only `gaps`, carrying the sum of both,
+    # so these default to 0 rather than being required.
+    ring_overruns: int = Field(default=0, ge=0)
+    ring_dropped_bytes: int = Field(default=0, ge=0)
     clipped_pct: int = Field(default=0, ge=0, le=100)
     elapsed_ms: int = Field(default=0, ge=0)
     sample_rate: Optional[int] = Field(default=None, ge=1, le=192000)
