@@ -109,7 +109,8 @@ def _row_to_dict(r) -> dict:
     """
     (rec_id, device_id, hive_index, status, requested_at, started_at,
      completed_at, duration_ds, gain_db, sample_rate, num_bytes, crc32,
-     device_bytes, device_crc32, dropped_bytes, gaps, clipped_pct, error,
+     device_bytes, device_crc32, dropped_bytes, gaps, ring_overruns,
+     ring_dropped_bytes, clipped_pct, error,
      requested_by, command_status, command_message) = r
     seconds = (num_bytes or 0) / float(sample_rate * BYTES_PER_SAMPLE) if sample_rate else 0.0
     both_crcs = crc32 is not None and device_crc32 is not None
@@ -129,6 +130,7 @@ def _row_to_dict(r) -> dict:
         and not crc_mismatch
         and not dropped_bytes
         and not gaps
+        and not ring_overruns
     )
     return {
         "id": rec_id,
@@ -145,6 +147,8 @@ def _row_to_dict(r) -> dict:
         "seconds": round(seconds, 2),
         "dropped_bytes": dropped_bytes,
         "gaps": gaps,
+        "ring_overruns": ring_overruns,
+        "ring_dropped_bytes": ring_dropped_bytes,
         "clipped_pct": clipped_pct,
         "complete": complete,
         "crc_ok": crc_ok,
@@ -168,7 +172,8 @@ _SELECT = """
     SELECT r.id, r.device_id, r.hive_index, r.status, r.requested_at,
            r.started_at, r.completed_at, r.duration_ds, r.gain_db,
            r.sample_rate, r.bytes, r.crc32, r.device_bytes, r.device_crc32,
-           r.dropped_bytes, r.gaps, r.clipped_pct, r.error, r.requested_by,
+           r.dropped_bytes, r.gaps, r.ring_overruns, r.ring_dropped_bytes,
+           r.clipped_pct, r.error, r.requested_by,
            c.status, c.result->>'message'
     FROM hive_recordings r
     LEFT JOIN device_commands c ON c.id = r.command_id
@@ -518,6 +523,8 @@ def finalize_recording(device_id: str, recording_id: int,
                     device_crc32 = %s,
                     dropped_bytes = %s,
                     gaps = %s,
+                    ring_overruns = %s,
+                    ring_dropped_bytes = %s,
                     clipped_pct = %s,
                     device_error = %s,
                     sample_rate = COALESCE(%s, sample_rate),
@@ -525,7 +532,8 @@ def finalize_recording(device_id: str, recording_id: int,
                 WHERE id = %s AND device_id = %s;
                 """,
                 (status, payload.crc32, payload.device_bytes, payload.device_crc32,
-                 payload.dropped_bytes, payload.gaps, payload.clipped_pct,
+                 payload.dropped_bytes, payload.gaps, payload.ring_overruns,
+                 payload.ring_dropped_bytes, payload.clipped_pct,
                  payload.device_error, payload.sample_rate, payload.error,
                  recording_id, device_id),
             )

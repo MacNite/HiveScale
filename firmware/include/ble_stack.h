@@ -60,7 +60,14 @@ namespace blestack {
 
 // Bring the stack up if it is not already, starting a new port lifetime when it
 // had been released. Idempotent.
-void acquire();
+//
+// Returns false when NimBLE could not start — on the classic ESP32 that is
+// usually the BT controller failing to allocate with WiFi and TLS already
+// resident. A caller that ignores it goes on to call host API against an
+// uninitialised stack, which faults rather than failing. Callers that can
+// simply skip their BLE work may ignore the result; the audio relay, which
+// brings the stack up at the firmware's tightest memory moment, must not.
+bool acquire();
 
 // Release the stack, freeing the BT controller so WiFi has the radio.
 // Always `deinit(false)` — see the header comment for why `true` is unusable.

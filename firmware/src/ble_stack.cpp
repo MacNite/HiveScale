@@ -14,7 +14,23 @@ uint32_t s_generation = 0;
 uint32_t s_scanGeneration = 0;
 }  // namespace
 
-void acquire() {
+bool acquire() {
+  // NimBLEDevice::init() is itself idempotent; calling it unconditionally keeps
+  // acquire() correct even if something outside this module brought the stack
+  // up first. It returns false when esp_bt_controller_init() or _enable()
+  // could not get the memory they need — which is a real possibility on the
+  // classic ESP32, whose BT controller wants tens of kilobytes and which has
+  // far less DRAM than the C6 to begin with. The audio relay in particular asks
+  // for the stack with WiFi connected AND a TLS session already open, so this
+  // is the tightest moment in the whole firmware.
+  //
+  // Returning here rather than pressing on is the point: none of NimBLE's host
+  // API is usable after a failed init, and calling getScan() or createClient()
+  // against an uninitialised host is a fault, not an error code.
+  if (!NimBLEDevice::init("")) {
+    Serial.println("[BLE] stack failed to start (no memory for the controller?)");
+    return false;
+  }
   if (!s_up) {
     s_generation++;
     s_up = true;
@@ -23,10 +39,7 @@ void acquire() {
                     (unsigned)s_generation);
     }
   }
-  // NimBLEDevice::init() is itself idempotent; calling it unconditionally keeps
-  // acquire() correct even if something outside this module brought the stack
-  // up first.
-  NimBLEDevice::init("");
+  return true;
 }
 
 void release() {
