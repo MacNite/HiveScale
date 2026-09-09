@@ -63,6 +63,7 @@ struct Snapshot {
   float    accel_z_mg    = NAN;
   float    accel_rms_mg  = NAN;    // RMS of |a|-baseline (HolyIot) or device RMS
   float    accel_peak_mg = NAN;    // peak |a|-baseline over the samples seen
+                                   // (HiveInside reports its own, frame v2+)
 
   // Vibration FFT bands in mg (HiveInside only; the device runs the FFT).
   float    accel_band_swarm_mg    = NAN;  //   8–30 Hz pre-swarm
@@ -72,6 +73,7 @@ struct Snapshot {
   // Acoustics in dBFS (HiveInside only).
   bool     mic_present   = false;
   float    mic_rms_dbfs  = NAN;
+  float    mic_peak_dbfs = NAN;      // broadband peak deviation (frame v2+)
   float    mic_sub_bass_dbfs = NAN;  //   50–150 Hz
   float    mic_hum_dbfs      = NAN;  //  150–300 Hz
   float    mic_piping_dbfs   = NAN;  //  300–550 Hz

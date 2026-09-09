@@ -470,7 +470,7 @@
 // accel_{slot}_band_* and mic_{left,right}_band_* measurement fields (slot 1 ->
 // mic_left, slot 2 -> mic_right).
 //
-// HiveInside is the XIAO nRF54LM20A Sense node, which advertises this 26-byte
+// HiveInside is the XIAO nRF54LM20A Sense node, which advertises this 29-byte
 // frame CONTINUOUSLY as a beacon (no pairing window, no GATT measurement service
 // — passive scan + parseHiveInside() is the whole ingest). It keeps the Espressif
 // company id so existing HiveHubs decode it unchanged; flip BEACON_COMPANY_ID

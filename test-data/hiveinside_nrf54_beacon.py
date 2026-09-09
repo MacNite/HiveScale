@@ -1,7 +1,7 @@
 """
 Sample nRF54LM20A HiveInside beacon frame + reference decoder.
 
-The XIAO nRF54LM20A Sense HiveInside node advertises the same 26-byte
+The XIAO nRF54LM20A Sense HiveInside node advertises the same 29-byte
 manufacturer-data frame the HiveHub firmware already decodes in
 firmware/src/ble_sensor.cpp (parseHiveInside). This module carries a known-good
 frame and a tiny reference decoder so:
@@ -17,7 +17,7 @@ Frame layout (little-endian for the sensor fields; company id is LE too):
     off 0..1  : company id (LE)        == 0x02E5 (Espressif; kept so existing
                                           HiveHubs decode the Nordic node unchanged)
     off 2     : magic                   == 0x48 ('H')
-    off 3     : version                 == 0x01
+    off 3     : version                 == 0x02
     off 4     : flags  bit0 sht bit1 accel bit2 mic bit3 batt
     off 5..6  : temperature  int16 LE, 0.1 °C   (valid iff flags bit0)
     off 7..8  : humidity      uint16 LE, 0.1 %RH (valid iff flags bit0)
@@ -33,13 +33,21 @@ Frame layout (little-endian for the sensor fields; company id is LE too):
     off 23    : mic piping     int8, dBFS
     off 24    : mic stress     int8, dBFS
     off 25    : mic high       int8, dBFS
+    off 26..27: accel peak     uint16 LE, 0.1 mg    (version 2+, iff flags bit1)
+    off 28    : mic peak       int8, dBFS           (version 2+, iff flags bit2)
+
+Version 2 appended the two broadband peaks without moving any version-1 field,
+so decoding is gated on the received length, not on the version byte: a 26-byte
+frame from an older node still decodes in full, minus the peaks.
 """
 
 import struct
 
 HI_COMPANY_ID = 0x02E5
 HI_MAGIC = 0x48
-HI_VERSION = 0x01
+HI_VERSION = 0x02
+HI_MIN_LEN = 26   # version 1: through the mic bands
+HI_PEAK_LEN = 29  # version 2: + accel peak and mic peak
 
 FLAG_SHT = 1 << 0
 FLAG_ACCEL = 1 << 1
@@ -48,12 +56,12 @@ FLAG_BATT = 1 << 3
 
 # A full frame: all four sensor groups present (flags = 0x0F).
 #   temp = 34.5 °C, humidity = 60.0 %RH, battery = 3700 mV / 92 %,
-#   accel RMS = 12.0 mg (bands 8.0 / 5.0 / 3.0 mg),
-#   mic RMS = -42 dBFS (bands -55 / -48 / -60 / -58 / -66 dBFS).
+#   accel RMS = 12.0 mg (bands 8.0 / 5.0 / 3.0 mg), accel peak = 28.0 mg,
+#   mic RMS = -42 dBFS (bands -55 / -48 / -60 / -58 / -66 dBFS), mic peak = -30 dBFS.
 SAMPLE_FRAME_FULL = bytes([
     0xE5, 0x02,        # company id 0x02E5
     0x48,              # magic 'H'
-    0x01,              # version
+    0x02,              # version
     0x0F,              # flags: sht | accel | mic | batt
     0x59, 0x01,        # temp 345 -> 34.5 °C
     0x58, 0x02,        # humidity 600 -> 60.0 %RH
@@ -69,25 +77,33 @@ SAMPLE_FRAME_FULL = bytes([
     0xC4,              # piping -60
     0xC6,              # stress -58
     0xBE,              # high -66
+    0x18, 0x01,        # accel peak 280 -> 28.0 mg
+    0xE2,              # mic peak -30 dBFS
 ])
 
 # Same node with a failed SHT40 this cycle (flags clears bit0): the temp/humidity
 # bytes are stale zeros and MUST decode as "absent", not 0.0 °C.
 SAMPLE_FRAME_NO_SHT = bytes([
-    0xE5, 0x02, 0x48, 0x01,
+    0xE5, 0x02, 0x48, 0x02,
     0x0E,              # flags: accel | mic | batt  (sht cleared)
     0x00, 0x00,        # temp bytes present but invalid
     0x00, 0x00,        # humidity bytes present but invalid
     0x74, 0x0E, 0x5C,
     0x78, 0x00, 0x50, 0x00, 0x32, 0x00, 0x1E, 0x00,
     0xD6, 0xC9, 0xD0, 0xC4, 0xC6, 0xBE,
+    0x18, 0x01, 0xE2,
 ])
+
+# A node still running version-1 firmware: identical up to offset 25, then the
+# frame simply ends. Every version-1 field must still decode, and the two peaks
+# must be reported as absent rather than read out of bounds.
+SAMPLE_FRAME_V1 = bytes([*SAMPLE_FRAME_FULL[:3], 0x01, *SAMPLE_FRAME_FULL[4:HI_MIN_LEN]])
 
 
 def decode(frame: bytes) -> dict:
     """Reference decoder mirroring parseHiveInside(). Returns a dict of the
     fields present this cycle; groups whose flag bit is clear are omitted."""
-    if len(frame) < 26:
+    if len(frame) < HI_MIN_LEN:
         raise ValueError("frame too short")
     company = struct.unpack_from("<H", frame, 0)[0]
     if company != HI_COMPANY_ID:
@@ -97,6 +113,7 @@ def decode(frame: bytes) -> dict:
 
     flags = frame[4]
     out = {"version": frame[3], "flags": flags}
+    has_peaks = len(frame) >= HI_PEAK_LEN
 
     if flags & FLAG_SHT:
         out["temp_c"] = struct.unpack_from("<h", frame, 5)[0] * 0.1
@@ -109,6 +126,8 @@ def decode(frame: bytes) -> dict:
         out["accel_band_swarm_mg"] = struct.unpack_from("<H", frame, 14)[0] * 0.1
         out["accel_band_fanning_mg"] = struct.unpack_from("<H", frame, 16)[0] * 0.1
         out["accel_band_activity_mg"] = struct.unpack_from("<H", frame, 18)[0] * 0.1
+        if has_peaks:
+            out["accel_peak_mg"] = struct.unpack_from("<H", frame, 26)[0] * 0.1
     if flags & FLAG_MIC:
         out["mic_rms_dbfs"] = struct.unpack_from("<b", frame, 20)[0]
         out["mic_sub_bass_dbfs"] = struct.unpack_from("<b", frame, 21)[0]
@@ -116,6 +135,8 @@ def decode(frame: bytes) -> dict:
         out["mic_piping_dbfs"] = struct.unpack_from("<b", frame, 23)[0]
         out["mic_stress_dbfs"] = struct.unpack_from("<b", frame, 24)[0]
         out["mic_high_dbfs"] = struct.unpack_from("<b", frame, 25)[0]
+        if has_peaks:
+            out["mic_peak_dbfs"] = struct.unpack_from("<b", frame, 28)[0]
     return out
 
 
@@ -125,7 +146,7 @@ def _approx(a, b, tol=1e-6):
 
 def _main() -> None:
     full = decode(SAMPLE_FRAME_FULL)
-    assert len(SAMPLE_FRAME_FULL) == 26, "frame must be exactly 26 bytes"
+    assert len(SAMPLE_FRAME_FULL) == HI_PEAK_LEN, "frame must be exactly 29 bytes"
     assert _approx(full["temp_c"], 34.5), full
     assert _approx(full["humidity_pct"], 60.0), full
     assert full["battery_mv"] == 3700, full
@@ -134,6 +155,8 @@ def _main() -> None:
     assert _approx(full["accel_band_swarm_mg"], 8.0), full
     assert full["mic_rms_dbfs"] == -42, full
     assert full["mic_high_dbfs"] == -66, full
+    assert _approx(full["accel_peak_mg"], 28.0), full
+    assert full["mic_peak_dbfs"] == -30, full
     print("  [PASS] full frame decodes all four groups")
 
     # A failed SHT40 must map to absent, NOT 0.0 °C (regression for the flags fix).
@@ -143,6 +166,17 @@ def _main() -> None:
     assert no_sht["battery_mv"] == 3700, no_sht
     assert _approx(no_sht["accel_rms_mg"], 12.0), no_sht
     print("  [PASS] cleared SHT flag reports temperature/humidity as absent")
+
+    # A version-1 node stops at offset 25: every older field still decodes and
+    # the peaks are absent rather than read past the end of the frame.
+    v1 = decode(SAMPLE_FRAME_V1)
+    assert len(SAMPLE_FRAME_V1) == HI_MIN_LEN, len(SAMPLE_FRAME_V1)
+    assert _approx(v1["temp_c"], 34.5), v1
+    assert _approx(v1["accel_rms_mg"], 12.0), v1
+    assert v1["mic_rms_dbfs"] == -42, v1
+    assert "accel_peak_mg" not in v1, v1
+    assert "mic_peak_dbfs" not in v1, v1
+    print("  [PASS] version-1 frame decodes without the appended peaks")
 
     print("All HiveInside nRF54 beacon decode tests passed.")
 
