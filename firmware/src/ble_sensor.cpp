@@ -58,13 +58,13 @@ static constexpr float GRAVITY_MG     = 1000.0f; // ~1 g at rest, removed for AC
 // though both ride the same passive-scan bridge. The HiveInside device runs the
 // vibration and acoustic FFTs on board, so it broadcasts finished RMS + band
 // values (no raw axes). HiveInside is the XIAO nRF54LM20A Sense node, which
-// advertises this exact 26-byte frame CONTINUOUSLY as a beacon (no GATT
+// advertises this exact 29-byte frame CONTINUOUSLY as a beacon (no GATT
 // measurement service — passive scan is the whole ingest). Layout is documented
 // in HiveInside/firmware-nrf54lm20a/src/beacon.c and mirrored here:
 //
 //   off 0..1  : company id (LE)        == HIVEINSIDE_COMPANY_ID
 //   off 2     : magic                   == 0x48 ('H')
-//   off 3     : version                 (currently 0x01)
+//   off 3     : version                 (currently 0x02)
 //   off 4     : flags  bit0 sht bit1 accel bit2 mic bit3 batt
 //   off 5..6  : temperature  int16 LE, 0.1 °C   (valid only if flags bit0 set)
 //   off 7..8  : humidity      uint16 LE, 0.1 %RH (valid only if flags bit0 set)
@@ -80,7 +80,15 @@ static constexpr float GRAVITY_MG     = 1000.0f; // ~1 g at rest, removed for AC
 //   off 23    : mic piping     int8, dBFS   (300–550 Hz)
 //   off 24    : mic stress     int8, dBFS   (550–1500 Hz)
 //   off 25    : mic high       int8, dBFS   (1500–3000 Hz)
+//   off 26..27: accel peak     uint16 LE, 0.1 mg    (frame version 2+)
+//   off 28    : mic peak       int8, dBFS           (frame version 2+)
+//
+// Version 2 appended the two broadband peaks WITHOUT moving any version-1
+// field, so the decode is gated on the received length rather than on the
+// version byte: a 26-byte frame from an older node still decodes in full, and a
+// later version that only appends stays readable here too.
 static constexpr size_t HI_MIN_LEN      = 26;
+static constexpr size_t HI_PEAK_LEN     = 29;   // shortest frame carrying the peaks
 static constexpr uint8_t HI_MAGIC       = 0x48;  // 'H'
 static constexpr size_t HI_OFF_MAGIC    = 2;
 static constexpr size_t HI_OFF_VERSION  = 3;
@@ -107,6 +115,8 @@ static constexpr size_t HI_OFF_MIC_HUM    = 22;
 static constexpr size_t HI_OFF_MIC_PIPING = 23;
 static constexpr size_t HI_OFF_MIC_STRESS = 24;
 static constexpr size_t HI_OFF_MIC_HIGH   = 25;
+static constexpr size_t HI_OFF_ACC_PEAK   = 26;
+static constexpr size_t HI_OFF_MIC_PEAK   = 28;
 static constexpr float HI_ACCEL_SCALE = 0.1f;   // 0.1 mg per LSB
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -159,10 +169,10 @@ struct Parsed {
   int   battery_pct = -1;
   int   battery_mv  = -1;                     // HiveInside raw cell voltage (-1 = absent)
   // HiveInside on-board FFT results.
-  float accel_rms_mg = NAN;
+  float accel_rms_mg = NAN, accel_peak_mg = NAN;
   float accel_band_swarm_mg = NAN, accel_band_fanning_mg = NAN, accel_band_activity_mg = NAN;
   bool  mic_present = false;
-  float mic_rms_dbfs = NAN;
+  float mic_rms_dbfs = NAN, mic_peak_dbfs = NAN;
   float mic_sub_bass_dbfs = NAN, mic_hum_dbfs = NAN, mic_piping_dbfs = NAN,
         mic_stress_dbfs = NAN, mic_high_dbfs = NAN;
 };
@@ -225,11 +235,15 @@ static Parsed parseHiveInside(const uint8_t* d, size_t len) {
     out.battery_pct = d[HI_OFF_BATT_PCT];
     out.battery_mv  = rd_u16(d, HI_OFF_BATT_MV);
   }
+  // Frames older than version 2 stop at offset 25; their peaks stay NAN and are
+  // simply not reported, exactly as if the node had no peak to give.
+  const bool has_peaks = len >= HI_PEAK_LEN;
   if (flags & HI_FLAG_ACCEL) {
     out.accel_rms_mg          = rd_u16(d, HI_OFF_ACC_RMS)      * HI_ACCEL_SCALE;
     out.accel_band_swarm_mg   = rd_u16(d, HI_OFF_ACC_SWARM)    * HI_ACCEL_SCALE;
     out.accel_band_fanning_mg = rd_u16(d, HI_OFF_ACC_FANNING)  * HI_ACCEL_SCALE;
     out.accel_band_activity_mg= rd_u16(d, HI_OFF_ACC_ACTIVITY) * HI_ACCEL_SCALE;
+    if (has_peaks) out.accel_peak_mg = rd_u16(d, HI_OFF_ACC_PEAK) * HI_ACCEL_SCALE;
   }
   if (flags & HI_FLAG_MIC) {
     out.mic_present   = true;
@@ -239,6 +253,7 @@ static Parsed parseHiveInside(const uint8_t* d, size_t len) {
     out.mic_piping_dbfs    = (int8_t)d[HI_OFF_MIC_PIPING];
     out.mic_stress_dbfs    = (int8_t)d[HI_OFF_MIC_STRESS];
     out.mic_high_dbfs      = (int8_t)d[HI_OFF_MIC_HIGH];
+    if (has_peaks) out.mic_peak_dbfs = (int8_t)d[HI_OFF_MIC_PEAK];
   }
   out.ok = true;
   return out;
@@ -369,10 +384,10 @@ struct Accumulator {
   float   ax = NAN, ay = NAN, az = NAN;
   std::vector<float> magnitudes;  // |a| per advertisement (HolyIot AC RMS/peak)
   // HiveInside: latest on-board FFT results (the device already reduced these).
-  float   accel_rms_mg = NAN;
+  float   accel_rms_mg = NAN, accel_peak_mg = NAN;
   float   accel_band_swarm_mg = NAN, accel_band_fanning_mg = NAN, accel_band_activity_mg = NAN;
   bool    mic_present = false;
-  float   mic_rms_dbfs = NAN;
+  float   mic_rms_dbfs = NAN, mic_peak_dbfs = NAN;
   float   mic_sub_bass_dbfs = NAN, mic_hum_dbfs = NAN, mic_piping_dbfs = NAN,
           mic_stress_dbfs = NAN, mic_high_dbfs = NAN;
   // HiveInside identity (from the scan-response record, not the measurement).
@@ -499,11 +514,13 @@ class ScanCallbacks : public NimBLEScanCallbacks {
         a.humidity_pct = p.humidity_pct;
         // Device already ran the FFT — copy its finished values, no magnitudes.
         a.accel_rms_mg          = p.accel_rms_mg;
+        a.accel_peak_mg         = p.accel_peak_mg;
         a.accel_band_swarm_mg   = p.accel_band_swarm_mg;
         a.accel_band_fanning_mg = p.accel_band_fanning_mg;
         a.accel_band_activity_mg= p.accel_band_activity_mg;
         a.mic_present     = p.mic_present;
         a.mic_rms_dbfs    = p.mic_rms_dbfs;
+        a.mic_peak_dbfs   = p.mic_peak_dbfs;
         a.mic_sub_bass_dbfs = p.mic_sub_bass_dbfs;
         a.mic_hum_dbfs    = p.mic_hum_dbfs;
         a.mic_piping_dbfs = p.mic_piping_dbfs;
@@ -589,11 +606,13 @@ static void copyToSnapshot(const Accumulator& a, Snapshot& s) {
     if (a.board.length())      s.board = a.board;
     if (a.fw_version.length()) s.fw_version = a.fw_version;
     s.accel_rms_mg          = a.accel_rms_mg;
+    s.accel_peak_mg         = a.accel_peak_mg;
     s.accel_band_swarm_mg   = a.accel_band_swarm_mg;
     s.accel_band_fanning_mg = a.accel_band_fanning_mg;
     s.accel_band_activity_mg= a.accel_band_activity_mg;
     s.mic_present     = a.mic_present;
     s.mic_rms_dbfs    = a.mic_rms_dbfs;
+    s.mic_peak_dbfs   = a.mic_peak_dbfs;
     s.mic_sub_bass_dbfs = a.mic_sub_bass_dbfs;
     s.mic_hum_dbfs    = a.mic_hum_dbfs;
     s.mic_piping_dbfs = a.mic_piping_dbfs;
@@ -805,6 +824,7 @@ void writeSnapshotToJson(JsonDocument& doc, uint8_t slot, const Snapshot& snap) 
     doc["mic_ok"] = true;
     doc[mp + "ok"] = true;
     if (!isnan(snap.mic_rms_dbfs))     doc[mp + "rms_dbfs"]           = snap.mic_rms_dbfs;
+    if (!isnan(snap.mic_peak_dbfs))    doc[mp + "peak_dbfs"]          = snap.mic_peak_dbfs;
     if (!isnan(snap.mic_sub_bass_dbfs)) doc[mp + "band_sub_bass_dbfs"] = snap.mic_sub_bass_dbfs;
     if (!isnan(snap.mic_hum_dbfs))     doc[mp + "band_hum_dbfs"]      = snap.mic_hum_dbfs;
     if (!isnan(snap.mic_piping_dbfs))  doc[mp + "band_piping_dbfs"]   = snap.mic_piping_dbfs;
@@ -863,6 +883,7 @@ void writeSnapshotToHive(JsonObject hive, const Snapshot& snap) {
     JsonObject mic = hive["mic"].to<JsonObject>();
     mic["ok"] = true;
     if (!isnan(snap.mic_rms_dbfs))      mic["rms_dbfs"]           = snap.mic_rms_dbfs;
+    if (!isnan(snap.mic_peak_dbfs))     mic["peak_dbfs"]          = snap.mic_peak_dbfs;
     if (!isnan(snap.mic_sub_bass_dbfs)) mic["band_sub_bass_dbfs"] = snap.mic_sub_bass_dbfs;
     if (!isnan(snap.mic_hum_dbfs))      mic["band_hum_dbfs"]      = snap.mic_hum_dbfs;
     if (!isnan(snap.mic_piping_dbfs))   mic["band_piping_dbfs"]   = snap.mic_piping_dbfs;

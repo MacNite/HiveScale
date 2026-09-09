@@ -5,7 +5,7 @@ board and broadcasts the finished results, so the HiveHub only has to scan for i
 — no wiring into the hive. It supplies full FFT bands the wired sensors cannot,
 and its temperature/humidity can replace the wired DS18B20/SHT4x for that hive.
 
-HiveInside is the **XIAO nRF54LM20A Sense** node. It emits a 26-byte
+HiveInside is the **XIAO nRF54LM20A Sense** node. It emits a 29-byte
 manufacturer-data frame that a current HiveHub decodes out of the box:
 
 | Board | How it is read | Advertising | OTA image |
@@ -23,9 +23,15 @@ set — a failed on-board sensor is reported as *absent*, never as `0.0`):
 | Group (flags bit) | Fields | HiveHub field |
 |---|---|---|
 | SHT (bit 0) | temperature, humidity | `hive_{n}_temp_c`, `ble_{n}_humidity_percent` |
-| accel (bit 1) | RMS + swarm/fanning/activity bands | `accel_{n}_*` (reused accelerometer fields) |
-| mic (bit 2) | RMS + 5 acoustic bands | `mic_{left,right}_*` (slot 1 → left, 2 → right) |
+| accel (bit 1) | RMS + peak + swarm/fanning/activity bands | `accel_{n}_*` (reused accelerometer fields) |
+| mic (bit 2) | RMS + peak + 5 acoustic bands | `mic_{left,right}_*` (slot 1 → left, 2 → right) |
 | battery (bit 3) | percent, millivolts | `ble_{n}_battery_percent`, `ble_{n}_battery_mv` |
+
+The two broadband **peak** values (`accel_{n}_peak_mg`, `mic_{n}_peak_dbfs`)
+arrived with **frame version 2** — appended after the version-1 fields, none of
+which moved. HiveHub gates on the received frame length rather than the version
+byte, so a node still on version 1 keeps decoding in full and simply reports no
+peaks; the dashboard then falls back to the broadband RMS it always showed.
 
 A [sample frame + reference decoder](../test-data/hiveinside_nrf54_beacon.py)
 lives in `test-data/` (`python3 hiveinside_nrf54_beacon.py`).
@@ -166,7 +172,7 @@ interrupted update where the node still runs the old image.
 
 > **How the board/version are learned.** The nRF54 beacon advertises its board and
 > firmware version in a second manufacturer-data element in its **scan response**
-> (magic `'I'`), distinct from the 26-byte measurement frame (magic `'H'`). The
+> (magic `'I'`), distinct from the 29-byte measurement frame (magic `'H'`). The
 > HiveHub active-scans by default, so both arrive together — no GATT connection is
 > needed to learn them, and the HiveHub forwards the node's `board`/`fw` fields to
 > the backend.
